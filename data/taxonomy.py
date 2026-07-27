@@ -38,6 +38,47 @@ _TAXONOMY_EMBEDDINGS_CACHE = None
 # expose to every system equally, same as the bare label list. If a slug in
 # your local mapping.json isn't covered here, taxonomy_prompt_block() falls
 # back to showing the bare name for it.
+FAULT_GROUPS = {
+    # Application logic (38 cases in the full RCA100 set)
+    "httpError5xx": "Application logic", "rateLimiting": "Application logic",
+    "trafficSurge": "Application logic", "nullPointerException": "Application logic",
+    "trafficHotspot": "Application logic", "loadBalancerFailure": "Application logic",
+    "codeDefect": "Application logic",
+    # JVM runtime (16)
+    "memoryPressure": "JVM runtime", "threadExhaustion": "JVM runtime", "fullGC": "JVM runtime",
+    # Cloud resource (14)
+    "nodeCpuHigh": "Cloud resource", "nodeDown": "Cloud resource", "nodeMemoryOOM": "Cloud resource",
+    # Middleware & DB (13)
+    "slowSQL": "Middleware&DB", "redisUnavailable": "Middleware&DB",
+    "dbNetworkLatency": "Middleware&DB", "messageQueueBacklog": "Middleware&DB",
+    "cacheBreakdown": "Middleware&DB",
+    # K8s lifecycle (12)
+    "replicaScaleDown": "K8s lifecycle", "resourceLimitMisconfig": "K8s lifecycle",
+    "podCrashLoop": "K8s lifecycle", "podPendingUnschedulable": "K8s lifecycle",
+    "podRestartFlapping": "K8s lifecycle", "networkPolicyIsolation": "K8s lifecycle",
+    "dnsResolutionFailure": "K8s lifecycle",
+    # Resource & perf. (10)
+    "cpuFullLoad": "Resource&perf.", "cpuDeadLoop": "Resource&perf.", "diskIOHigh": "Resource&perf.",
+}
+
+
+def fault_group(fault_type: str) -> str:
+    """'F014-httpError5xx' -> 'Application logic'. Robust to missing/unknown
+    prefixes or slugs (returns 'unknown' rather than raising) since this is
+    also used on free-form LLM output, not just clean ground-truth labels."""
+    if not fault_type:
+        return "unknown"
+    slug = fault_type.strip().split("-", 1)[-1] if "-" in fault_type else fault_type.strip()
+    if slug in FAULT_GROUPS:
+        return FAULT_GROUPS[slug]
+    # case-insensitive fallback for free-form LLM casing drift
+    slug_lower = slug.lower()
+    for known_slug, group in FAULT_GROUPS.items():
+        if known_slug.lower() == slug_lower:
+            return group
+    return "unknown"
+
+
 FAULT_DEFINITIONS = {
     "F001-nodeDown": "A Kubernetes node becomes unreachable/down, taking its pods offline.",
     "F002-threadExhaustion": "A service's thread pool is fully saturated, causing requests to queue or be rejected.",
@@ -105,10 +146,8 @@ def taxonomy_prompt_block() -> str:
 
 
 def _get_embedder() -> SentenceTransformer:
-    global _TAXONOMY_EMBEDDER
-    if _TAXONOMY_EMBEDDER is None:
-        _TAXONOMY_EMBEDDER = SentenceTransformer(config.EMBEDDING_MODEL)
-    return _TAXONOMY_EMBEDDER
+    from retrieval.vector import get_embedding_model
+    return get_embedding_model(config.EMBEDDING_MODEL)
 
 
 def _get_taxonomy_embeddings():

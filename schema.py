@@ -83,3 +83,48 @@ class RCAResult:
     evidence_items: List[EvidenceItem] = field(default_factory=list)   # for evaluation.py's
                                                                         # retrieval_precision_recall
                                                                         # and checkpoint scoring
+
+    def summary(self) -> str:
+        """Human-readable view of ONLY what the LLM actually produced
+        (predictions + reasoning + agent findings) plus a few key retrieval
+        stats -- leaves out the full evidence_items dump (often 100+ raw
+        observations, retrieved BEFORE the LLM was ever called, kept on this
+        object for evaluation.py / debugging, not something the LLM wrote).
+
+        Usage: print(result.summary())  -- print(result) still shows
+        everything, unchanged, for when you actually need the raw evidence.
+        """
+        lines = [
+            f"=== RCAResult: {self.case_id} ===",
+            f"predicted_entity_ids : {self.predicted_entity_ids}",
+            f"predicted_fault_type : {self.predicted_fault_type}",
+            f"confidence           : {self.confidence:.2f}",
+            "reasoning_chain:",
+        ]
+        for i, step in enumerate(self.reasoning_chain, 1):
+            lines.append(f"  {i}. {step}")
+
+        lines.append("\nagent_findings:")
+        for f in self.agent_findings:
+            entity = f.entity_id or "(none)"
+            summary_text = f.summary or "(empty)"
+            lines.append(f"  [{f.agent_name}] entity={entity} confidence={f.confidence:.2f}")
+            lines.append(f"    {summary_text}")
+            if f.supporting_evidence:
+                lines.append(f"    evidence: {f.supporting_evidence}")
+
+        stats = self.retrieval_stats
+        if stats:
+            lines.append("\nkey stats:")
+            for k in ("evidence_items_retrieved", "indexed_observations",
+                      "total_calls", "total_tokens", "total_pipeline_time_s",
+                      "used_entity_fallback"):
+                if k in stats:
+                    v = stats[k]
+                    if isinstance(v, float):
+                        v = round(v, 2)
+                    lines.append(f"  {k}: {v}")
+
+        lines.append(f"\n(evidence_items omitted -- {len(self.evidence_items)} raw items "
+                      f"retrieved before the LLM was called; print(result) shows them all)")
+        return "\n".join(lines)

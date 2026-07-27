@@ -42,6 +42,7 @@ from collections import defaultdict
 import os
 import re
 import json
+import time
 import datetime as dt
 from typing import Any, Dict, List, Optional
 
@@ -226,6 +227,31 @@ def build_service_membership_index(topology: nx.DiGraph) -> Dict[str, List[str]]
     return membership
 
 
+def normalize_entity_ids(ids: List[str], topology, name_index: Dict[str, str]) -> List[str]:
+    """LLMs frequently echo back the human-readable name shown in evidence
+    text (e.g. "cart-ddddd7787-dcw5v", a pod name) instead of the internal
+    hash entity_id ("469f8e313055adba13ca3f4e76c65505") that the topology
+    graph and every scoring function (entity_localization_score,
+    retrieval_precision_recall, find_service_ancestor) actually key on.
+    Measured impact: entity_localization scored a hard 0.0 for several
+    otherwise-plausible predictions purely because of this format mismatch.
+
+    For each predicted ID: if it's already a real topology node, keep it
+    unchanged. Otherwise, try resolving it as a name via the same
+    resolve_entity_by_name() used for raw telemetry ingestion. IDs that
+    resolve to nothing (genuinely hallucinated, not just reformatted) are
+    kept as-is so they still show up as a clear miss rather than being
+    silently dropped."""
+    normalized = []
+    for eid in ids:
+        if eid in topology:
+            normalized.append(eid)
+            continue
+        resolved = resolve_entity_by_name(eid, name_index)
+        normalized.append(resolved if resolved else eid)
+    return normalized
+
+
 def resolve_entity_by_name(name: Optional[Any], name_index: Dict[str, str]) -> Optional[str]:
     """Resolves a plain service/pod name (e.g. "checkout") or a composite
     "service::operation" name (e.g. "checkout::PlaceOrder", as used in
@@ -323,19 +349,29 @@ def load_metrics(case_dir: str, name_index: Dict[str, str]) -> List[Observation]
 
 def load_logs(case_dir: str, name_index: Dict[str, str]) -> List[Observation]:
     fp = os.path.join(case_dir, config.FILE_LOGS)
-    df = pd.read_parquet(fp)
+    df = pd.read_parquet(fp, columns=["_container_name_", "_time_", "content"])
+
+    # Vectorized timestamp parsing -- calling pd.to_datetime() once per row
+    # (600k times via _parse_ts_iso) measured at 205s, essentially the
+    # ENTIRE load_logs_s bottleneck (94% of total case-load time). pandas'
+    # per-scalar-call overhead is enormous when not batched; calling it once
+    # on the whole column instead is ~400x faster (0.49s for the same 600k
+    # values). This -- not the earlier to_dict("records") fix -- was the
+    # real cause.
+    timestamps = pd.to_datetime(df["_time_"], utc=True, errors="coerce")
+
     obs = []
-    for r in df.itertuples(index=False):
-        r = r._asdict()
-        service_name = r.get("_container_name_")
+    for service_name, ts, content in zip(df["_container_name_"], timestamps, df["content"]):
         eid = resolve_entity_by_name(service_name, name_index)
-        ts = _parse_ts_iso(r.get("_time_"))
-        content = _first_valid(r.get("content")) or ""
+        ts_py = ts.to_pydatetime() if pd.notna(ts) else None
+        content = _first_valid(content) or ""
         level_match = LOG_LEVEL_RE.search(content)
         level = level_match.group(1) if level_match else ""
         text = f"[log:{level}] {service_name}: {content}"
-        obs.append(Observation(entity_id=eid, timestamp=ts, modality="logs",
-                                text=text, payload=r, source_file=fp))
+        obs.append(Observation(
+            entity_id=eid, timestamp=ts_py, modality="logs", text=text,
+            payload={"_container_name_": service_name, "_time_": ts, "content": content},
+            source_file=fp))
     return obs
 
 
@@ -375,7 +411,12 @@ def load_events(case_dir: str, name_index: Dict[str, str]) -> List[Observation]:
         ts = _parse_ts_iso(k8s_event.get("lastTimestamp") or k8s_event.get("firstTimestamp"))
 
         pod_name = r.get("pod_name")
-        eid = resolve_entity_by_name(pod_name, name_index)
+        hostname = r.get("hostname")
+        # Try pod-level resolution first (more specific), fall back to node
+        # hostname -- this is the only modality that can attribute evidence
+        # to a k8s.node entity, since metrics.parquet's k8s.node rows carry
+        # no entity identity at all (verified empirically).
+        eid = resolve_entity_by_name(pod_name, name_index) or resolve_entity_by_name(hostname, name_index)
         text = f"[event:{r.get('level', '')}] {reason} — {message}"
         obs.append(Observation(entity_id=eid, timestamp=ts, modality="events",
                                 text=text, payload=r, source_file=fp))
@@ -424,12 +465,23 @@ class Case:
             if resolved:
                 self.alert.entry_entity_id = resolved
 
+        # Per-modality timing -- load_time_s was measured at 257s (62% of a
+        # 412s total pipeline run) with zero visibility into WHICH loader is
+        # responsible. Record each one instead of guessing.
+        self.load_times: Dict[str, float] = {}
+
+        def _timed_load(name, fn, *args):
+            t0 = time.time()
+            result = fn(*args)
+            self.load_times[f"load_{name}_s"] = time.time() - t0
+            return result
+
         self.observations: Dict[str, List[Observation]] = {
-            "metrics": load_metrics(self.case_dir, self.name_index),
-            "logs": load_logs(self.case_dir, self.name_index),
-            "traces": load_traces(self.case_dir, self.name_index),
-            "events": load_events(self.case_dir, self.name_index),
-            "alerts": load_alerts(self.case_dir, self.name_index),
+            "metrics": _timed_load("metrics", load_metrics, self.case_dir, self.name_index),
+            "logs": _timed_load("logs", load_logs, self.case_dir, self.name_index),
+            "traces": _timed_load("traces", load_traces, self.case_dir, self.name_index),
+            "events": _timed_load("events", load_events, self.case_dir, self.name_index),
+            "alerts": _timed_load("alerts", load_alerts, self.case_dir, self.name_index),
         }
 
         self._validate_entity_coverage()

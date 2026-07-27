@@ -1,112 +1,115 @@
-# Graph-Augmented Multi-Agent RCA — Local / Kaggle Prototype
+# Graph-Augmented Multi-Agent RCA — Package Layout
 
-Plain `.py` files, no notebook. Import order matters — either paste each
-file's contents into its own Kaggle notebook cell in this order, or on your
-own PC just run the scripts below (Python imports resolve the order for you
-as long as all files sit in the same folder).
+## Folder structure
+
+```
+graphrag_rca/
+├── config.py                  # shared config, all knobs (HYBRID_ALPHA/BETA, hop limits, etc.)
+├── schema.py                  # shared dataclasses (Entity, Observation, RCAResult, ...)
+├── main.py          # CLI entry point for the batch ablation study
+├── smoke_test.py              # stage-by-stage pipeline sanity check
+├── requirements.txt
+│
+├── data/                      # ingestion + domain vocabulary
+│   ├── loader.py              #   (was data_loader.py) Case, parquet loaders, entity resolution
+│   └── taxonomy.py            #   fault-type label vocabulary + shortlist embedding
+│
+├── retrieval/                 # Modules 2–4 of the architecture
+│   ├── graph.py               #   (was graph_retrieval.py) BFS + PPR + cluster expansion
+│   ├── vector.py              #   (was vector_retrieval.py) FAISS index, embedding singleton
+│   └── hybrid.py              #   (was hybrid_retrieval.py) graph+vector score fusion
+│
+├── agents/                    # LLM clients + multi-agent coordination
+│   ├── llm_client.py          #   Ollama-backed client
+│   ├── gemini_client.py       #   Gemini API-backed client (same interface, drop-in swap)
+│   └── multi_agent.py         #   (was agents.py) Metrics/Logs/Trace/Topology/Coordinator agents
+│
+├── pipeline/                  # end-to-end systems being compared
+│   ├── evidence_summarizer.py
+│   ├── pipeline.py            #   (was pipeline.py) GraphRAGPipeline — the proposed_hybrid system
+│   └── baselines.py           #   direct_llm / standard_rag / graphrag_only / multi_agent_only
+│
+├── evaluation/
+│   └── scoring.py             #   (was evaluation.py) ground-truth loading + RCA100 scoring.
+│                               #   Only this module ever reads answer_key/ — deliberate, so no
+│                               #   other module can leak answers into retrieval/reasoning.
+│
+└── scripts/                   # one-off diagnostic tools (not imported by the pipeline itself)
+    ├── debug_retrieval.py     #   per-case retrieval tracer (subgraph membership, rank, overlap)
+    ├── check_values.py        #   raw parquet column VALUES (not just names)
+    ├── check_k8s_domain.py    #   why domain=="k8s" metrics fail to resolve an entity
+    ├── check_metric_field.py  #   where node identity is (or isn't) encoded in metrics
+    ├── check_node_reachability.py  # true shortest-path distance + edge trace
+    └── diagnose_schema.py
+```
+
+Every file under `data/`, `retrieval/`, `agents/`, `pipeline/`, `evaluation/`
+is a real Python package (`__init__.py` present) — import with the full
+path, e.g. `from retrieval.graph import GraphRetriever`,
+`from pipeline.proposed import GraphRAGPipeline`.
+
+`scripts/*.py` are standalone tools, not part of the package graph. Each has
+a small `sys.path` bootstrap at the top so they run correctly regardless of
+your current directory:
+```bash
+python scripts/debug_retrieval.py t003 t005 t006 t007 t008
+```
 
 ## Running locally on your own PC
 
 ```bash
 cd graphrag_rca
 pip install -r requirements.txt
+export HF_HUB_OFFLINE=1                 # skip HF network checks on every run, once the
+                                         # embedding model is already cached locally
 
-export RCA100_ROOT=/path/to/RCA100      # folder containing cases/, answer-key/, manifest.txt
+export RCA100_ROOT=/path/to/RCA100      # folder containing cases/, answer_key/, manifest.txt
 # Windows PowerShell: $env:RCA100_ROOT="C:\path\to\RCA100"
 
-# 1. Start Ollama in a separate terminal first:
+# 1. Start Ollama in a separate terminal first (skip if using GeminiClient instead):
 ollama serve
-ollama pull qwen2.5:7b        # or a smaller model for a first pass, e.g. qwen2.5:3b
+ollama pull qwen2.5:7b
 
 # 2. Validate the pipeline stage by stage BEFORE the full experiment:
 python smoke_test.py                 # stages 1-3: ingestion + retrieval, no LLM needed
 python smoke_test.py --with-llm      # stage 4: one full case through the LLM pipeline
 
 # 3. Only once smoke_test.py passes, run the batch experiment:
-python run_experiment.py --n_cases 5                          # small run first
-python run_experiment.py --n_cases 103                        # full benchmark
-python run_experiment.py --n_cases 10 --systems direct_llm standard_rag   # subset of systems
+python main.py --n_cases 5
+python main.py --n_cases 103
+python main.py --n_cases 10 --systems direct_llm standard_rag
 ```
 
-`run_experiment.py` is a CLI script — `python run_experiment.py --n_cases 10`
-runs all 5 systems (4 baselines + proposed hybrid) on 10 cases and writes
-`graphrag_rca_work/results/results.csv`. You do NOT have to run it against
-all 103 cases or all 5 systems at once — both `--n_cases` and `--systems`
-are there specifically so you can start small.
+## Performance notes (why this used to feel slow)
 
-## Kaggle notebook cell order
-
-Paste each file's contents into its own Kaggle notebook cell **in this order**:
-
-1. `config.py`
-2. `schema.py`
-3. `data_loader.py`
-4. `graph_retrieval.py`
-5. `vector_retrieval.py`
-6. `hybrid_retrieval.py`
-7. `evidence_summarizer.py`
-8. `llm_client.py`
-9. `agents.py`
-10. `pipeline.py`
-11. `evaluation.py`
-12. `baselines.py`
-13. `run_experiment.py` — then call `run_all(n_cases=5)` in a final cell
-
-## Setup cell (before cell 1)
-
-```python
-!pip install -q pandas pyarrow networkx faiss-cpu sentence-transformers langgraph requests
-
-# Local LLM via Ollama
-!curl -fsSL https://ollama.com/install.sh | sh
-import subprocess, time
-subprocess.Popen(["ollama", "serve"])
-time.sleep(5)
-!ollama pull qwen2.5:7b
-```
-
-## First thing to run after pasting config.py + data_loader.py
-
-```python
-inspect_case("t001")
-```
-
-This prints the real key names in `task.json`, `topology.json`, and the
-column names of each parquet file for one case. The loaders in
-`data_loader.py` and `evaluation.py` guess common key names
-(`CANDIDATE_*_KEYS` lists at the top of each file) — if `inspect_case`
-shows different names, edit those lists. That is the only place real-schema
-drift should require a code change.
-
-## Then sanity-check ingestion
-
-```python
-c = Case("t001")
-print(c)
-print(c.alert)
-```
-
-## Then run one full pipeline pass before the batch experiment
-
-```python
-llm = LLMClient()
-pipeline = GraphRAGPipeline(llm=llm)
-result = pipeline.run("t001")
-print(result)
-```
-
-## Then the full ablation study
-
-```python
-df = run_all(n_cases=10)   # raise to 103 for the full benchmark once stable
-```
+- **Embedding model is now a process-wide singleton** (`retrieval/vector.py`
+  -> `get_embedding_model()`). It previously reloaded `SentenceTransformer`
+  from disk on every single `VectorIndex()` call -- i.e. once per case per
+  system, 500+ times across a full `--n_cases 103` run across 5 systems.
+  It now loads exactly once per process. `data/taxonomy.py` shares the same
+  singleton instead of loading a second copy.
+- Set `HF_HUB_OFFLINE=1` (see above) to stop Hugging Face Hub network
+  checks on every run once the model is cached -- this is what caused the
+  `HTTP 504` retry storms you may have seen.
+- `MAX_RESOLVED_PER_MODALITY` in `config.py` caps how many resolved
+  observations get embedded per modality per case, as a hard safety net
+  against OOM on cases with unusually large candidate subgraphs.
+- To use Gemini API instead of local Ollama for the LLM reasoning step
+  (much faster wall-clock per call, at the cost of no longer being fully
+  offline/local): `pip install google-genai`, set `GEMINI_API_KEY`, and
+  swap `LLMClient()` -> `GeminiClient(model_name="gemini-3.1-flash-lite")`
+  in `pipeline/pipeline.py` / `pipeline/baselines.py`. Same interface, zero
+  other code changes needed.
 
 ## Notes
 
-- `answer-key/` (ground truth) is only ever imported by `evaluation.py`.
-  No other module reads it — this is deliberate, so the framework can never
-  leak answers into its own retrieval/reasoning path.
 - `HYBRID_ALPHA` / `HYBRID_BETA` in `config.py` are your RQ2 knob (graph vs.
-  vector weight) — sweep them for the ablation table.
+  vector weight) -- sweep them for the ablation table.
+- `GRAPH_HOP_LIMIT` / `INFRA_SEARCH_HOP_CAP` in `config.py` control the
+  two-phase graph retrieval (Phase A: shallow service-neighborhood BFS;
+  Phase B: targeted infra-layer search for `k8s.node`/`k8s.cluster`
+  root causes) -- see the Findings section of the paper for why this is
+  two separate parameters rather than one blanket radius.
 - Swap LLMs by changing `config.LLM_MODEL_NAME` only (`qwen2.5:7b`,
-  `deepseek-r1`, `llama3`, `gemma2`, ...).
+  `deepseek-r1`, `llama3`, `gemma2`, ...), or swap the client class
+  entirely for `GeminiClient` (see above).

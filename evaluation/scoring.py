@@ -47,7 +47,8 @@ import networkx as nx
 
 import config
 from schema import RCAResult, EvidenceItem
-from data_loader import resolve_entity_by_name, find_service_ancestor
+from data.loader import resolve_entity_by_name, find_service_ancestor
+from data.taxonomy import fault_group
 
 _MAPPING_CACHE: Optional[Dict[str, Any]] = None
 
@@ -145,16 +146,31 @@ def entity_localization_score(predicted_ids: List[str], gt: GroundTruth,
                                topology: nx.DiGraph) -> float:
     """Exact match = 1.0; partial credit for topologically adjacent entities;
     0 otherwise. Falls back to name-based comparison if target_entity_ids
-    couldn't be resolved (no name_index was passed to load_ground_truth)."""
+    couldn't be resolved (no name_index was passed to load_ground_truth).
+
+    Rolls up both predicted and target entity IDs to their apm.service
+    ancestor before comparing (in addition to keeping the raw/unrolled
+    comparison too, since exact-match at fine granularity is still the best
+    possible signal when it happens). Without this, a prediction at
+    instance/operation granularity that is structurally correct (e.g. the
+    LLM names checkout's specific apm.operation node while ground truth
+    names the checkout *service*) scores a hard 0.0 purely from ID-format
+    mismatch, identical to the retrieval_precision_recall bug found
+    earlier -- this function needed the same fix, separately."""
     targets = gt.target_entity_ids or [te.get("entity_name") for te in gt.target_entity_names]
     if not predicted_ids or not targets:
         return 0.0
 
+    def _rollup(eid: str) -> str:
+        return find_service_ancestor(eid, topology) or eid
+
     undirected = topology.to_undirected(as_view=True)
     best = 0.0
     for pred in predicted_ids:
+        pred_rolled = _rollup(pred)
         for target in targets:
-            if pred == target:
+            target_rolled = _rollup(target)
+            if pred == target or pred_rolled == target_rolled:
                 best = max(best, 1.0)
                 continue
             if pred in undirected and target in undirected:
@@ -174,6 +190,18 @@ def fault_identification_score(predicted_fault_type: str, gt: GroundTruth) -> fl
     truth = gt.fault_type.strip().lower()
     truth_slug = truth.split("-")[-1] if "-" in truth else truth
     return 1.0 if (pred == truth or pred == truth_slug or truth_slug in pred) else 0.0
+
+
+def fault_group_score(predicted_fault_type: str, gt: GroundTruth) -> float:
+    """Coarser companion to fault_identification_score: 1.0 if the predicted
+    and ground-truth fault types fall in the same one of 6 groups (see
+    data/taxonomy.FAULT_GROUPS), even if the specific 28-way type is wrong.
+    Useful when a model can reliably tell 'this is a resource problem' but
+    not reliably distinguish nodeCpuHigh from cpuFullLoad -- a real,
+    reportable capability distinct from exact-type accuracy."""
+    pred_group = fault_group(predicted_fault_type)
+    gt_group = fault_group(gt.fault_type)
+    return 1.0 if (pred_group != "unknown" and pred_group == gt_group) else 0.0
 
 
 def _chain_overlap_score(pred_chain: List[str], gt_chain: List[str]) -> float:
@@ -243,7 +271,12 @@ def retrieval_precision_recall(evidence_items: List[EvidenceItem], gt: GroundTru
     topology is given) before matching, since telemetry is often tagged at
     instance/pod/operation granularity while ground truth target_entity_ids
     are service-level. Without this rollup, correctly-retrieved evidence for
-    the right service can silently score as a miss."""
+    the right service can silently score as a miss.
+
+    Ground-truth entities are rolled up the same way before comparison --
+    a k8s.node-type target with a valid apm.service ancestor was previously
+    compared in its raw (unrolled) form against rolled-up retrieved
+    entities, which under-counted matches asymmetrically."""
     retrieved_entities = set()
     for it in evidence_items:
         eid = it.observation.entity_id
@@ -254,6 +287,8 @@ def retrieval_precision_recall(evidence_items: List[EvidenceItem], gt: GroundTru
         retrieved_entities.add(eid)
 
     gt_entities = set(gt.target_entity_ids) or {te.get("entity_name") for te in gt.target_entity_names}
+    if topology is not None:
+        gt_entities = {find_service_ancestor(e, topology) or e for e in gt_entities}
 
     if not retrieved_entities:
         return {"retrieval_precision": 0.0, "retrieval_recall": 0.0}
@@ -287,6 +322,16 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     if evidence_items is not None:
         report.update(retrieval_precision_recall(evidence_items, gt, topology))
     report["explainability"] = explainability_proxy(result)
-    report.update({k: v for k, v in result.retrieval_stats.items()
-                   if k in ("total_pipeline_time_s", "total_calls", "total_tokens", "used_entity_fallback")})
+    report.update(result.retrieval_stats)
+    # Raw predictions alongside the scores -- without this, diagnosing WHY a
+    # score is low/zero means re-running the case with a separate debug
+    # script just to see what the LLM actually said. Kept as compact
+    # strings (not lists) so they stay single CSV cells.
+    report["predicted_fault_type"] = result.predicted_fault_type
+    report["gt_fault_type"] = gt.fault_type
+    report["fault_group_identification"] = fault_group_score(result.predicted_fault_type, gt)
+    report["predicted_fault_group"] = fault_group(result.predicted_fault_type)
+    report["gt_fault_group"] = fault_group(gt.fault_type)
+    report["predicted_entity_ids"] = "|".join(result.predicted_entity_ids)
+    report["gt_target_entity_ids"] = "|".join(gt.target_entity_ids)
     return report

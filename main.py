@@ -15,24 +15,35 @@ import traceback
 import pandas as pd
 
 import config
-from data_loader import list_case_ids
-from llm_client import LLMClient
-from pipeline import GraphRAGPipeline
-from baselines import BASELINE_REGISTRY
-from evaluation import load_ground_truth, full_case_report
-from data_loader import Case
+from config.args import build_parser, apply_overrides, print_effective_config
+from data.loader import list_case_ids
+from agents.factory import get_llm_client
+from pipeline.pipeline import GraphRAGPipeline
+from pipeline.baselines import BASELINE_REGISTRY
+from evaluation.scoring import load_ground_truth, full_case_report
+from data.loader import Case
 
 
-def run_all(n_cases: int = 10, systems=None, save_path=None):
+def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None, save_path=None):
     """
     n_cases: how many cases from manifest.txt to evaluate (start small on
              Kaggle CPU/GPU time limits, e.g. 5-10, before a full 103-case run).
+    start_case: 0-based offset into manifest.txt before taking n_cases --
+             e.g. start_case=16, n_cases=4 covers cases 17-20 (1-indexed as
+             people usually mean it). Ignored if case_ids is given.
+    case_ids: explicit list of case IDs (e.g. ["t017", "t018"]) -- overrides
+             n_cases/start_case entirely when provided.
     systems: list of system names to run; defaults to all 5.
     """
     systems = systems or ["direct_llm", "standard_rag", "graphrag_only",
                             "multi_agent_only", "proposed_hybrid"]
-    case_ids = list_case_ids()[:n_cases]
-    llm = LLMClient()
+    if case_ids:
+        case_ids = list(case_ids)
+    else:
+        all_ids = list_case_ids()
+        case_ids = all_ids[start_case:start_case + n_cases]
+    print(f"Running cases: {case_ids}")
+    llm = get_llm_client()
     hybrid_pipeline = GraphRAGPipeline(llm=llm)
 
     rows = []
@@ -78,6 +89,16 @@ def run_all(n_cases: int = 10, systems=None, save_path=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_cases", type=int, default=10)
+    parser.add_argument("--start_case", type=int, default=0,
+                         help="0-based offset into manifest.txt. E.g. --start_case 16 "
+                              "--n_cases 4 covers the 17th-20th cases in manifest.txt.")
+    parser.add_argument("--case_ids", nargs="+", default=None,
+                         help="Explicit case IDs, e.g. --case_ids t017 t018 t019 t020. "
+                              "Overrides --start_case/--n_cases if given.")
     parser.add_argument("--systems", nargs="+", default=None)
+    parser = build_parser(parser)   # adds --embedding-backend, --llm-backend, etc.
     args = parser.parse_args()
-    run_all(n_cases=args.n_cases, systems=args.systems)
+    apply_overrides(args)           # mutates config.* in place before anything reads it
+    print_effective_config()
+    run_all(n_cases=args.n_cases, start_case=args.start_case,
+            case_ids=args.case_ids, systems=args.systems)

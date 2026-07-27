@@ -8,6 +8,10 @@ Usage:
     python diagnose_schema.py --case_id t001
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 import argparse
 import json
 import os

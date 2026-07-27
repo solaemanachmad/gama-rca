@@ -19,16 +19,16 @@ import time
 from typing import Dict, List
 
 import config
-from data_loader import Case
-from graph_retrieval import GraphRetriever
-from vector_retrieval import build_case_index, build_index_from_observations
-from hybrid_retrieval import fuse_scores
-from evidence_summarizer import summarize_evidence, render_summary_text
-from agents import build_agent_graph, build_agent_findings_list
-from llm_client import LLMClient
+from data.loader import Case, normalize_entity_ids
+from retrieval.graph import GraphRetriever
+from retrieval.vector import build_case_index, build_index_from_observations
+from retrieval.hybrid import fuse_scores
+from pipeline.evidence_summarizer import summarize_evidence, render_summary_text
+from agents.multi_agent import build_agent_graph, build_agent_findings_list
+from agents.llm_client import LLMClient
 from schema import RCAResult
-from pipeline import parse_alert
-from taxonomy import fault_shortlist_prompt_block, taxonomy_prompt_block
+from pipeline.pipeline import parse_alert
+from data.taxonomy import fault_shortlist_prompt_block, taxonomy_prompt_block
 
 DIRECT_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis from an alert alone, with "
@@ -45,7 +45,7 @@ def direct_llm(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR) 
     prompt = f"Alert: {case.alert.alert_text}\n\n{taxonomy_prompt_block()}\n\nDiagnose the root cause."
     result = llm.generate_json(prompt, system=DIRECT_SYSTEM_PROMPT)
     stats = {"total_pipeline_time_s": time.time() - t0, **llm.usage_stats()}
-    return _to_rca_result(case_id, result, stats)
+    return _to_rca_result(case_id, result, stats, topology=case.topology, name_index=case.name_index)
 
 
 RAG_SYSTEM_PROMPT = (
@@ -76,14 +76,14 @@ def standard_rag(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR
     vector_index = build_index_from_observations(observations)
     hits = vector_index.search(parsed["alert_text"], top_k=config.VECTOR_TOP_K)
     evidence_items = fuse_scores(graph_scores={}, vector_hits=hits, alpha=0.0, beta=1.0)
-    summary = summarize_evidence(evidence_items)
+    summary = summarize_evidence(evidence_items, alert_timestamp=case.alert.alert_timestamp)
     summary_text = render_summary_text(summary)
 
     prompt = f"Alert: {parsed['alert_text']}\n\nRetrieved evidence:\n{summary_text}\n\n{fault_shortlist_prompt_block(summary_text)}\n\nDiagnose the root cause."
     result = llm.generate_json(prompt, system=RAG_SYSTEM_PROMPT)
     stats = {"total_pipeline_time_s": time.time() - t0, "evidence_items_retrieved": len(evidence_items),
               **llm.usage_stats()}
-    return _to_rca_result(case_id, result, stats, evidence_items=evidence_items)
+    return _to_rca_result(case_id, result, stats, evidence_items=evidence_items, topology=case.topology, name_index=case.name_index)
 
 
 GRAPHRAG_SYSTEM_PROMPT = (
@@ -103,12 +103,21 @@ def graphrag_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DI
 
     graph_retriever = GraphRetriever(case.topology)
     graph_result = graph_retriever.retrieve(parsed["entry_entity_id"])
-    ranked = graph_result["ranked_entities"]
+    # Cap at top-20: ranked_entities now returns the FULL scored list (can be
+    # 65-200+ entities after graph_retrieval.py stopped truncating to
+    # PPR_TOP_K=15 -- that fix was for the real pipeline's evidence-selection
+    # stage, not for dumping raw into an LLM prompt here). A 7B local model
+    # fed a 100+-tuple wall of text reliably breaks JSON output entirely
+    # (empty reasoning_chain, "unknown" fault type) -- this baseline is
+    # deliberately meant to give a SHORT structural signal, not the whole
+    # scored graph.
+    ranked = graph_result["ranked_entities"][:20]
+    ranked_text = "\n".join(f"  {eid}: score={score:.4f}" for eid, score in ranked)
 
     prompt = (
         f"Alert: {parsed['alert_text']}\n"
         f"Entry entity: {parsed['entry_entity_id']}\n"
-        f"Topology-ranked candidate entities (entity_id, propagation_score): {ranked}\n\n"
+        f"Top-20 topology-ranked candidate entities (entity_id: propagation_score):\n{ranked_text}\n\n"
         f"{taxonomy_prompt_block()}\n\n"
         f"Diagnose the root cause using only this structural information."
     )
@@ -116,7 +125,7 @@ def graphrag_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DI
     stats = {"total_pipeline_time_s": time.time() - t0,
               "candidate_subgraph_size": graph_result["subgraph"].number_of_nodes(),
               **llm.usage_stats()}
-    return _to_rca_result(case_id, result, stats)
+    return _to_rca_result(case_id, result, stats, topology=case.topology, name_index=case.name_index)
 
 
 def multi_agent_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR,
@@ -150,7 +159,7 @@ def multi_agent_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES
     fake_items = [type("Item", (), {
         "observation": o, "graph_score": 0.0, "vector_score": 0.0, "hybrid_score": 0.0
     })() for o in sampled]
-    summary = summarize_evidence(fake_items)
+    summary = summarize_evidence(fake_items, alert_timestamp=case.alert.alert_timestamp)
 
     agent_graph = build_agent_graph(llm)
     state = {
@@ -165,9 +174,10 @@ def multi_agent_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES
     findings = build_agent_findings_list(final_state)
 
     stats = {"total_pipeline_time_s": time.time() - t0, **llm.usage_stats()}
+    predicted_entity_ids = normalize_entity_ids(final.get("predicted_entity_ids", []), case.topology, case.name_index)
     return RCAResult(
         case_id=case_id,
-        predicted_entity_ids=final.get("predicted_entity_ids", []),
+        predicted_entity_ids=predicted_entity_ids,
         predicted_fault_type=final.get("predicted_fault_type", "unknown"),
         reasoning_chain=final.get("reasoning_chain", []),
         confidence=float(final.get("confidence", 0.0) or 0.0),
@@ -177,10 +187,14 @@ def multi_agent_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES
     )
 
 
-def _to_rca_result(case_id: str, raw: dict, stats: dict, evidence_items=None) -> RCAResult:
+def _to_rca_result(case_id: str, raw: dict, stats: dict, evidence_items=None,
+                    topology=None, name_index=None) -> RCAResult:
+    predicted_entity_ids = raw.get("predicted_entity_ids", []) or []
+    if topology is not None and name_index is not None:
+        predicted_entity_ids = normalize_entity_ids(predicted_entity_ids, topology, name_index)
     return RCAResult(
         case_id=case_id,
-        predicted_entity_ids=raw.get("predicted_entity_ids", []) or [],
+        predicted_entity_ids=predicted_entity_ids,
         predicted_fault_type=raw.get("predicted_fault_type", "unknown"),
         reasoning_chain=raw.get("reasoning_chain", []) or [],
         confidence=float(raw.get("confidence", 0.0) or 0.0),

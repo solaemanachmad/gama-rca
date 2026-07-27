@@ -11,6 +11,17 @@ edit when moving between environments (Kaggle -> local -> server).
 
 import os
 
+# Load .env (if present) so HF_TOKEN, GEMINI_API_KEY, RCA100_ROOT, etc. don't
+# need to be manually exported every terminal session. Requires:
+#   pip install python-dotenv --break-system-packages
+# Falls back silently to plain os.environ if python-dotenv isn't installed
+# or no .env file exists -- so this is safe even without either.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # ---------------------------------------------------------------------------
 # Paths — EDIT THIS for your machine, or set the RCA100_ROOT env var instead
 # of editing the file (e.g. `export RCA100_ROOT=/home/you/data/RCA100`).
@@ -48,7 +59,18 @@ FILE_ALERTS = "alerts.parquet"
 # ---------------------------------------------------------------------------
 # Retrieval settings
 # ---------------------------------------------------------------------------
-GRAPH_HOP_LIMIT = 3                # BFS radius around alert entity (3, not 2: apm.operation-level
+GRAPH_HOP_LIMIT = 3                # Phase A: shallow service-neighborhood BFS radius.
+                                    # Kept small on purpose -- Phase B (INFRA_SEARCH_HOP_CAP
+                                    # below) handles reaching node-level entities via a
+                                    # targeted search instead of raising this blanket radius,
+                                    # which was tried (hop_limit=6) and made subgraphs balloon
+                                    # to near-whole-topology size (145-232 nodes), causing an
+                                    # OOM crash when embedding the resulting observation set.
+INFRA_SEARCH_HOP_CAP = 6           # Phase B: max service-hops to search (scratch space, not
+                                    # added to subgraph wholesale) for the nearest apm.instance
+                                    # entry point into the infra layer (instance/pod/node/
+                                    # cluster). Measured 3-4 hops needed in practice; 6 gives
+                                    # headroom without the Phase-A blast-radius cost.
                                     # alerts may need operation->instance->service->caller, i.e. 3 hops,
                                     # to reach a root cause in another service like payment)
 PPR_ALPHA = 0.85                   # Personalized PageRank damping factor
@@ -75,6 +97,15 @@ TIME_WINDOW_MINUTES = 15           # +/- window around alert timestamp for slici
 # ---------------------------------------------------------------------------
 DEV_QUICK_TEST = True
 DEV_MAX_UNRESOLVED_PER_MODALITY = 300   # only used when DEV_QUICK_TEST is True
+MAX_RESOLVED_PER_MODALITY = 5000        # hard safety cap, always applied (not just
+                                         # DEV_QUICK_TEST): even resolved observations
+                                         # within the candidate subgraph are capped
+                                         # before embedding, so a large subgraph can
+                                         # never again feed an unbounded row count into
+                                         # sentence-transformers and OOM like it did
+                                         # when GRAPH_HOP_LIMIT=6 produced 145-232 node
+                                         # subgraphs. Prioritizes rows nearest the alert
+                                         # window if truncation is needed.
  
 # ---------------------------------------------------------------------------
 # LLM settings (local inference via Ollama; swappable)

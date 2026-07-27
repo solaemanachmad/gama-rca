@@ -15,11 +15,11 @@ import json
 
 from langgraph.graph import StateGraph, END
 
-from taxonomy import fault_shortlist_prompt_block
+from data.taxonomy import taxonomy_prompt_block
 
 import config
 from schema import AgentFinding, RCAResult
-from llm_client import LLMClient
+from agents.llm_client import LLMClient
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +31,15 @@ class AgentState(TypedDict, total=False):
     evidence_summary: Dict[str, List[str]]     # {entity_id: [bullets]}
     graph_neighbors: Dict[str, List[str]]       # {"upstream": [...], "downstream": [...]}
     candidate_entities: List[str]               # ranked by graph score
+    graph_anchor: Optional[dict]                 # cheap structural prior (Stage 0.5,
+                                                   # see pipeline.py's _compute_graph_anchor)
+                                                   # {"anchor_entity_ids", "anchor_fault_type",
+                                                   #  "anchor_confidence"}
+    propagation_path: Optional[List[str]]          # graph-derived hop-by-hop path from the
+                                                   # alert entry entity to graph_anchor's top
+                                                   # candidate (see pipeline.py's
+                                                   # compute_propagation_path) -- factually
+                                                   # grounded, not LLM-invented
     metrics_finding: Optional[dict]
     logs_finding: Optional[dict]
     trace_finding: Optional[dict]
@@ -99,12 +108,24 @@ def _filter_summary_text(evidence_summary: Dict[str, List[str]],
 def topology_agent_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
         neighbors = state.get("graph_neighbors", {})
+        path = state.get("propagation_path")
+        path_block = ""
+        if path:
+            path_block = (
+                f"\nComputed propagation path in the topology graph, from the alerted "
+                f"entity to the top structurally-ranked candidate root cause "
+                f"(this is a REAL path from the graph, not a guess):\n"
+                f"  {' -> '.join(path)}\n"
+                f"Use this path as your primary reasoning basis -- confirm it fits the "
+                f"evidence, or explain specifically why it doesn't.\n"
+            )
         prompt = (
             f"Alert: {state['alert_text']}\n\n"
             f"Upstream (callers) of the alerted entity: {neighbors.get('upstream', [])}\n"
             f"Downstream (dependencies): {neighbors.get('downstream', [])}\n"
             f"Ranked candidate entities by graph propagation score: "
-            f"{state.get('candidate_entities', [])}\n\n"
+            f"{state.get('candidate_entities', [])}\n"
+            f"{path_block}\n"
             f"Task: reason about the most plausible fault-propagation path "
             f"(which entity is the likely origin vs. which are downstream victims).\n"
             f"Respond as JSON: {FINDING_SCHEMA_HINT}"
@@ -139,15 +160,55 @@ def coordinator_node(llm: LLMClient):
             "topology_agent": state.get("topology_finding"),
         }, indent=2)
 
-        evidence_text = "\n".join(
-            f"{eid}: {'; '.join(bullets)}"
-            for eid, bullets in state.get("evidence_summary", {}).items()
-        )
-        fault_hint = fault_shortlist_prompt_block(evidence_text, top_k=5)
+        # Full taxonomy list, not a narrowed embedding-similarity shortlist --
+        # 15-case evaluation showed the shortlist mechanism (raw evidence
+        # text vs abstract fault definitions via generic MiniLM similarity)
+        # correlated with fault_identification scoring ~5x worse than
+        # direct_llm/graphrag_only, which both use this same full list.
+        # The likely mechanism: the correct fault type gets excluded from
+        # the top-5 shortlist before the LLM ever gets to reason about it.
+        fault_hint = taxonomy_prompt_block()
+
+        # Structural prior from Stage 0.5 (see pipeline.py's
+        # _compute_graph_anchor). A 4-case spot check showed a topology-only
+        # single-call guess (graphrag_only-style) scoring ~2x higher on both
+        # entity_localization and fault_identification than the full
+        # multi-agent Coordinator -- likely because a small local LLM
+        # reasons more reliably over a short, structured signal than a large
+        # multi-agent-findings-plus-evidence prompt. Handing that prior to
+        # the Coordinator as something to confirm-or-override (rather than
+        # re-deriving from scratch) is meant to recover that accuracy while
+        # keeping the Coordinator's richer reasoning_chain. Absent for
+        # multi_agent_only, which doesn't run graph retrieval at all.
+        anchor = state.get("graph_anchor") or {}
+        if anchor.get("anchor_entity_ids") or anchor.get("anchor_fault_type"):
+            anchor_block = (
+                f"\nSTRUCTURAL PRIOR (fast topology-only first pass, before detailed "
+                f"evidence was considered):\n"
+                f"  candidate entity: {anchor.get('anchor_entity_ids')}\n"
+                f"  candidate fault type: {anchor.get('anchor_fault_type')}\n"
+                f"This prior is often right (topology structure alone is a strong signal for "
+                f"this benchmark) -- CONFIRM it unless the specialist findings below clearly "
+                f"contradict it. If you override it, say why in your reasoning_chain.\n"
+            )
+        else:
+            anchor_block = ""
+
+        path = state.get("propagation_path")
+        path_block = ""
+        if path:
+            path_block = (
+                f"\nGRAPH-COMPUTED PROPAGATION PATH (real path in the topology, from the "
+                f"alerted/impacted entity to the structural candidate cause -- use this as "
+                f"the basis for your 'propagation' reasoning_chain step instead of "
+                f"inventing one):\n  {' -> '.join(path)}\n"
+            )
 
         prompt = (
             f"Alert: {state['alert_text']}\n\n"
-            f"Specialist agent findings:\n{findings_block}\n\n"
+            f"Specialist agent findings:\n{findings_block}\n"
+            f"{anchor_block}"
+            f"{path_block}\n"
             f"{fault_hint}\n\n"
             f"Task: synthesize a final root-cause diagnosis with an explicit "
             f"cause -> propagation -> impact reasoning chain.\n"
@@ -166,9 +227,9 @@ def build_agent_graph(llm: Optional[LLMClient] = None) -> StateGraph:
     llm = llm or LLMClient()
 
     graph = StateGraph(AgentState)
-    graph.add_node("metrics_agent", _make_agent_node("metrics_agent", "metric", llm))
-    graph.add_node("logs_agent", _make_agent_node("logs_agent", "log", llm))
-    graph.add_node("trace_agent", _make_agent_node("trace_agent", "span", llm))
+    graph.add_node("metrics_agent", _make_agent_node("metrics", "metric", llm))
+    graph.add_node("logs_agent", _make_agent_node("logs", "log", llm))
+    graph.add_node("trace_agent", _make_agent_node("trace", "span", llm))
     graph.add_node("topology_agent", topology_agent_node(llm))
     graph.add_node("coordinator", coordinator_node(llm))
 

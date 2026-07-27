@@ -1,1 +1,8 @@
 RCA100/
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+graphrag_rca_work/vector_index/embedding_cache.pkl

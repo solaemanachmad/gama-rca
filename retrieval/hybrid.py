@@ -18,7 +18,7 @@ lower-ranked but retrievable item.
 """
 
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 import config
 from schema import EvidenceItem, Observation
 
@@ -72,18 +72,43 @@ class HybridRetriever:
 
 
 def _index_by_entity(observations_by_modality: Dict[str, List[Observation]]) -> Dict[str, List[Observation]]:
-    index = defaultdict(list)
-    for obs_list in observations_by_modality.values():
+    """Groups observations by entity_id, ROUND-ROBIN across modalities
+    rather than concatenated in modality-insertion order. Without this,
+    graph_direct_evidence's max_per_entity cap always exhausts on whichever
+    modality has the most raw volume per entity -- metrics, inserted first
+    into case.observations and typically hundreds of readings per entity,
+    vs. a handful of trace spans or events. Measured effect: traces/events/
+    alerts evidence was reaching 0 items in graph_direct_evidence's output
+    for every case inspected, regardless of actual relevance, purely
+    because they never got a turn before the max_per_entity=6 cutoff hit."""
+    by_entity_and_modality: Dict[str, Dict[str, List[Observation]]] = defaultdict(lambda: defaultdict(list))
+    for modality, obs_list in observations_by_modality.items():
         for o in obs_list:
             if o.entity_id:
-                index[o.entity_id].append(o)
+                by_entity_and_modality[o.entity_id][modality].append(o)
+
+    index: Dict[str, List[Observation]] = {}
+    for entity_id, per_modality in by_entity_and_modality.items():
+        interleaved = []
+        queues = list(per_modality.values())
+        i = 0
+        while queues:
+            queue = queues[i % len(queues)]
+            if queue:
+                interleaved.append(queue.pop(0))
+            if not queue:
+                queues.pop(i % len(queues))
+            else:
+                i += 1
+        index[entity_id] = interleaved
     return index
 
 
 def graph_direct_evidence(observations_by_modality: Dict[str, List[Observation]],
                            graph_scores: Dict[str, float],
                            top_n_entities: int = 10, max_per_entity: int = 6,
-                           service_membership: Optional[Dict[str, List[str]]] = None) -> List[EvidenceItem]:
+                           service_membership: Optional[Dict[str, List[str]]] = None,
+                           force_include: Optional[Iterable[str]] = None) -> List[EvidenceItem]:
     """Guarantees representation for the top-N graph-central entities even if
     their observations never surface in the vector search's top-k semantic
     hits. This matters specifically for a root cause 2-3 hops upstream of the
@@ -94,6 +119,14 @@ def graph_direct_evidence(observations_by_modality: Dict[str, List[Observation]]
     via similarity — they're included for structural relevance), so their
     hybrid_score is purely `HYBRID_ALPHA * graph_score`.
 
+    force_include: entities that bypass the top_n_entities ranking cutoff
+    entirely (e.g. k8s.node siblings pulled in via graph_retrieval's
+    cluster-hub expansion). PPR inherently dilutes far-flung leaf nodes'
+    scores the more siblings share a hub, so ranking them fairly against
+    service-graph-central nodes is the wrong test for their relevance —
+    their relevance comes from type-matching (same-cluster node, equally
+    plausible root cause), not from competing on propagation score.
+
     IMPORTANT: raw telemetry is tagged at instance/operation/pod granularity,
     almost never at the service-level entity ID itself. If a service ranks
     highly by graph score but service_membership isn't provided, looking up
@@ -103,6 +136,12 @@ def graph_direct_evidence(observations_by_modality: Dict[str, List[Observation]]
     children, where the telemetry really lives."""
     entity_index = _index_by_entity(observations_by_modality)
     top_entities = sorted(graph_scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n_entities]
+
+    top_entity_ids = {eid for eid, _ in top_entities}
+    for eid in (force_include or []):
+        if eid not in top_entity_ids:
+            top_entities.append((eid, graph_scores.get(eid, 0.0)))
+            top_entity_ids.add(eid)
 
     items = []
     for entity_id, gscore in top_entities:

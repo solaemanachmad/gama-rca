@@ -19,12 +19,12 @@ import argparse
 import sys
 
 import config
-from data_loader import inspect_case, Case, list_case_ids
-from graph_retrieval import GraphRetriever
-from vector_retrieval import build_case_index
-from hybrid_retrieval import HybridRetriever
-from evidence_summarizer import summarize_evidence, render_summary_text
-from pipeline import parse_alert
+from data.loader import inspect_case, Case, list_case_ids
+from retrieval.graph import GraphRetriever
+from retrieval.vector import build_case_index
+from retrieval.hybrid import HybridRetriever
+from pipeline.evidence_summarizer import summarize_evidence, render_summary_text
+from pipeline.pipeline import parse_alert
 
 
 def stage_1_inspect(case_id: str):
@@ -70,22 +70,28 @@ def stage_3_retrieval(case: Case):
 
 
 def stage_4_full_pipeline(case_id: str):
-    print(f"\n[Stage 4] full LLM pipeline on {case_id!r} (requires `ollama serve` running)")
-    from llm_client import LLMClient
-    from pipeline import GraphRAGPipeline
+    print(f"\n[Stage 4] full LLM pipeline on {case_id!r} "
+          f"(backend={config.LLM_BACKEND!r}; needs `ollama serve` running if backend='ollama')")
+    from agents.factory import get_llm_client
+    from pipeline.pipeline import GraphRAGPipeline
 
-    llm = LLMClient()
+    llm = get_llm_client()
     pipeline = GraphRAGPipeline(llm=llm)
     result = pipeline.run(case_id)
-    print(result)
+    print(result.summary())
     return result
 
 
 if __name__ == "__main__":
+    from config.args import build_parser, apply_overrides, print_effective_config
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--case_id", default=None, help="defaults to the first case in manifest.txt")
-    parser.add_argument("--with-llm", action="store_true", help="also run stage 4 (needs Ollama)")
+    parser.add_argument("--with-llm", action="store_true", help="also run stage 4 (needs Ollama/Gemini)")
+    parser = build_parser(parser)
     args = parser.parse_args()
+    apply_overrides(args)
+    print_effective_config()
 
     try:
         case_id = args.case_id or list_case_ids()[0]
