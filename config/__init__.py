@@ -110,6 +110,15 @@ EMBEDDING_CACHE_ENABLED = os.environ.get("EMBEDDING_CACHE_ENABLED", "1") != "0"
 HYBRID_ALPHA = 0.5
 
 TEMPORAL_BOOST_ENABLED = os.environ.get("TEMPORAL_BOOST_ENABLED", "1") != "0"
+USE_LLM_GRAPH_ANCHOR = os.environ.get("USE_LLM_GRAPH_ANCHOR", "1") == "1"
+USE_LLM_SPECIALIST_AGENTS = os.environ.get("USE_LLM_SPECIALIST_AGENTS", "1") == "1"
+                                      # Exploratory ablation: set either to "0" to replace that
+                                      # component's LLM call with a rule-based/structural
+                                      # alternative. The Coordinator ALWAYS stays LLM-based
+                                      # (it's the one component whose job -- synthesizing a
+                                      # coherent narrative -- genuinely benefits from natural
+                                      # language generation). Default "1" (LLM) preserves the
+                                      # validated Pass 2 configuration.
                                     # Pre-processing (not just display): boosts graph_scores for
                                     # entities whose earliest evidence precedes the alert
                                     # (candidate causes) and discounts entities whose evidence
@@ -160,6 +169,26 @@ KAGGLE_MODEL_HANDLE = os.environ.get("KAGGLE_MODEL_HANDLE",
                                       # architecture support -- `pip install -U transformers`
                                       # if you hit "KeyError: 'gemma4_unified'".
 KAGGLE_MODEL_LOCAL_PATH = os.environ.get("KAGGLE_MODEL_LOCAL_PATH", None)
+
+# --- Optional: SEPARATE model for the Coordinator only -----------------------
+# Everything else (specialist agents, Graph Anchor) keeps using
+# KAGGLE_MODEL_HANDLE/KAGGLE_MODEL_LOCAL_PATH above. Motivated by a real
+# finding: fault_group_identification was 0.531 on cases where the trained
+# classifier's confidence was low (<0.4, Coordinator deciding mostly on its
+# own) vs 0.662 when confidence was high (classifier providing a strong
+# hint) -- suggesting the Coordinator's own unaided judgment, not the rest
+# of the pipeline, is the main remaining bottleneck. Leave unset (None) to
+# use the SAME model everywhere (the validated, default configuration) --
+# only set this for a deliberate, clearly-labeled ablation comparing a
+# stronger Coordinator against the baseline Coordinator, not as a silent
+# swap that would invalidate comparability with the baseline systems.
+COORDINATOR_MODEL_HANDLE = os.environ.get("COORDINATOR_MODEL_HANDLE", None)
+COORDINATOR_MODEL_LOCAL_PATH = os.environ.get("COORDINATOR_MODEL_LOCAL_PATH", None)
+COORDINATOR_USE_4BIT = os.environ.get("COORDINATOR_USE_4BIT", "0") == "1"
+                                      # bitsandbytes 4-bit quantization, NOT GPTQ (which hit an
+                                      # unresolved optimum/auto-gptq compatibility bug this
+                                      # session) -- lets a larger Coordinator-only model (e.g.
+                                      # Qwen2.5-32B-Instruct) fit in Kaggle's GPU memory.
                                       # PREFERRED on Kaggle: if set, points directly at a model
                                       # already mounted via the notebook's Add Input > Models
                                       # panel (e.g. "/kaggle/input/models/google/gemma-4/

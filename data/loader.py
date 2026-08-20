@@ -47,6 +47,14 @@ import datetime as dt
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import warnings
+
+# Harmless: converting pandas Timestamps (nanosecond precision) to Python
+# datetime objects (microsecond precision only) truncates any nanosecond
+# remainder. Microsecond precision is more than sufficient for our use
+# (relative evidence ordering, temporal boost) -- this warning was purely
+# cosmetic noise flooding multi-hour run logs.
+warnings.filterwarnings("ignore", message="Discarding nonzero nanoseconds in conversion")
 import networkx as nx
 
 import config
@@ -304,19 +312,35 @@ def load_alert_context(case_dir: str, case_id: str) -> AlertContext:
     entity_name = entity.get("entity_name")
     entity_type = entity.get("entity_type")
 
+    # Parsed once, reused for both entity extraction (fallback) and
+    # alert_time extraction below -- avoids searching prompt_text twice for
+    # the same tag.
+    tag_attrs = {}
+    m = ALERT_EVENT_TAG_RE.search(raw.get("prompt_text", ""))
+    if m:
+        tag_attrs = dict(ATTR_RE.findall(m.group(1)))
+
     if entity_id is None:
         # fall back to the embedded <alert_event .../> tag inside prompt_text
-        m = ALERT_EVENT_TAG_RE.search(raw.get("prompt_text", ""))
-        if m:
-            attrs = dict(ATTR_RE.findall(m.group(1)))
-            entity_id = attrs.get("entity_id")
-            entity_name = attrs.get("entity_name")
-            entity_type = attrs.get("entity_type")
+        entity_id = tag_attrs.get("entity_id")
+        entity_name = tag_attrs.get("entity_name")
+        entity_type = tag_attrs.get("entity_type")
 
     ts = None
-    window = raw.get("alert_window") or {}
-    if window.get("start"):
-        ts = _parse_ts_iso(window["start"])
+    if tag_attrs.get("alert_time"):
+        ts = _parse_ts_iso(tag_attrs["alert_time"])
+    if ts is None:
+        # Fallback: alert_window.start. Note this is NOT the same moment as
+        # the actual alert trigger -- inspection of a real case showed
+        # window.start corresponds to the fault INJECTION time (~3 min
+        # before the true trigger embedded in prompt_text's alert_time
+        # attribute), with the ground truth's own earliest observable cause
+        # signal falling BETWEEN the two. Prefer the tag's alert_time above
+        # whenever available; this fallback only fires when no
+        # <alert_event> tag was found in prompt_text at all.
+        window = raw.get("alert_window") or {}
+        if window.get("start"):
+            ts = _parse_ts_iso(window["start"])
 
     return AlertContext(
         case_id=case_id,

@@ -6,3 +6,4 @@ sentence-transformers
 langgraph
 requests
 python-dotenv
+wandb

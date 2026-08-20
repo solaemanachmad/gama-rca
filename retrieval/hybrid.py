@@ -89,6 +89,21 @@ def _index_by_entity(observations_by_modality: Dict[str, List[Observation]]) -> 
 
     index: Dict[str, List[Observation]] = {}
     for entity_id, per_modality in by_entity_and_modality.items():
+        # Within each entity+modality queue, prioritize anomalous
+        # observations FIRST (stable sort -- otherwise-equal items keep
+        # their original chronological order). Without this, a single
+        # diagnostically-critical ERROR span/log line competes on equal
+        # footing against routine OK-status observations for the same
+        # entity's max_per_entity cap downstream in graph_direct_evidence,
+        # and can lose purely due to FIFO ordering -- found via real-data
+        # inspection: a trace span carrying a full Redis-connection stack
+        # trace (exception.stacktrace showing ValkeyCartStore) was present
+        # in raw data but had no priority signal keeping it from being
+        # crowded out by ordinary spans for the same entity.
+        for modality in per_modality:
+            per_modality[modality] = sorted(
+                per_modality[modality], key=lambda o: not _is_anomalous(o))
+
         interleaved = []
         queues = list(per_modality.values())
         i = 0
@@ -102,6 +117,21 @@ def _index_by_entity(observations_by_modality: Dict[str, List[Observation]]) -> 
                 i += 1
         index[entity_id] = interleaved
     return index
+
+
+def _is_anomalous(o: Observation) -> bool:
+    """Cheap, text-based anomaly check used to prioritize evidence within
+    _index_by_entity() -- ERROR-status trace spans (status=ERROR, per the
+    text format load_traces() produces) and ERROR/WARN-level log lines.
+    Deliberately simple/conservative (string checks on the already-built
+    evidence text) rather than re-parsing raw payloads here, since this
+    runs on every observation during index construction and needs to stay
+    cheap."""
+    if o.modality == "traces":
+        return "status=ERROR" in o.text
+    if o.modality == "logs":
+        return "[log:ERROR]" in o.text or "[log:WARN]" in o.text
+    return False
 
 
 def graph_direct_evidence(observations_by_modality: Dict[str, List[Observation]],

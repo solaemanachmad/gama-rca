@@ -113,16 +113,41 @@ def apply_overrides(args: argparse.Namespace) -> None:
         config.MAX_RESOLVED_PER_MODALITY = args.max_resolved_per_modality
 
 
+EFFECTIVE_CONFIG_KEYS = [
+    "EMBEDDING_BACKEND", "LLM_BACKEND", "LLM_MODEL_NAME", "GEMINI_MODEL_NAME",
+    "KAGGLE_MODEL_HANDLE", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "HYBRID_ALPHA",
+    "HYBRID_BETA", "VECTOR_TOP_K", "DEV_QUICK_TEST", "MAX_OBSERVATIONS_PER_INDEX",
+    "MAX_RESOLVED_PER_MODALITY", "TEMPORAL_BOOST_ENABLED",
+]
+
+
+def get_effective_config() -> dict:
+    """Same fields as print_effective_config(), but as a dict -- reused for
+    wandb.init(config=...) so a run's hyperparameters are traceable in the
+    W&B dashboard, not just in console output."""
+    import config
+    return {k: getattr(config, k, None) for k in EFFECTIVE_CONFIG_KEYS}
+
+
 def print_effective_config() -> None:
     """Prints the config values that actually matter for reproducing a run
     -- handy to log at the start of run_experiment.py so results.csv runs
-    are traceable back to the settings that produced them."""
+    are traceable back to the settings that produced them.
+
+    Backend-aware: only shows the model setting for whichever LLM_BACKEND
+    is actually active, not all three possible backends' model names at
+    once (confusing -- e.g. showing GEMINI_MODEL_NAME while running on
+    ollama). get_effective_config() (used for W&B logging) stays complete/
+    unfiltered, since a full record is useful there for reproducibility;
+    this is just the human-readable console summary."""
     import config
-    keys = ["EMBEDDING_BACKEND", "LLM_BACKEND", "LLM_MODEL_NAME", "GEMINI_MODEL_NAME",
-            "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "HYBRID_ALPHA", "HYBRID_BETA",
-            "VECTOR_TOP_K", "DEV_QUICK_TEST", "MAX_OBSERVATIONS_PER_INDEX",
-            "MAX_RESOLVED_PER_MODALITY"]
+    cfg = get_effective_config()
+    backend = cfg.get("LLM_BACKEND")
+    active_model_key = {"ollama": "LLM_MODEL_NAME", "gemini": "GEMINI_MODEL_NAME",
+                         "kaggle": "KAGGLE_MODEL_HANDLE"}.get(backend)
     print("=== Effective config for this run ===")
-    for k in keys:
-        print(f"  {k} = {getattr(config, k)}")
+    for k, v in cfg.items():
+        if k in ("LLM_MODEL_NAME", "GEMINI_MODEL_NAME", "KAGGLE_MODEL_HANDLE") and k != active_model_key:
+            continue  # skip inactive backends' model settings
+        print(f"  {k} = {v}")
     print()

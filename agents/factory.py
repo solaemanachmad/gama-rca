@@ -21,3 +21,22 @@ def get_llm_client():
         return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE)
     from agents.llm_client import LLMClient
     return LLMClient()
+
+
+def get_coordinator_llm_client():
+    """Returns a SEPARATE client for just the Coordinator, only if
+    COORDINATOR_MODEL_HANDLE or COORDINATOR_MODEL_LOCAL_PATH is explicitly
+    set. Returns None otherwise -- callers should fall back to the same
+    client used everywhere else (the validated default configuration).
+    Only meaningful with LLM_BACKEND=kaggle; the other backends don't
+    support per-role model overrides."""
+    if config.LLM_BACKEND != "kaggle":
+        return None
+    if not config.COORDINATOR_MODEL_HANDLE and not config.COORDINATOR_MODEL_LOCAL_PATH:
+        return None
+    from agents.kaggle_client import KaggleTransformersClient
+    return KaggleTransformersClient(
+        model_handle=config.COORDINATOR_MODEL_HANDLE,
+        local_path=config.COORDINATOR_MODEL_LOCAL_PATH,
+        use_4bit=config.COORDINATOR_USE_4BIT,
+    )

@@ -21,6 +21,7 @@ a fair ablation comparison.
 
 import json
 import os
+import re
 from typing import List, Tuple
 
 import numpy as np
@@ -79,6 +80,122 @@ def fault_group(fault_type: str) -> str:
     return "unknown"
 
 
+FAULT_TYPE_KEYWORDS = {
+    # Cloud resource / K8s lifecycle -- infra-level keywords
+    "nodeDown": ["nodenotready", "node not ready", "node down", "unreachable"],
+    "nodeCpuHigh": ["node cpu", "nodecpuhigh", "cpu utilization"],
+    "nodeMemoryOOM": ["oomkilled", "oom-kill", "out of memory", "node memory"],
+    "podCrashLoop": ["crashloopbackoff", "crash loop", "restart"],
+    "podPendingUnschedulable": ["pending", "unschedulable", "insufficient", "taint", "affinity"],
+    "podRestartFlapping": ["liveness probe", "restart", "flapping"],
+    "resourceLimitMisconfig": ["resource limit", "throttl", "evict", "requests/limits"],
+    "replicaScaleDown": ["scale down", "replica", "scaledown", "autoscaler"],
+    "networkPolicyIsolation": ["networkpolicy", "network policy", "blocked", "isolation"],
+    "dnsResolutionFailure": ["dns", "resolution failed", "name resolution", "nxdomain"],
+    "diskIOHigh": ["disk io", "disk i/o", "iowait", "disk saturat"],
+    # Middleware & DB -- redisUnavailable vs cacheBreakdown are frequently
+    # confused (observed: t002/t010 both defaulted to cacheBreakdown when GT
+    # was redisUnavailable). Added literal Java Redis-client exception class
+    # names and connection-level error strings -- these DO appear verbatim
+    # in stack-trace log lines, unlike generic phrases like "cache miss"
+    # which are rarely written verbatim by real client libraries.
+    "redisUnavailable": ["redis", "valkey", "connection refused", "cache unreachable",
+                          "jedisconnectionexception", "redisconnectionexception",
+                          "lettuce", "econnrefused", "no route to host",
+                          "timeout connecting", "redistimeoutexception"],
+    "slowSQL": ["slow query", "sql", "query time", "database query", "query timeout",
+                "sqltimeoutexception", "lock wait timeout"],
+    "dbNetworkLatency": ["db network", "database latency", "connection timeout",
+                          "sqlnontransientconnectionexception", "communications link failure"],
+    "messageQueueBacklog": ["queue backlog", "message queue", "kafka", "rabbitmq",
+                             "consumer lag", "queue full", "producer blocked"],
+    "cacheBreakdown": ["cache miss", "cache breakdown", "cache bypass",
+                        "cache penetration", "null cached value"],
+    # JVM runtime -- memoryPressure/threadExhaustion/fullGC are frequently
+    # confused (observed: t009 defaulted to fullGC when GT was
+    # memoryPressure). Added the literal Java exception/log strings each
+    # condition actually produces, which are far more distinctive than the
+    # generic phrases alone.
+    "memoryPressure": ["memory pressure", "heap", "memory limit", "eviction risk",
+                        "outofmemoryerror", "java.lang.outofmemoryerror", "heap space",
+                        "gc overhead limit exceeded"],
+    "threadExhaustion": ["thread pool", "thread exhaustion", "threads exhausted",
+                          "queue rejected", "rejectedexecutionexception",
+                          "threadpoolexecutor", "maximum pool size reached",
+                          "too many open files"],
+    "fullGC": ["full gc", "garbage collection", "gc pause", "stop-the-world",
+               "allocation failure", "g1gc", "cms gc", "pause young"],
+    # Resource & perf.
+    "cpuFullLoad": ["cpu full", "cpu 100%", "cpu pegged", "high cpu"],
+    "cpuDeadLoop": ["infinite loop", "dead loop", "busy loop", "cpu pinned"],
+    # Application logic -- trafficSurge is the group's persistent default
+    # guess; the other types here got a few more distinctive literal terms
+    # to compete against it (e.g. specific Java exception class names for
+    # nullPointerException/codeDefect, which are far more identifiable than
+    # the generic "exception"/"bug" terms alone).
+    "httpError5xx": ["500", "502", "503", "504", "5xx", "internal server error", "bad gateway"],
+    "rateLimiting": ["rate limit", "429", "throttled", "too many requests",
+                      "quota exceeded", "requests per second exceeded"],
+    "trafficSurge": ["traffic surge", "spike", "sudden increase", "surge"],
+    "nullPointerException": ["nullpointerexception", "null pointer", "nil dereference", "npe",
+                              "java.lang.nullpointerexception"],
+    "trafficHotspot": ["hotspot", "uneven", "disproportionate", "shard imbalance"],
+    "loadBalancerFailure": ["load balancer", "lb ", "misrouted", "traffic distribution"],
+    "codeDefect": ["exception", "stack trace", "bug", "incorrect behavior",
+                    "illegalstateexception", "illegalargumentexception", "classcastexception"],
+}
+
+
+def detect_fault_keywords(text_blob: str) -> List[str]:
+    """Scans a blob of evidence text (case-insensitive) for fault-type
+    keywords and returns the matching fault-type slugs, ordered by number
+    of keyword hits (most-supported first). Deterministic, not
+    embedding-similarity-based -- this is what the earlier shortlist
+    mechanism (fault_shortlist_prompt_block, removed after it correlated
+    with worse fault_identification) tried to do via semantic similarity
+    and got wrong; literal keyword matching against each type's own
+    definition terms is far more precise for domain-specific vocabulary
+    (e.g. "valkey", "OOMKilled") that generic sentence embeddings don't
+    reliably associate with the right fault category.
+
+    Uses \\b word-boundary matching, NOT naive substring counting -- short/
+    numeric keywords like "500", "502", "429" were matching as substrings
+    inside unrelated larger numbers (e.g. "500" inside "15000.0", extremely
+    common given how much raw metric text this scans), causing
+    httpError5xx/rateLimiting/resourceLimitMisconfig to spuriously "detect"
+    on nearly every case regardless of actual evidence content. \\b500\\b
+    does not match inside "15000" since digits are contiguous word
+    characters with no boundary between them."""
+    if not text_blob:
+        return []
+    text_lower = text_blob.lower()
+    hits = []
+    for slug, keywords in FAULT_TYPE_KEYWORDS.items():
+        count = 0
+        for kw in keywords:
+            if kw.isdigit():
+                # Numeric keywords (HTTP codes like "500", "429") need a
+                # stricter boundary than plain \b: "." is a non-word
+                # character, so \b500\b still matches inside "0.500" (a
+                # latency value). Exclude adjacency to digits AND decimal
+                # points, AND exclude when followed by a percent sign --
+                # RCA100's alert template text uses "500%" as a boilerplate
+                # significance threshold ("同比增加 500 %触发紧急告警" =
+                # "increased 500% YoY, triggering emergency alert") in
+                # nearly EVERY alert regardless of actual fault type. This
+                # was the dominant real-world source of httpError5xx false
+                # "detections" -- confirmed via scripts/debug_keyword_match.py
+                # showing the literal alert text triggering the match.
+                pattern = r"(?<![\d.])" + re.escape(kw) + r"(?![\d.])(?!\s*%)"
+            else:
+                pattern = r"\b" + re.escape(kw) + r"\b"
+            count += len(re.findall(pattern, text_lower))
+        if count > 0:
+            hits.append((slug, count))
+    hits.sort(key=lambda x: x[1], reverse=True)
+    return [slug for slug, _ in hits]
+
+
 FAULT_DEFINITIONS = {
     "F001-nodeDown": "A Kubernetes node becomes unreachable/down, taking its pods offline.",
     "F002-threadExhaustion": "A service's thread pool is fully saturated, causing requests to queue or be rejected.",
@@ -130,6 +247,27 @@ def build_fault_taxonomy() -> List[str]:
 
     _TAXONOMY_CACHE = sorted(slugs)
     return _TAXONOMY_CACHE
+
+
+def taxonomy_prompt_block_for_group(group_name: str) -> str:
+    """Same as taxonomy_prompt_block(), but filtered to only the fault
+    types belonging to `group_name` (see FAULT_GROUPS). Used for the
+    two-stage classifier-narrowed Coordinator prompt: the classifier
+    predicts the group (0.66-0.68 LOOCV accuracy, stable across runs where
+    the LLM's own end-to-end accuracy varied 0.39-0.44), then the
+    Coordinator only has to pick among that group's 3-7 types instead of
+    all 28. Falls back to the full list if the group has no matching types
+    (shouldn't happen for a real FAULT_GROUPS value, but safe regardless)."""
+    taxonomy = build_fault_taxonomy()
+    matching = [t for t in taxonomy if fault_group(t) == group_name]
+    if not matching:
+        return taxonomy_prompt_block()
+    lines = []
+    for t in matching:
+        definition = FAULT_DEFINITIONS.get(t)
+        lines.append(f"- {t}: {definition}" if definition else f"- {t}")
+    return (f"Valid fault types for the predicted '{group_name}' category "
+            f"(prefer one of these, verbatim):\n" + "\n".join(lines))
 
 
 def taxonomy_prompt_block() -> str:

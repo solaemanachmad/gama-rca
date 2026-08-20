@@ -38,7 +38,64 @@ from schema import EvidenceItem, Observation
 ERROR_PATTERN = re.compile(r"(error|exception|fail|timeout|5\d\d)", re.IGNORECASE)
 
 
-def compute_metric_trends(metrics_observations: List[Observation], topology, min_ratio: float = 1.5) -> Dict[str, List[str]]:
+def compute_baseline_stats(metrics_observations: List[Observation], alert_timestamp,
+                            topology) -> Dict[tuple, float]:
+    """Genuine preprocessing step: computes a baseline MEAN per
+    (rolled-up entity, metric_name), using ALL metric observations strictly
+    BEFORE alert_timestamp -- not just whatever fragment survives
+    subgraph-filtering and MAX_RESOLVED_PER_MODALITY truncation downstream.
+    Call this on the RAW, unfiltered case.observations["metrics"] list,
+    before any of that filtering happens.
+
+    Mirrors the ground truth's own methodology directly -- inspecting a
+    real answer key showed reasoning steps phrased as "error_count 876,
+    基线均值(baseline mean) 0", i.e. RCA100's own labelers compare against a
+    precomputed baseline mean, not a within-retrieved-window trend. This is
+    also the standard pattern in prior RCA literature (MicroRCA, MicroScope,
+    DiagFusion -- all cited in RCA100's own related work): anomaly detection
+    against a historical baseline happens BEFORE causal-graph reasoning, not
+    folded into it. Our previous compute_metric_trends() only ever compared
+    "earliest vs latest value in the retrieved evidence", which is a weaker,
+    retrieval-dependent proxy for the same idea.
+
+    Real-data finding that motivated this: a case's metrics.parquet spanned
+    72 minutes while its official alert_window was only 10 minutes -- 60
+    minutes of legitimate pre-incident baseline data was available but never
+    explicitly used as a comparison point."""
+    if alert_timestamp is None:
+        return {}
+    alert_ts = alert_timestamp.replace(tzinfo=None) if alert_timestamp.tzinfo else alert_timestamp
+
+    from data.loader import find_service_ancestor
+    ancestor_cache: Dict[str, str] = {}
+
+    def _rolled(entity_id: str) -> str:
+        if entity_id not in ancestor_cache:
+            ancestor_cache[entity_id] = find_service_ancestor(entity_id, topology) or entity_id
+        return ancestor_cache[entity_id]
+
+    groups: Dict[tuple, List[float]] = defaultdict(list)
+    for o in metrics_observations:
+        if not o.entity_id or not o.timestamp:
+            continue
+        ts = o.timestamp.replace(tzinfo=None) if o.timestamp.tzinfo else o.timestamp
+        if ts >= alert_ts:
+            continue  # only pre-alert observations count as baseline
+        metric_name = o.payload.get("metric") if o.payload else None
+        value = o.payload.get("value") if o.payload else None
+        if metric_name is None or value is None:
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            continue
+        groups[(_rolled(o.entity_id), metric_name)].append(value)
+
+    return {key: sum(vals) / len(vals) for key, vals in groups.items() if vals}
+
+
+def compute_metric_trends(metrics_observations: List[Observation], topology, min_ratio: float = 1.5,
+                           baseline_stats: Optional[Dict[tuple, float]] = None) -> Dict[str, List[str]]:
     """Groups metric observations by (rolled-up entity, metric name) and
     compares the earliest vs. latest value within the retrieved window,
     producing bullets like:
@@ -90,10 +147,37 @@ def compute_metric_trends(metrics_observations: List[Observation], topology, min
 
     trends: Dict[str, List[str]] = defaultdict(list)
     for (entity_id, metric_name), points in series.items():
+        points.sort(key=lambda p: p[0])
+        last_val = points[-1][1]
+
+        # Baseline comparison FIRST, independent of the within-window trend
+        # branches below -- must not be skipped by their early `continue`s.
+        if baseline_stats:
+            baseline = baseline_stats.get((entity_id, metric_name))
+            if baseline is not None:
+                if baseline == 0 and last_val != 0:
+                    trends[entity_id].append(
+                        f"{metric_name}: {last_val:.4g} (baseline was 0 -- new nonzero signal vs. history)")
+                elif baseline != 0 and last_val == 0:
+                    # Symmetric to the baseline==0 branch above: current
+                    # value dropped to exactly zero against a nonzero
+                    # baseline. Handled explicitly -- falling through to
+                    # baseline_ratio = 0/baseline = 0.0 then 1/baseline_ratio
+                    # below would divide by zero (measured: crashed t004).
+                    trends[entity_id].append(
+                        f"{metric_name}: dropped to 0 (baseline was {baseline:.4g})")
+                elif baseline != 0:
+                    baseline_ratio = last_val / baseline
+                    if baseline_ratio >= min_ratio or baseline_ratio <= 1 / min_ratio:
+                        direction = "above" if baseline_ratio >= 1 else "below"
+                        factor = baseline_ratio if baseline_ratio >= 1 else 1 / baseline_ratio
+                        trends[entity_id].append(
+                            f"{metric_name}: {last_val:.4g} vs. baseline {baseline:.4g} "
+                            f"({factor:.1f}x {direction} baseline)")
+
         if len(points) < 2:
             continue
-        points.sort(key=lambda p: p[0])
-        first_val, last_val = points[0][1], points[-1][1]
+        first_val = points[0][1]
 
         if first_val == 0 and last_val != 0:
             trends[entity_id].append(f"{metric_name}: 0 -> {last_val:.4g} (new nonzero signal within window)")

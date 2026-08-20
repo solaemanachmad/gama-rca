@@ -28,7 +28,7 @@ from agents.multi_agent import build_agent_graph, build_agent_findings_list
 from agents.llm_client import LLMClient
 from schema import RCAResult
 from pipeline.pipeline import parse_alert
-from data.taxonomy import fault_shortlist_prompt_block, taxonomy_prompt_block
+from data.taxonomy import taxonomy_prompt_block
 
 DIRECT_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis from an alert alone, with "
@@ -79,7 +79,7 @@ def standard_rag(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR
     summary = summarize_evidence(evidence_items, alert_timestamp=case.alert.alert_timestamp)
     summary_text = render_summary_text(summary)
 
-    prompt = f"Alert: {parsed['alert_text']}\n\nRetrieved evidence:\n{summary_text}\n\n{fault_shortlist_prompt_block(summary_text)}\n\nDiagnose the root cause."
+    prompt = f"Alert: {parsed['alert_text']}\n\nRetrieved evidence:\n{summary_text}\n\n{taxonomy_prompt_block()}\n\nDiagnose the root cause."
     result = llm.generate_json(prompt, system=RAG_SYSTEM_PROMPT)
     stats = {"total_pipeline_time_s": time.time() - t0, "evidence_items_retrieved": len(evidence_items),
               **llm.usage_stats()}

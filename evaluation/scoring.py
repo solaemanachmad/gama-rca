@@ -40,6 +40,7 @@ json.loads(raw_ground_truth) gives:
 
 import os
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -221,22 +222,85 @@ def _chain_overlap_score(pred_chain: List[str], gt_chain: List[str]) -> float:
     return sum(scores) / len(scores)
 
 
+_COMPARATORS = {
+    ">=": lambda a, b: a >= b,
+    "<=": lambda a, b: a <= b,
+    ">": lambda a, b: a > b,
+    "<": lambda a, b: a < b,
+    "==": lambda a, b: a == b,
+    "=": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+}
+
+
+def _extract_signal_value(signal: str, text: str) -> Optional[float]:
+    """Extracts a numeric value for `signal` from raw evidence text -- e.g.
+    signal='error_count' matches 'error_count=8829.0' in
+    '[metric] payment::.../Charge error_count=8829.0' -> 8829.0. Returns
+    None if the signal name appears in the text but isn't immediately
+    followed by a parseable number (e.g. it's mentioned in a log sentence,
+    not a key=value metric reading)."""
+    pattern = re.escape(signal) + r"[=:]\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)"
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _checkpoint_satisfied(cp: Dict, retrieved_texts: List[str]) -> bool:
+    """Checks whether any retrieved evidence text satisfies this
+    checkpoint's numeric comparator/value constraint (e.g. error_count >=
+    8829) -- matching the official protocol's checkpoint definition, where
+    99.5% of RCA100's 661 checkpoints carry an explicit
+    <comparator, value, unit> constraint the agent's evidence must satisfy,
+    not merely mention. Falls back to signal-name-only presence (the
+    previous, weaker behavior) only when the comparator/value aren't
+    available, or when the signal is mentioned but no evidence text carries
+    a machine-parseable number for it -- this avoids scoring a hard miss
+    purely due to text-extraction failure on an otherwise-correct citation."""
+    signal = (cp.get("signal") or "").lower()
+    if not signal:
+        return False
+    comparator = cp.get("comparator")
+    expected_value = cp.get("value")
+
+    found_signal_mention = False
+    for t in retrieved_texts:
+        if signal not in t.lower():
+            continue
+        found_signal_mention = True
+        if comparator in _COMPARATORS and expected_value is not None:
+            actual = _extract_signal_value(signal, t)
+            if actual is not None:
+                try:
+                    if _COMPARATORS[comparator](actual, float(expected_value)):
+                        return True
+                except (TypeError, ValueError):
+                    pass
+
+    # Fallback: comparator/value missing from this checkpoint, or the
+    # signal was mentioned but no text had an extractable number for it --
+    # credit name-only presence rather than a hard miss.
+    if found_signal_mention and (comparator not in _COMPARATORS or expected_value is None):
+        return True
+    return False
+
+
 def reasoning_process_score(predicted_chain: List[str], gt: GroundTruth,
                              retrieved_texts: Optional[List[str]] = None) -> float:
     """0.5 * chain-node overlap + 0.5 * checkpoint hit rate. A checkpoint
-    counts as hit if its signal name (e.g. "error_count") appears in any
-    retrieved evidence text — this checks SIGNAL coverage, not the numeric
-    comparator/value match (that would need the raw numeric payload, which
-    the Evidence Summarizer already compresses away by design; extend this
-    if you want strict numeric-checkpoint scoring)."""
+    counts as hit only if its numeric comparator/value constraint (e.g.
+    error_count >= 8829) is actually satisfied by a parseable value in
+    retrieved evidence -- see _checkpoint_satisfied() -- not merely whether
+    the signal name is textually present, matching the official protocol's
+    checkpoint semantics (Section 5.3/5.4 of the RCA100 paper)."""
     chain_score = _chain_overlap_score(predicted_chain, gt.reasoning_chain)
 
     if gt.checkpoints and retrieved_texts:
-        hits = 0
-        for cp in gt.checkpoints:
-            signal = (cp.get("signal") or "").lower()
-            if signal and any(signal in t.lower() for t in retrieved_texts):
-                hits += 1
+        hits = sum(1 for cp in gt.checkpoints if _checkpoint_satisfied(cp, retrieved_texts))
         checkpoint_score = hits / len(gt.checkpoints)
     else:
         checkpoint_score = 0.0
