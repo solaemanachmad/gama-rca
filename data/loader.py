@@ -249,9 +249,23 @@ def normalize_entity_ids(ids: List[str], topology, name_index: Dict[str, str]) -
     resolve_entity_by_name() used for raw telemetry ingestion. IDs that
     resolve to nothing (genuinely hallucinated, not just reformatted) are
     kept as-is so they still show up as a clear miss rather than being
-    silently dropped."""
+    silently dropped.
+
+    Defensively coerces a non-hashable entry (e.g. a dict, if the LLM emits
+    a structured object like {"entity_id": "...", "name": "..."} instead of
+    a plain string -- same failure class as _stringify_chain_step in
+    evaluation/scoring.py) to a string first: `eid in topology` raises
+    TypeError on an unhashable dict rather than just failing to match, which
+    would otherwise crash entity normalization entirely instead of scoring
+    that one prediction as a miss."""
     normalized = []
     for eid in ids:
+        if not isinstance(eid, str):
+            if isinstance(eid, dict):
+                eid = (eid.get("entity_id") or eid.get("id") or eid.get("name")
+                       or next((str(v) for v in eid.values() if v), ""))
+            else:
+                eid = str(eid)
         if eid in topology:
             normalized.append(eid)
             continue

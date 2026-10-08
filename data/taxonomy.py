@@ -9,14 +9,12 @@ Without a label set, LLMs guess free-form fault names (e.g. "E_ACCESS_DENIED")
 that never match RCA100's actual slugs (e.g. "F014-httpError5xx"), so
 fault_identification_score is ~always 0 regardless of reasoning quality.
 
-This is fixable WITHOUT touching per-case ground truth: answer_key/mapping.json
-already contains task_to_case_id for all 103 cases, and each case_id is
-prefixed with its fault-type slug (e.g. "F014-httpError5xx.tbdh9alum...").
-Extracting the DISTINCT set of these prefixes gives you the closed label
-vocabulary — this is dataset-level schema metadata (equivalent to telling a
-classifier its label space up front), not the answer for any specific case,
-so it's safe to expose to every system (baselines AND proposed) equally for
-a fair ablation comparison.
+The closed label vocabulary (the paper's 28 root-cause types) is written out
+statically in FAULT_TYPE_LABELS below. It used to be derived at run time from
+answer_key/mapping.json; since the answer-key README forbids answer_key content
+in the agent's context, the agent-facing code no longer reads that folder at
+all (2026-10-08). The label list is dataset-level schema metadata, equal for
+every system (baselines AND proposed).
 """
 
 import json
@@ -32,6 +30,11 @@ import config
 _TAXONOMY_CACHE: List[str] = None
 _TAXONOMY_EMBEDDER = None
 _TAXONOMY_EMBEDDINGS_CACHE = None
+
+_CJK_RE = re.compile(r"[一-鿿]")   # used by detect_fault_keywords() below to
+                                            # route Chinese keywords to substring
+                                            # matching instead of \b word-boundary
+                                            # matching (see that function's docstring)
 
 # Generic, dataset-independent one-line definitions derived purely from the
 # slug names themselves (standard SRE/K8s domain knowledge) — NOT derived
@@ -82,17 +85,42 @@ def fault_group(fault_type: str) -> str:
 
 FAULT_TYPE_KEYWORDS = {
     # Cloud resource / K8s lifecycle -- infra-level keywords
-    "nodeDown": ["nodenotready", "node not ready", "node down", "unreachable"],
-    "nodeCpuHigh": ["node cpu", "nodecpuhigh", "cpu utilization"],
-    "nodeMemoryOOM": ["oomkilled", "oom-kill", "out of memory", "node memory"],
-    "podCrashLoop": ["crashloopbackoff", "crash loop", "restart"],
-    "podPendingUnschedulable": ["pending", "unschedulable", "insufficient", "taint", "affinity"],
-    "podRestartFlapping": ["liveness probe", "restart", "flapping"],
-    "resourceLimitMisconfig": ["resource limit", "throttl", "evict", "requests/limits"],
-    "replicaScaleDown": ["scale down", "replica", "scaledown", "autoscaler"],
-    "networkPolicyIsolation": ["networkpolicy", "network policy", "blocked", "isolation"],
-    "dnsResolutionFailure": ["dns", "resolution failed", "name resolution", "nxdomain"],
-    "diskIOHigh": ["disk io", "disk i/o", "iowait", "disk saturat"],
+    #
+    # Chinese terms added below are standard/generic SRE-K8s-APM vocabulary
+    # (the kind found in any Chinese cloud-ops glossary or Alibaba Cloud
+    # ARMS documentation -- this dataset's own topology.json tags every
+    # service with "telemetry_client": "ARMS", so this is the ops
+    # vocabulary its own alert templates are drawn from), translated the
+    # same way FAULT_DEFINITIONS' English one-liners were written: from
+    # domain knowledge of what each slug name means, NOT by reading any
+    # RCA100 case's ground-truth/expected_conclusion text. Deliberately
+    # excludes bare, overly generic terms that show up in nearly every
+    # alert regardless of actual fault type -- standalone 异常 ("abnormal"),
+    # 告警 ("alert"), 错误 ("error") -- for the same reason "500%" was
+    # excluded from the numeric-keyword matching below (see
+    # detect_fault_keywords' docstring): confirmed boilerplate, not signal.
+    "nodeDown": ["nodenotready", "node not ready", "node down", "unreachable",
+                 "节点下线", "节点不可达", "节点宕机", "节点未就绪"],
+    "nodeCpuHigh": ["node cpu", "nodecpuhigh", "cpu utilization",
+                    "节点CPU使用率过高", "节点CPU过高"],
+    "nodeMemoryOOM": ["oomkilled", "oom-kill", "out of memory", "node memory",
+                       "节点内存溢出", "节点内存不足", "内存耗尽"],
+    "podCrashLoop": ["crashloopbackoff", "crash loop", "restart",
+                      "容器崩溃重启", "Pod崩溃循环"],
+    "podPendingUnschedulable": ["pending", "unschedulable", "insufficient", "taint", "affinity",
+                                 "调度失败", "无法调度", "资源不足无法调度"],
+    "podRestartFlapping": ["liveness probe", "restart", "flapping",
+                            "存活探针失败", "频繁重启"],
+    "resourceLimitMisconfig": ["resource limit", "throttl", "evict", "requests/limits",
+                                "资源限制配置错误", "资源配额不当"],
+    "replicaScaleDown": ["scale down", "replica", "scaledown", "autoscaler",
+                          "副本数缩容", "副本数量减少"],
+    "networkPolicyIsolation": ["networkpolicy", "network policy", "blocked", "isolation",
+                                "网络策略隔离", "网络策略阻断"],
+    "dnsResolutionFailure": ["dns", "resolution failed", "name resolution", "nxdomain",
+                              "DNS解析失败", "域名解析超时"],
+    "diskIOHigh": ["disk io", "disk i/o", "iowait", "disk saturat",
+                   "磁盘IO过高", "磁盘读写延迟"],
     # Middleware & DB -- redisUnavailable vs cacheBreakdown are frequently
     # confused (observed: t002/t010 both defaulted to cacheBreakdown when GT
     # was redisUnavailable). Added literal Java Redis-client exception class
@@ -102,15 +130,20 @@ FAULT_TYPE_KEYWORDS = {
     "redisUnavailable": ["redis", "valkey", "connection refused", "cache unreachable",
                           "jedisconnectionexception", "redisconnectionexception",
                           "lettuce", "econnrefused", "no route to host",
-                          "timeout connecting", "redistimeoutexception"],
+                          "timeout connecting", "redistimeoutexception",
+                          "Redis不可用", "Redis连接失败", "缓存服务不可用"],
     "slowSQL": ["slow query", "sql", "query time", "database query", "query timeout",
-                "sqltimeoutexception", "lock wait timeout"],
+                "sqltimeoutexception", "lock wait timeout",
+                "SQL慢查询", "数据库慢查询", "查询超时"],
     "dbNetworkLatency": ["db network", "database latency", "connection timeout",
-                          "sqlnontransientconnectionexception", "communications link failure"],
+                          "sqlnontransientconnectionexception", "communications link failure",
+                          "数据库网络延迟", "数据库连接超时"],
     "messageQueueBacklog": ["queue backlog", "message queue", "kafka", "rabbitmq",
-                             "consumer lag", "queue full", "producer blocked"],
+                             "consumer lag", "queue full", "producer blocked",
+                             "消息队列积压", "队列堆积", "消费延迟"],
     "cacheBreakdown": ["cache miss", "cache breakdown", "cache bypass",
-                        "cache penetration", "null cached value"],
+                        "cache penetration", "null cached value",
+                        "缓存击穿", "缓存穿透", "缓存失效"],
     # JVM runtime -- memoryPressure/threadExhaustion/fullGC are frequently
     # confused (observed: t009 defaulted to fullGC when GT was
     # memoryPressure). Added the literal Java exception/log strings each
@@ -118,31 +151,43 @@ FAULT_TYPE_KEYWORDS = {
     # generic phrases alone.
     "memoryPressure": ["memory pressure", "heap", "memory limit", "eviction risk",
                         "outofmemoryerror", "java.lang.outofmemoryerror", "heap space",
-                        "gc overhead limit exceeded"],
+                        "gc overhead limit exceeded",
+                        "内存压力", "堆内存溢出", "内存使用率过高"],
     "threadExhaustion": ["thread pool", "thread exhaustion", "threads exhausted",
                           "queue rejected", "rejectedexecutionexception",
                           "threadpoolexecutor", "maximum pool size reached",
-                          "too many open files"],
+                          "too many open files",
+                          "线程池耗尽", "线程池已满"],
     "fullGC": ["full gc", "garbage collection", "gc pause", "stop-the-world",
-               "allocation failure", "g1gc", "cms gc", "pause young"],
+               "allocation failure", "g1gc", "cms gc", "pause young",
+               "垃圾回收停顿", "GC停顿"],
     # Resource & perf.
-    "cpuFullLoad": ["cpu full", "cpu 100%", "cpu pegged", "high cpu"],
-    "cpuDeadLoop": ["infinite loop", "dead loop", "busy loop", "cpu pinned"],
+    "cpuFullLoad": ["cpu full", "cpu 100%", "cpu pegged", "high cpu",
+                     "CPU满载", "CPU占用过高"],
+    "cpuDeadLoop": ["infinite loop", "dead loop", "busy loop", "cpu pinned",
+                     "死循环", "CPU死循环"],
     # Application logic -- trafficSurge is the group's persistent default
     # guess; the other types here got a few more distinctive literal terms
     # to compete against it (e.g. specific Java exception class names for
     # nullPointerException/codeDefect, which are far more identifiable than
     # the generic "exception"/"bug" terms alone).
-    "httpError5xx": ["500", "502", "503", "504", "5xx", "internal server error", "bad gateway"],
+    "httpError5xx": ["500", "502", "503", "504", "5xx", "internal server error", "bad gateway",
+                      "错误次数", "5xx错误"],
     "rateLimiting": ["rate limit", "429", "throttled", "too many requests",
-                      "quota exceeded", "requests per second exceeded"],
-    "trafficSurge": ["traffic surge", "spike", "sudden increase", "surge"],
+                      "quota exceeded", "requests per second exceeded",
+                      "限流", "触发限流", "超过配额"],
+    "trafficSurge": ["traffic surge", "spike", "sudden increase", "surge",
+                      "流量突增", "流量激增", "访问量突增"],
     "nullPointerException": ["nullpointerexception", "null pointer", "nil dereference", "npe",
-                              "java.lang.nullpointerexception"],
-    "trafficHotspot": ["hotspot", "uneven", "disproportionate", "shard imbalance"],
-    "loadBalancerFailure": ["load balancer", "lb ", "misrouted", "traffic distribution"],
+                              "java.lang.nullpointerexception",
+                              "空指针异常"],
+    "trafficHotspot": ["hotspot", "uneven", "disproportionate", "shard imbalance",
+                        "流量热点", "流量倾斜"],
+    "loadBalancerFailure": ["load balancer", "lb ", "misrouted", "traffic distribution",
+                             "负载均衡故障", "负载均衡异常"],
     "codeDefect": ["exception", "stack trace", "bug", "incorrect behavior",
-                    "illegalstateexception", "illegalargumentexception", "classcastexception"],
+                    "illegalstateexception", "illegalargumentexception", "classcastexception",
+                    "代码缺陷", "业务逻辑错误"],
 }
 
 
@@ -158,14 +203,26 @@ def detect_fault_keywords(text_blob: str) -> List[str]:
     (e.g. "valkey", "OOMKilled") that generic sentence embeddings don't
     reliably associate with the right fault category.
 
-    Uses \\b word-boundary matching, NOT naive substring counting -- short/
-    numeric keywords like "500", "502", "429" were matching as substrings
-    inside unrelated larger numbers (e.g. "500" inside "15000.0", extremely
-    common given how much raw metric text this scans), causing
-    httpError5xx/rateLimiting/resourceLimitMisconfig to spuriously "detect"
-    on nearly every case regardless of actual evidence content. \\b500\\b
-    does not match inside "15000" since digits are contiguous word
-    characters with no boundary between them."""
+    Uses \\b word-boundary matching for Latin/numeric keywords, NOT naive
+    substring counting -- short/numeric keywords like "500", "502", "429"
+    were matching as substrings inside unrelated larger numbers (e.g. "500"
+    inside "15000.0", extremely common given how much raw metric text this
+    scans), causing httpError5xx/rateLimiting/resourceLimitMisconfig to
+    spuriously "detect" on nearly every case regardless of actual evidence
+    content. \\b500\\b does not match inside "15000" since digits are
+    contiguous word characters with no boundary between them.
+
+    Chinese keywords use plain substring matching instead, NOT \\b: Chinese
+    text has no whitespace between words at all, and Python's \\w (which \\b
+    is defined against) treats CJK characters as word characters -- so a
+    real match like "响应时间突增" sitting naturally in the middle of a
+    longer Chinese sentence (i.e. with more CJK characters immediately
+    before/after it, the normal case, since Chinese doesn't delimit words)
+    would never see a \\b on either side and would be silently missed. The
+    "500 inside 15000" false-positive problem \\b exists to prevent doesn't
+    have a real CJK analogue for these 2-6 character technical terms, so
+    substring matching is the correct default there (standard practice for
+    keyword matching without a proper segmenter)."""
     if not text_blob:
         return []
     text_lower = text_blob.lower()
@@ -173,7 +230,12 @@ def detect_fault_keywords(text_blob: str) -> List[str]:
     for slug, keywords in FAULT_TYPE_KEYWORDS.items():
         count = 0
         for kw in keywords:
-            if kw.isdigit():
+            if _CJK_RE.search(kw):
+                # kw.lower() matters for keywords that mix CJK with a Latin
+                # term (e.g. "Redis连接失败") -- text_lower is already
+                # lowercased, so the keyword needs to match case too.
+                count += text_lower.count(kw.lower())
+            elif kw.isdigit():
                 # Numeric keywords (HTTP codes like "500", "429") need a
                 # stricter boundary than plain \b: "." is a non-word
                 # character, so \b500\b still matches inside "0.500" (a
@@ -187,9 +249,10 @@ def detect_fault_keywords(text_blob: str) -> List[str]:
                 # "detections" -- confirmed via scripts/debug_keyword_match.py
                 # showing the literal alert text triggering the match.
                 pattern = r"(?<![\d.])" + re.escape(kw) + r"(?![\d.])(?!\s*%)"
+                count += len(re.findall(pattern, text_lower))
             else:
                 pattern = r"\b" + re.escape(kw) + r"\b"
-            count += len(re.findall(pattern, text_lower))
+                count += len(re.findall(pattern, text_lower))
         if count > 0:
             hits.append((slug, count))
     hits.sort(key=lambda x: x[1], reverse=True)
@@ -228,24 +291,31 @@ FAULT_DEFINITIONS = {
 }
 
 
+# The benchmark's closed label set (RCA100 paper: "28 root-cause types"). Written
+# out statically on 2026-10-08 so the agent-facing code path NEVER reads
+# answer_key/ (the RCA100 answer-key README: "do NOT include answer_key content in
+# the agent's prompt context"). Previously this list was derived at run time from
+# answer_key/mapping.json; the resulting set is identical (28 slugs). mapping.json
+# is now read only by evaluation/scoring.py, for scoring.
+FAULT_TYPE_LABELS: List[str] = [
+    "F001-nodeDown", "F002-threadExhaustion", "F004-trafficHotspot",
+    "F005-messageQueueBacklog", "F006-trafficSurge", "F007-memoryPressure",
+    "F009-cacheBreakdown", "F010-slowSQL", "F011-codeDefect", "F012-cpuDeadLoop",
+    "F014-httpError5xx", "F016-rateLimiting", "F018-dbNetworkLatency",
+    "F020-loadBalancerFailure", "F022-fullGC", "F023-nullPointerException",
+    "F025-diskIOHigh", "F026-nodeCpuHigh", "F029-redisUnavailable",
+    "F031-nodeMemoryOOM", "F034-cpuFullLoad", "F036-replicaScaleDown",
+    "F039-resourceLimitMisconfig", "F050-podCrashLoop", "F051-podPendingUnschedulable",
+    "F052-podRestartFlapping", "F056-networkPolicyIsolation", "F057-dnsResolutionFailure",
+]
+
+
 def build_fault_taxonomy() -> List[str]:
-    """Returns the sorted, deduplicated list of fault-type slugs across all
-    103 cases, e.g. ["F001-nodeDown", "F002-threadExhaustion", ...]."""
+    """Returns the sorted list of the 28 RCA100 fault-type slugs, e.g.
+    ["F001-nodeDown", "F002-threadExhaustion", ...]. Static; reads no files."""
     global _TAXONOMY_CACHE
-    if _TAXONOMY_CACHE is not None:
-        return _TAXONOMY_CACHE
-
-    path = os.path.join(config.ANSWER_KEY_DIR, "mapping.json")
-    with open(path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
-
-    task_to_case_id = mapping.get("task_to_case_id", {})
-    slugs = set()
-    for case_id in task_to_case_id.values():
-        slug = case_id.split(".")[0]  # "F014-httpError5xx.tbdh9alum..." -> "F014-httpError5xx"
-        slugs.add(slug)
-
-    _TAXONOMY_CACHE = sorted(slugs)
+    if _TAXONOMY_CACHE is None:
+        _TAXONOMY_CACHE = sorted(FAULT_TYPE_LABELS)
     return _TAXONOMY_CACHE
 
 

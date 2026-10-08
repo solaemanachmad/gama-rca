@@ -7,3 +7,9 @@ langgraph
 requests
 python-dotenv
 wandb
+jieba              # Chinese word segmentation for alert_text keyword extraction
+                   # (RCA100's alert_title/subject fields are predominantly Chinese)
+tqdm               # case-level progress bar in main.py's run_all() -- already a
+                   # transitive dep of transformers/sentence-transformers (that's
+                   # what's drawing the "Loading weights: 100%|..." bars you've
+                   # already seen), pinned explicitly here so it's not implicit

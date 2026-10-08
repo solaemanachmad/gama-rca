@@ -146,6 +146,28 @@ class HFAPIEmbedder:
         return np.vstack(vecs)
 
 
+def _infer_embedding_dim(model) -> int:
+    """Derives the embedding model's actual output dimension from the model
+    itself, instead of trusting config.EMBEDDING_DIM. Previously VectorIndex
+    hardcoded self.dim = config.EMBEDDING_DIM directly -- harmless only by
+    coincidence while EMBEDDING_MODEL stayed all-MiniLM-L6-v2 (384-dim,
+    matching the constant), but silently wrong (FAISS dimension-mismatch
+    crash, or a stale constant nobody remembers to update) the moment
+    EMBEDDING_MODEL changes to a model with a different output size, e.g.
+    a multilingual model needed for RCA100's Chinese-language alert
+    subjects and log content -- paraphrase-multilingual-MiniLM-L12-v2 is
+    also 384-dim (safe either way), but BAAI/bge-m3 is 1024-dim."""
+    get_dim = getattr(model, "get_sentence_embedding_dimension", None)
+    if callable(get_dim):
+        dim = get_dim()
+        if dim:
+            return int(dim)
+    # Fallback for embedder wrappers without that method (e.g. HFAPIEmbedder)
+    # -- probe with one throwaway encode call.
+    probe = np.asarray(model.encode(["dimension probe"], convert_to_numpy=True))
+    return int(probe.shape[-1])
+
+
 def get_embedding_model(model_name: str = config.EMBEDDING_MODEL):
     """Process-wide singleton. Loading SentenceTransformer from disk takes a
     non-trivial fraction of a second even when cached locally (tokenizer +
@@ -162,7 +184,23 @@ def get_embedding_model(model_name: str = config.EMBEDDING_MODEL):
         if config.EMBEDDING_BACKEND == "hf_api":
             _EMBEDDING_MODEL = HFAPIEmbedder(model_name)
         else:
-            _EMBEDDING_MODEL = SentenceTransformer(model_name)
+            # Explicit device placement matters here: SentenceTransformer with
+            # no device= arg auto-picks CUDA whenever it's available, which on
+            # a single-GPU Kaggle session (one T4/P100) collides with the LLM
+            # client (Qwen2.5-7B-Instruct etc.) already occupying ~14GB of a
+            # 14.56GB card -- confirmed via a real run: CUDA OOM trying to
+            # allocate 2.08GB for bge-m3's forward pass with only ~865MB
+            # free. Defaulting to CPU avoids that contention entirely; the
+            # persistent embedding_cache.pkl (keyed by backend/model/text)
+            # means this CPU cost is paid once per unique text, not once per
+            # run, so it's a one-time slowdown rather than a recurring one.
+            # Override via EMBEDDING_DEVICE=cuda if running with 2x GPUs (one
+            # free for embeddings) or a CPU-only LLM backend (e.g. ollama).
+            _EMBEDDING_MODEL = SentenceTransformer(model_name, device=config.EMBEDDING_DEVICE)
+            if config.EMBEDDING_MAX_SEQ_LENGTH > 0:
+                _EMBEDDING_MODEL.max_seq_length = config.EMBEDDING_MAX_SEQ_LENGTH
+            if config.EMBEDDING_FP16 and str(config.EMBEDDING_DEVICE).startswith("cuda"):
+                _EMBEDDING_MODEL.half()
     return _EMBEDDING_MODEL
 
 
@@ -174,10 +212,18 @@ class VectorIndex:
     def __init__(self, embedding_model: str = config.EMBEDDING_MODEL,
                  max_observations: int = config.MAX_OBSERVATIONS_PER_INDEX):
         self.model = get_embedding_model(embedding_model)
-        self.dim = config.EMBEDDING_DIM
+        self.dim = _infer_embedding_dim(self.model)
         self.index = faiss.IndexFlatIP(self.dim)   # cosine via normalized IP
         self.observations: List[Observation] = []
         self.max_observations = max_observations
+        # Diagnostics for the dedup optimization below -- texts_submitted is
+        # every text .add() was asked to embed (post-cap); texts_encoded_raw
+        # is how many actually reached the model (post-dedup, post-cache).
+        # The ratio is a direct measure of how much CPU-bound encode() work
+        # this case's embedding step avoided -- see pipeline.py's
+        # vector_embed_dedup_ratio stat.
+        self.texts_submitted = 0
+        self.texts_encoded_raw = 0
 
     def _embed_raw(self, texts: List[str]) -> np.ndarray:
         # batch_size=256 (vs. sentence-transformers' default of 32) cuts
@@ -186,22 +232,51 @@ class VectorIndex:
         # call can carry tens of thousands of texts (topology-blind full-case
         # indexes routinely hit 500k+ observations; see max_observations cap
         # below, which bounds this from the other direction).
+        self.texts_encoded_raw += len(texts)
         vecs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False,
-                                  batch_size=256)
+                                  batch_size=config.EMBEDDING_BATCH_SIZE)
         faiss.normalize_L2(vecs)
         return vecs.astype("float32")
 
     def _embed(self, texts: List[str]) -> np.ndarray:
-        if not config.EMBEDDING_CACHE_ENABLED or not texts:
-            return self._embed_raw(texts)
+        if not texts:
+            return np.zeros((0, self.dim), dtype="float32")
+        self.texts_submitted += len(texts)
+
+        # De-duplicate identical texts BEFORE touching the cache or the
+        # model. Observation.text (data/loader.py) never embeds a
+        # timestamp, so repeated health-check log lines, constant-value
+        # metric readings, or same-duration spans routinely produce
+        # byte-identical strings across many observations within one case
+        # -- previously each occurrence was encoded (or looked up in the
+        # cross-run cache) separately, i.e. the SAME string could hit
+        # self.model.encode() dozens of times in a single .add() call. The
+        # embedding is identical either way (it's a pure function of the
+        # text), so collapsing to one encode() per unique string is a free
+        # speed win with zero accuracy impact -- on top of, not instead of,
+        # the persistent cross-run EMBEDDING_CACHE below.
+        unique_texts = list(dict.fromkeys(texts))  # de-dup, preserve first-seen order
+        unique_vecs = self._embed_unique(unique_texts)
+        if len(unique_texts) == len(texts):
+            return unique_vecs
+        index_of = {t: i for i, t in enumerate(unique_texts)}
+        return np.stack([unique_vecs[index_of[t]] for t in texts]).astype("float32")
+
+    def _embed_unique(self, unique_texts: List[str]) -> np.ndarray:
+        """Embeds a list already guaranteed to contain no duplicates. Still
+        consults the cross-run EMBEDDING_CACHE (retrieval/vector.py module
+        level) so a text seen in an earlier `python main.py` invocation
+        doesn't get re-encoded either."""
+        if not config.EMBEDDING_CACHE_ENABLED:
+            return self._embed_raw(unique_texts)
 
         global _EMBEDDING_CACHE_NEW_ENTRIES
         cache = _load_cache()
-        keys = [_cache_key(t) for t in texts]
+        keys = [_cache_key(t) for t in unique_texts]
         miss_positions = [i for i, k in enumerate(keys) if k not in cache]
 
         if miss_positions:
-            miss_vecs = self._embed_raw([texts[i] for i in miss_positions])
+            miss_vecs = self._embed_raw([unique_texts[i] for i in miss_positions])
             for pos, vec in zip(miss_positions, miss_vecs):
                 cache[keys[pos]] = vec
             _EMBEDDING_CACHE_NEW_ENTRIES += len(miss_positions)
@@ -253,10 +328,36 @@ def build_index_from_observations(observations: Dict[str, list], modalities=("lo
     subgraph). This is what makes retrieval genuinely "topology-aware": the
     vector search space is restricted by Module 2 BEFORE Module 3 runs, per
     the architecture diagram (Graph Retrieval -> Hybrid Evidence Retrieval),
-    rather than searching the whole case and only re-weighting afterward."""
+    rather than searching the whole case and only re-weighting afterward.
+
+    Fair-shares the index's global MAX_OBSERVATIONS_PER_INDEX cap across
+    `modalities` BEFORE calling .add() on each one, rather than letting them
+    consume it first-come-first-served in call order. Without this, a single
+    abundant modality (typically "logs", added first) can exceed the entire
+    cap on its own -- especially now that unresolved logs get a real
+    per-modality budget outside DEV_QUICK_TEST (see
+    reduce_unresolved_observations in pipeline.py) -- which both starves
+    "metrics"/"events" to zero AND means the cap is hit by raw volume alone,
+    so no amount of upstream relevance-filtering changes how many texts get
+    embedded or how long that takes. Smallest-modality-first allocation
+    means an under-sized modality gets everything it has, with its unused
+    share redistributed to the modalities still waiting their turn."""
     index = VectorIndex()
+    lists = {m: list(observations.get(m, [])) for m in modalities}
+    total = sum(len(v) for v in lists.values())
+    if total > index.max_observations:
+        remaining_modalities = list(modalities)
+        remaining_budget = index.max_observations
+        caps = {}
+        for m in sorted(remaining_modalities, key=lambda m: len(lists[m])):
+            share = max(remaining_budget // len(remaining_modalities), 1)
+            take = min(len(lists[m]), share)
+            caps[m] = take
+            remaining_budget -= take
+            remaining_modalities.remove(m)
+        lists = {m: lists[m][:caps.get(m, len(lists[m]))] for m in modalities}
     for m in modalities:
-        index.add(observations.get(m, []))
+        index.add(lists[m])
     return index
 
 

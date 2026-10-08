@@ -63,6 +63,60 @@ def _load_mapping() -> Dict[str, Any]:
     return _MAPPING_CACHE
 
 
+_TAXONOMY_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _load_taxonomy() -> Dict[str, Any]:
+    """Official taxonomy.json (answer_key/). EVALUATION ONLY: never read by the
+    agent path or put in a prompt (dataset README: no answer_key/ content in the
+    agent's context). Returns {} if the file is absent."""
+    global _TAXONOMY_CACHE
+    if _TAXONOMY_CACHE is None:
+        path = os.path.join(config.ANSWER_KEY_DIR, "taxonomy.json")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                _TAXONOMY_CACHE = json.load(f)
+        except (OSError, ValueError):
+            _TAXONOMY_CACHE = {}
+    return _TAXONOMY_CACHE
+
+
+def _slug_levels(fault_type) -> Optional[tuple]:
+    """(slug, L1, L2) for a type string like 'F014-httpError5xx' / 'httpError5xx'
+    / free text containing a slug; None if it cannot be resolved."""
+    tax = _load_taxonomy()
+    defs = tax.get("fault_definitions") or {}
+    if not defs or not isinstance(fault_type, str):
+        return None
+    t = fault_type.strip().lower()
+    for key, d in defs.items():
+        slug = key.split("-", 1)[-1].lower()
+        if t == key.lower() or t == slug or slug in t:
+            return (slug, d.get("L1"), d.get("L2"))
+    return None
+
+
+def fault_identification_tiered(predicted_fault_type, gt: "GroundTruth") -> Optional[float]:
+    """Tiered rubric from taxonomy.json (exact 1.0 / same L2 0.5 / same L1 0.25 /
+    else 0). Reported alongside, not instead of, the official binary FI."""
+    if not _load_taxonomy().get("scoring_rubric"):
+        return None
+    rub = _load_taxonomy()["scoring_rubric"]
+    g = _slug_levels(gt.fault_type)
+    if g is None:
+        return None
+    p = _slug_levels(predicted_fault_type)
+    if p is None:
+        return rub.get("T0_different", 0.0)
+    if p[0] == g[0]:
+        return rub.get("T3_exact_L3", 1.0)
+    if p[2] and p[2] == g[2]:
+        return rub.get("T2_same_L2", 0.5)
+    if p[1] and p[1] == g[1]:
+        return rub.get("T1_same_L1", 0.25)
+    return rub.get("T0_different", 0.0)
+
+
 def get_real_case_id(task_id: str) -> Optional[str]:
     return _load_mapping().get("task_to_case_id", {}).get(task_id)
 
@@ -183,10 +237,19 @@ def entity_localization_score(predicted_ids: List[str], gt: GroundTruth,
     return round(best, 4)
 
 
-def fault_identification_score(predicted_fault_type: str, gt: GroundTruth) -> float:
+def fault_identification_score(predicted_fault_type, gt: GroundTruth) -> float:
     """Loose containment match, since predicted_fault_type is free-form LLM
     output and gt.fault_type is a slug like 'httpError5xx' possibly prefixed
-    with a group id like 'F014-'."""
+    with a group id like 'F014-'.
+
+    Accepts non-str input defensively: a denser prompt (see sea_rca) can lead
+    the LLM to emit a structured object here (e.g. {"type": "...",
+    "confidence": ...}) instead of a plain string -- same failure class
+    documented on _stringify_chain_step above. Falls back to "unknown" for a
+    dict without an obvious type-like field, so it still scores 0.0 cleanly
+    instead of raising."""
+    if not isinstance(predicted_fault_type, str):
+        predicted_fault_type = _stringify_chain_step(predicted_fault_type) or "unknown"
     pred = predicted_fault_type.strip().lower()
     truth = gt.fault_type.strip().lower()
     truth_slug = truth.split("-")[-1] if "-" in truth else truth
@@ -205,6 +268,33 @@ def fault_group_score(predicted_fault_type: str, gt: GroundTruth) -> float:
     return 1.0 if (pred_group != "unknown" and pred_group == gt_group) else 0.0
 
 
+def _stringify_chain_step(step) -> str:
+    """Coerces one reasoning_chain entry to plain text. Most systems' prompts
+    (graphrag_only, standard_rag) elicit a flat List[str] from the LLM, but a
+    richer prompt (sea_rca's "cite the specific evidence/entities" instruction)
+    can lead a 7B model to emit structured objects instead -- e.g.
+    {"step": "cause", "target": "payment", "evidence": "error_count=8829"}
+    rather than "cause: payment (error_count=8829)". Observed in practice:
+    sea_rca's first 8-case run crashed on 7/8 cases with 'dict object has no
+    attribute lower' inside the old version of this function, which assumed
+    every pred_chain entry was already a string. Join a dict's own values
+    (covers str/number/nested-list values generically) rather than discarding
+    the step entirely -- a partially-recovered text step still contributes to
+    the word-overlap score instead of silently zeroing out that case's
+    reasoning_process. Any other non-string type falls back to str()."""
+    if isinstance(step, str):
+        return step
+    if isinstance(step, dict):
+        parts = []
+        for v in step.values():
+            if isinstance(v, (list, tuple)):
+                parts.extend(str(x) for x in v)
+            elif v is not None:
+                parts.append(str(v))
+        return " ".join(parts)
+    return str(step)
+
+
 def _chain_overlap_score(pred_chain: List[str], gt_chain: List[str]) -> float:
     if not pred_chain or not gt_chain:
         return 0.0
@@ -213,7 +303,7 @@ def _chain_overlap_score(pred_chain: List[str], gt_chain: List[str]) -> float:
         gt_words = set(gt_step.lower().replace(":", " ").split())
         best = 0.0
         for pred_step in pred_chain:
-            pred_words = set(pred_step.lower().split())
+            pred_words = set(_stringify_chain_step(pred_step).lower().split())
             if not gt_words or not pred_words:
                 continue
             jaccard = len(gt_words & pred_words) / len(gt_words | pred_words)
@@ -386,6 +476,23 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     if evidence_items is not None:
         report.update(retrieval_precision_recall(evidence_items, gt, topology))
     report["explainability"] = explainability_proxy(result)
+    # Reasoning-process components, reported separately. The official
+    # combination (0.5 chain + 0.5 checkpoint) and final_score are unchanged;
+    # this only exposes which half drives the score.
+    report["rp_chain_overlap"] = round(_chain_overlap_score(result.reasoning_chain, gt.reasoning_chain), 4)
+    if gt.checkpoints and retrieved_texts:
+        _hits = sum(1 for cp in gt.checkpoints if _checkpoint_satisfied(cp, retrieved_texts))
+        report["rp_checkpoint_hit_rate"] = round(_hits / len(gt.checkpoints), 4)
+    else:
+        report["rp_checkpoint_hit_rate"] = 0.0
+    # Counterfactual entity_localization per entity source (diagnostic only;
+    # the official entity_localization above still uses result.predicted_entity_ids).
+    for _key, _col in (("alt_entity_coordinator", "el_if_coordinator"),
+                       ("alt_entity_anchor", "el_if_anchor"),
+                       ("alt_entity_twist_top", "el_if_twist_top"),
+                       ("alt_entity_entry", "el_if_entry")):
+        _ids = [e for e in str(result.retrieval_stats.get(_key) or "").split("|") if e]
+        report[_col] = entity_localization_score(_ids, gt, topology) if _ids else None
     report.update(result.retrieval_stats)
     # Raw predictions alongside the scores -- without this, diagnosing WHY a
     # score is low/zero means re-running the case with a separate debug
@@ -393,6 +500,7 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     # strings (not lists) so they stay single CSV cells.
     report["predicted_fault_type"] = result.predicted_fault_type
     report["gt_fault_type"] = gt.fault_type
+    report["fi_tiered"] = fault_identification_tiered(result.predicted_fault_type, gt)
     report["fault_group_identification"] = fault_group_score(result.predicted_fault_type, gt)
     report["predicted_fault_group"] = fault_group(result.predicted_fault_type)
     report["gt_fault_group"] = fault_group(gt.fault_type)

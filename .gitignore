@@ -1,8 +1,26 @@
+# data & answer key (license CC BY-NC-SA; answer_key must never be public)
 RCA100/
+RCA100_src/
+answer_key/
+*.parquet
+
+# secrets / env
 .env
-__pycache__/
-*.pyc
 .venv/
 venv/
 
-graphrag_rca_work/vector_index/embedding_cache.pkl
+# outputs that contain ground-truth columns (gt_*) or are large
+results/
+graphrag_rca_work/
+topology_exports/
+*.zip
+*.pkl
+
+# local copies / scratch
+kaggle_upload/
+scripts_tmp/
+
+# python / OS
+__pycache__/
+*.pyc
+.DS_Store

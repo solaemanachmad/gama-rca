@@ -1,40 +1,50 @@
 """
 kaggle_client.py
 ==================
-LLM client backed by a model pulled from Kaggle Models (kagglehub) and run
-directly via transformers -- no Ollama server, no external API. Meant for
-running INSIDE a Kaggle Notebook with a free GPU attached, where kagglehub
-is pre-authenticated automatically. Same generate()/generate_json()/
-usage_stats() interface as LLMClient and GeminiClient, so agents.py /
-pipeline.py need zero changes -- just pick this backend via config.
+LLM client backed by a model pulled either from Kaggle Models (kagglehub) or
+directly from the Hugging Face Hub, run via transformers -- no Ollama
+server, no external API. Meant for running INSIDE a Kaggle Notebook with a
+free GPU attached. Same generate()/generate_json()/usage_stats() interface
+as LLMClient and GeminiClient, so agents.py / pipeline.py need zero changes
+-- just pick this backend via config.
 
-Uses AutoProcessor (not AutoTokenizer) -- required for Gemma 4's "Unified"
-architecture (encoder-free multimodal: text/audio/image/video share one
-model), per the official model card. A plain AutoTokenizer flow will not
-work correctly with this architecture even for text-only use.
+Two model families are supported, auto-detected from the handle/path:
+  1. Gemma 4's "Unified" architecture (encoder-free multimodal: text/audio/
+     image/video share one model) -- requires AutoProcessor, not
+     AutoTokenizer, per the official model card, even for text-only use.
+  2. Everything else (Qwen2.5, Llama-3.1, Phi, Mistral, etc.) -- standard
+     AutoTokenizer + chat template flow.
+
+Handle formats:
+  - Kaggle-catalog handle (org/model/framework/variant, e.g.
+    "google/gemma-4/transformers/gemma-4-12b-it") -- downloaded via
+    kagglehub, requires accepting the model's license on its Kaggle page
+    once (logged in) before the first download.
+  - Plain Hugging Face Hub repo id (org/model, e.g.
+    "Qwen/Qwen2.5-7B-Instruct") -- downloaded directly by transformers, no
+    kagglehub involved. Preferred default here for reproducibility: no
+    Kaggle-specific license click needed for open weights, and the exact
+    same handle works identically outside Kaggle (local machine, other
+    notebook platforms), which matters for other people re-running this
+    code.
 
 Setup (inside a Kaggle Notebook):
     pip install -U kagglehub transformers torch accelerate --quiet
-    # kagglehub is auto-authenticated inside Kaggle Notebooks.
-    # Running locally instead of on Kaggle: set KAGGLE_USERNAME / KAGGLE_KEY
-    # (from kaggle.com -> Account -> Create New Token, downloads kaggle.json)
+    # bitsandbytes only needed if COORDINATOR_USE_4BIT=1:
+    pip install -U bitsandbytes --quiet
+    # kagglehub is auto-authenticated inside Kaggle Notebooks; a plain HF
+    # repo id needs no auth at all for open (non-gated) models.
 
-Model access: some Kaggle-hosted models (e.g. Gemma) require accepting the
-license on the model's Kaggle page once (logged in) before kagglehub can
-download it -- you'll get a clear permission error the first time if you
-haven't.
-
-USAGE:
-    # config.py / .env:
-    LLM_BACKEND=kaggle
-    KAGGLE_MODEL_HANDLE=google/gemma-4/transformers/gemma-4-12b-it
-
-    # PREFERRED on Kaggle: attach the model via the notebook's "Add Input" >
-    # Models panel instead of downloading it -- this mounts it locally under
-    # /kaggle/input/models/... with no network dependency, which is far more
-    # reliable than kagglehub.model_download() repeatedly hitting the network.
-    # Once attached, point directly at the mounted path:
+PREFERRED on Kaggle for a Kaggle-catalog handle: attach the model via the
+notebook's "Add Input" > Models panel instead of downloading it -- mounts
+it locally under /kaggle/input/models/... with no network dependency, far
+more reliable than kagglehub.model_download() repeatedly hitting the
+network. Once attached, point directly at the mounted path:
     KAGGLE_MODEL_LOCAL_PATH=/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b-it/2
+
+USAGE (config.py / .env):
+    LLM_BACKEND=kaggle
+    KAGGLE_MODEL_HANDLE=Qwen/Qwen2.5-7B-Instruct   # default -- see config/__init__.py
 """
 
 import json
@@ -44,15 +54,23 @@ from typing import Optional
 import config
 
 
+def _is_gemma4_unified(identifier: Optional[str]) -> bool:
+    identifier = (identifier or "").lower()
+    return "gemma-4" in identifier or "gemma4" in identifier
+
+
 class KaggleTransformersClient:
     def __init__(self, model_handle: str = None, local_path: str = None,
                  temperature: float = config.LLM_TEMPERATURE,
                  max_tokens: int = config.LLM_MAX_TOKENS,
-                 enable_thinking: bool = False):
+                 enable_thinking: bool = False,
+                 use_4bit: bool = False):
         import torch
-        from transformers import AutoProcessor, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
+        model_handle = model_handle or config.KAGGLE_MODEL_HANDLE
         local_path = local_path or config.KAGGLE_MODEL_LOCAL_PATH
+
         if local_path:
             # Model already mounted locally (Add Input > Models in the
             # notebook UI) -- use it directly, no network call at all.
@@ -64,27 +82,46 @@ class KaggleTransformersClient:
                     f"number, e.g. '.../gemma-4-12b-it/2'."
                 )
             model_path = local_path
-        else:
-            # Falls back to downloading via kagglehub (needs internet + the
-            # model license accepted on kaggle.com once).
+            arch_hint = local_path
+        elif model_handle.count("/") >= 3:
+            # Kaggle-catalog handle format: org/model/framework/variant.
             import kagglehub
-            self.model_handle = model_handle or config.KAGGLE_MODEL_HANDLE
-            model_path = kagglehub.model_download(self.model_handle)
+            model_path = kagglehub.model_download(model_handle)
+            arch_hint = model_handle
+        else:
+            # Plain Hugging Face Hub repo id -- transformers downloads and
+            # caches it directly (needs internet enabled on the notebook;
+            # HF_TOKEN env var only required for gated models).
+            model_path = model_handle
+            arch_hint = model_handle
 
-        # AutoProcessor, not AutoTokenizer -- Gemma 4's "Unified" encoder-free
-        # multimodal architecture requires it even for text-only prompts.
-        self.processor = AutoProcessor.from_pretrained(model_path)
+        self._is_gemma4_unified = _is_gemma4_unified(arch_hint)
+
+        quant_kwargs = {}
+        if use_4bit:
+            from transformers import BitsAndBytesConfig
+            quant_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+
+        if self._is_gemma4_unified:
+            from transformers import AutoProcessor
+            self.processor = AutoProcessor.from_pretrained(model_path)
+            self.tokenizer = None
+        else:
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self.processor = None
+
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=torch.bfloat16, device_map="auto"
+            model_path, dtype=torch.bfloat16, device_map="auto", **quant_kwargs
         )
         self.temperature = temperature
         self.max_tokens = max_tokens
         # enable_thinking=False by default: our downstream code parses raw
         # JSON out of the response (generate_json below) -- chain-of-thought
-        # text mixed into the output would break that parsing. Flip this on
-        # only if you also update generate_json() to call
-        # self.processor.parse_response() and extract the final answer
-        # segment from it first.
+        # text mixed into the output would break that parsing. Only used on
+        # the Gemma-4-Unified (AutoProcessor) path; standard AutoTokenizer
+        # chat templates (Qwen2.5, Llama-3.1, etc.) don't take this kwarg.
         self.enable_thinking = enable_thinking
         self.total_tokens_used = 0
         self.total_calls = 0
@@ -96,11 +133,18 @@ class KaggleTransformersClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        text = self.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-            enable_thinking=self.enable_thinking,
-        )
-        inputs = self.processor(text=text, return_tensors="pt").to(self.model.device)
+        if self.processor is not None:
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=self.enable_thinking,
+            )
+            inputs = self.processor(text=text, return_tensors="pt").to(self.model.device)
+        else:
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+            inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+
         input_len = inputs["input_ids"].shape[-1]
 
         outputs = self.model.generate(
@@ -114,7 +158,10 @@ class KaggleTransformersClient:
         new_tokens = outputs[0][input_len:]
         self.total_tokens_used += input_len + len(new_tokens)
 
-        response = self.processor.decode(new_tokens, skip_special_tokens=True)
+        if self.processor is not None:
+            response = self.processor.decode(new_tokens, skip_special_tokens=True)
+        else:
+            response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
         return response.strip()
 
     def generate_json(self, prompt: str, system: Optional[str] = None) -> dict:

@@ -13,24 +13,27 @@ agents, llm_client are all composed here and nowhere else, so each stays
 independently testable/replaceable per the "keep modular" design principle.
 """
 
+import json
+import random
+import re
 import time
 from collections import Counter
-from typing import Dict, Optional
+from typing import Dict, List, Optional
+from pipeline.twist_scoring import (compute_twist_scores, twist_scores_to_summary,
+                                     twist_top_entity, twist_scores_to_observations)
 
 import config
 from data.loader import Case, build_service_membership_index, normalize_entity_ids
-from data.taxonomy import taxonomy_prompt_block, detect_fault_keywords, fault_group
+from data.taxonomy import taxonomy_prompt_block, detect_fault_keywords
 from retrieval.graph import GraphRetriever, apply_temporal_boost, compute_propagation_path
 from retrieval.vector import build_index_from_observations
 from retrieval.hybrid import HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, compute_metric_trends, compute_baseline_stats, ERROR_PATTERN
-from pipeline.fault_group_classifier import predict_fault_group
-from pipeline.fault_type_classifier import predict_fault_type
-from pipeline.case_based_reasoning import find_similar_case
-from pipeline.zero_shot_matching import zero_shot_type_match
+from pipeline.zero_shot_matching import zero_shot_type_match_topk
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
 from agents.llm_client import LLMClient
 from schema import RCAResult
+from pipeline.propagation_evidence import compute_propagation_evidence
 
 
 ANCHOR_SYSTEM_PROMPT = (
@@ -42,7 +45,20 @@ ANCHOR_SYSTEM_PROMPT = (
 )
 
 
-def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, llm, use_llm: bool = True) -> Dict:
+ANCHOR_SYSTEM_PROMPT_PROPAGATION = (
+    "You are an SRE doing a first-pass root cause guess. An alert fires on the "
+    "service that NOTICES a failure, which is often only a VICTIM: the origin "
+    "is frequently a downstream dependency (callee) whose error is relayed "
+    "upstream, sometimes the alert service itself, sometimes infrastructure. "
+    "Use the call-graph table to decide whether the alert service is the "
+    "origin or a victim, then pick the ORIGIN: the dependency whose anomaly is "
+    "not explained by one of its own callees. Do not choose a service merely "
+    "because it is close to the alert or central in the graph."
+)
+
+
+def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, llm, use_llm: bool = True,
+                          propagation_text: str = "") -> Dict:
     """Stage 0.5 -- cheap, single-call structural prior computed BEFORE the
     multi-agent stage, mirroring the graphrag_only baseline's approach
     (topology-ranked candidates + full taxonomy, nothing else). Empirically,
@@ -69,14 +85,10 @@ def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, ll
         if not ranked:
             return {"anchor_entity_ids": [], "anchor_fault_type": "unknown", "anchor_confidence": 0.0}
         top_entity_id, top_score = ranked[0]
-        # Normalize confidence as this entity's share of the top-20 total
-        # score -- a simple, defensible proxy for "how much more likely is
-        # this entity than the alternatives", without needing an LLM to
-        # articulate it.
         total = sum(s for _, s in ranked) or 1.0
         return {
             "anchor_entity_ids": [top_entity_id],
-            "anchor_fault_type": "unknown",  # not used downstream (classifier handles fault type)
+            "anchor_fault_type": "unknown",
             "anchor_confidence": round(top_score / total, 4),
         }
 
@@ -85,12 +97,36 @@ def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, ll
         f"Alert: {parsed_alert['alert_text']}\n"
         f"Entry entity: {parsed_alert['entry_entity_id']}\n"
         f"Top-20 topology-ranked candidate entities (entity_id: propagation_score):\n{ranked_text}\n\n"
-        f"{taxonomy_prompt_block()}\n\n"
+        + (f"{propagation_text}\n\n" if propagation_text else "")
+        + f"{taxonomy_prompt_block()}\n\n"
         f"Give your fast first-pass guess using only this structural information.\n"
         f'Respond as JSON: {{"predicted_entity_ids": ["entity1"], '
         f'"predicted_fault_type": "<one of the 28 RCA100 fault types>", "confidence": <float 0-1>}}'
     )
-    raw = llm.generate_json(prompt, system=ANCHOR_SYSTEM_PROMPT)
+    # Force greedy decoding for this one call. llm.temperature defaults to
+    # config.LLM_TEMPERATURE=0.1 (nonzero), and kaggle_client.py's generate()
+    # does `do_sample = self.temperature > 0` -- so at the shared client's
+    # normal temperature this "cheap structural prior" call is NOT
+    # deterministic: identical input (same case, same code) can produce a
+    # different anchor_entity_ids/anchor_fault_type on separate runs, purely
+    # from sampling noise. Caught 2026-10-04 by cross-referencing two
+    # separate 8-case Kaggle runs of nominally-identical code: t052's
+    # graph_anchor_fault_type was F006-trafficSurge in one run and
+    # F004-trafficHotspot in the other. That confounds every anchor-related
+    # ablation in this project (self-consistency, two-stage anchor, anchor
+    # wording) -- a change in predicted_fault_type between two runs could be
+    # the mechanism under test, or just anchor noise, and there was no way to
+    # tell them apart. Setting temperature=0.0 here makes do_sample=False
+    # (greedy argmax) for this call only -- the anchor becomes reproducible
+    # across runs holding the rest of the pipeline fixed, without touching
+    # the Coordinator's own temperature/self-consistency sampling elsewhere.
+    old_temperature = llm.temperature
+    llm.temperature = 0.0
+    try:
+        raw = llm.generate_json(
+            prompt, system=ANCHOR_SYSTEM_PROMPT_PROPAGATION if propagation_text else ANCHOR_SYSTEM_PROMPT)
+    finally:
+        llm.temperature = old_temperature
     entity_ids = normalize_entity_ids(raw.get("predicted_entity_ids", []) or [], case.topology, case.name_index)
     return {
         "anchor_entity_ids": entity_ids,
@@ -99,20 +135,154 @@ def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, ll
     }
 
 
+_CJK_RE = re.compile(r"[一-鿿]")
+_JIEBA_WARNED = False
+
+
+def _tokenize_alert_text(text: str) -> List[str]:
+    """Word/phrase-level tokens from alert text, handling both Latin
+    (whitespace-delimited) and Chinese (RCA100's alert_title is frequently
+    Chinese, e.g. "checkout响应时间突增告警" -- no whitespace between
+    Chinese words at all, so a plain .split() treats the whole run as ONE
+    meaningless blob token, and even "checkout" ends up fused into it).
+    Uses jieba (Chinese word segmentation) to split CJK runs into their
+    actual words (e.g. "响应时间"/"突增"/"告警" -- "response time" /
+    "surge" / "alert"), which then work as real vector-search query terms
+    (see parse_alert's caller in run()) instead of being silently lost.
+
+    Falls back to the previous naive whitespace split (Chinese portions
+    stay unsegmented as one blob, but nothing crashes) if jieba isn't
+    installed -- `pip install jieba`.
+
+    Length filters differ by script: Latin tokens keep the original >3-char
+    threshold (filters short filler words like "the"/"for"); meaningful
+    Chinese words are frequently just 2 characters, so those only need
+    length > 1."""
+    global _JIEBA_WARNED
+    try:
+        import jieba
+    except ImportError:
+        if not _JIEBA_WARNED:
+            print("[parse_alert] jieba not installed -- Chinese alert text "
+                  "(common in RCA100's alert_title) will not be segmented "
+                  "into keywords, only kept as one unsplit blob. "
+                  "`pip install jieba` to fix.")
+            _JIEBA_WARNED = True
+        return [w.strip(".,:;") for w in text.split() if len(w) > 3]
+
+    tokens = []
+    for t in jieba.cut(text, cut_all=False):
+        t = t.strip(".,:;、，。 ")
+        if not t:
+            continue
+        min_len = 1 if _CJK_RE.search(t) else 3
+        if len(t) > min_len:
+            tokens.append(t)
+    return tokens
+
+
 # ---------------------------------------------------------------------------
 # Module 1 — Alert Parser
 # ---------------------------------------------------------------------------
 def parse_alert(case: Case) -> Dict:
     """Extract candidate entities / keywords from the alert text + entry
-    entity. Kept intentionally simple (regex/keyword split); swap in an
+    entity. Kept intentionally simple (regex/keyword split, now with jieba
+    segmentation for Chinese runs -- see _tokenize_alert_text); swap in an
     NER model here if alert text is richer than the RCA100 structured form."""
     alert = case.alert
-    keywords = [w.strip(".,:;") for w in alert.alert_text.split() if len(w) > 3]
+    keywords = _tokenize_alert_text(alert.alert_text)
     return {
         "entry_entity_id": alert.entry_entity_id,
-        "keywords": list(dict.fromkeys(keywords))[:20],   # dedup, cap
+        "keywords": list(dict.fromkeys(keywords))[:20],
         "alert_text": alert.alert_text,
     }
+
+
+# ---------------------------------------------------------------------------
+# Evidence-volume reduction for UNRESOLVED observations (entity_id is None,
+# so they can't be bounded by subgraph membership the way `resolved`
+# observations are). Adapted from GALA's (Tian et al. 2025, arXiv:2508.12472,
+# Section 4.2) "Error-Centric Log Abstraction" and "Temporal Performance
+# Profiling": reduce volume by filtering to RELEVANT signal first (error/
+# exception severity, de-duplicated by message template), and only fall back
+# to sampling -- a representative random sample, not a positional cut -- once
+# that already-filtered set is still oversized. This replaces the previous
+# DEV_QUICK_TEST-only unresolved[:300] positional truncation, which (a) had
+# no effect at all outside dev mode (the real 103-case run saw the FULL
+# unresolved set, causing multi-thousand-second per-case runtimes) and
+# (b) was biased toward whatever order the data happens to arrive in, not
+# toward the more informative entries.
+#
+# The budget itself reuses config.MAX_RESOLVED_PER_MODALITY rather than
+# introducing a second, separately-tuned magic number -- the same evidence
+# budget already accepted for `resolved` observations applies here too, so
+# there is exactly one volume-control knob in config to reason about.
+_LOG_TEMPLATE_DIGITS_RE = re.compile(r"\d+")
+
+
+def _log_template(text: str) -> str:
+    """Canonicalizes a log line to its "shape" by blanking out digit runs
+    (timestamps, ports, latencies, IDs, status codes, ...), so that many
+    near-identical lines differing only in those values collapse to one
+    template -- the de-duplication step GALA's Error-Centric Log Abstraction
+    performs before any threshold/sampling is applied."""
+    return _LOG_TEMPLATE_DIGITS_RE.sub("#", text.lower())
+
+
+def _reduce_unresolved_logs(unresolved: List, budget: int, rng: random.Random) -> List:
+    """GALA-style log abstraction: keep error/exception-severity lines,
+    de-duplicate by template (one representative per distinct shape), then
+    -- only if that still exceeds budget -- take a representative RANDOM
+    sample (not the first N) so the kept subset isn't skewed toward
+    whichever timestamp happens to sort first. If the error-only set is
+    under budget, supplement with a random sample of non-error lines up to
+    budget, mirroring GALA's rationale: a case with genuinely few errors
+    should still show the LLM that logging was happening (to distinguish
+    "no failures logged" from "no logs collected at all"), not be silently
+    padded with duplicate error noise instead."""
+    if len(unresolved) <= budget:
+        return unresolved
+
+    error_obs = [o for o in unresolved if ERROR_PATTERN.search(o.text)]
+    non_error_obs = [o for o in unresolved if not ERROR_PATTERN.search(o.text)]
+
+    seen_templates = set()
+    deduped_errors = []
+    for o in error_obs:
+        tmpl = _log_template(o.text)
+        if tmpl not in seen_templates:
+            seen_templates.add(tmpl)
+            deduped_errors.append(o)
+
+    if len(deduped_errors) >= budget:
+        return rng.sample(deduped_errors, budget)
+
+    remaining = budget - len(deduped_errors)
+    supplement = rng.sample(non_error_obs, min(remaining, len(non_error_obs)))
+    return deduped_errors + supplement
+
+
+def _reduce_unresolved_generic(unresolved: List, budget: int, rng: random.Random) -> List:
+    """Non-log modalities (metrics/traces/events/alerts) don't have an
+    error-pattern equivalent to filter by, so the volume-control fallback is
+    an unbiased random sample rather than a positional truncation -- still a
+    real improvement over unresolved[:N], which always kept the same
+    (arbitrary, arrival-order) subset every run."""
+    if len(unresolved) <= budget:
+        return unresolved
+    return rng.sample(unresolved, budget)
+
+
+def reduce_unresolved_observations(unresolved: List, modality_name: str, budget: int,
+                                    seed: int = config.RANDOM_SEED) -> List:
+    """Dispatches to the modality-appropriate reduction. A fresh Random(seed)
+    per call (rather than one shared/global RNG) keeps this deterministic
+    and reproducible across runs regardless of call order or how many other
+    modalities/cases were processed first."""
+    rng = random.Random(seed)
+    if modality_name == "logs":
+        return _reduce_unresolved_logs(unresolved, budget, rng)
+    return _reduce_unresolved_generic(unresolved, budget, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +292,7 @@ class GraphRAGPipeline:
     def __init__(self, llm=None):
         from agents.factory import get_llm_client, get_coordinator_llm_client
         self.llm = llm or get_llm_client()
-        self.coordinator_llm = get_coordinator_llm_client()  # None unless explicitly configured
+        self.coordinator_llm = get_coordinator_llm_client()
         self.agent_graph = build_agent_graph(self.llm, coordinator_llm=self.coordinator_llm,
                                               use_llm_agents=config.USE_LLM_SPECIALIST_AGENTS)
 
@@ -133,49 +303,46 @@ class GraphRAGPipeline:
         t0 = time.time()
         stats = {"case_id": case_id}
 
-        # --- Stage 0: ingestion -------------------------------------------------
+        # --- Stage 0: ingestion -------------------------------------------
         case = Case(case_id, cases_dir=cases_dir)
         stats["load_time_s"] = time.time() - t0
-        stats.update(case.load_times)  # per-modality breakdown: load_metrics_s, load_logs_s, etc.
+        stats.update(case.load_times)
 
-        # --- Module 1: Alert Parser ----------------------------------------------
+        # --- Module 1: Alert Parser ----------------------------------------
         t1 = time.time()
         parsed_alert = parse_alert(case)
         stats["alert_parse_time_s"] = time.time() - t1
 
-        # --- Module 2: Graph Retrieval --------------------------------------------
+        # --- Module 2: Graph Retrieval -------------------------------------
         t2 = time.time()
         graph_retriever = GraphRetriever(case.topology)
         graph_result = graph_retriever.retrieve(parsed_alert["entry_entity_id"])
         stats["graph_retrieval_time_s"] = time.time() - t2
         stats["candidate_subgraph_size"] = graph_result["subgraph"].number_of_nodes()
 
-        # Temporal pre-processing (not just a display label): boosts scores
-        # for candidates whose earliest evidence precedes the alert
-        # (candidate causes) and discounts entities whose evidence only
-        # appears after (likely downstream effects). Applied BEFORE the
-        # anchor is computed, so it directly influences entity choice, not
-        # just what the LLM happens to notice in a text block.
         if config.TEMPORAL_BOOST_ENABLED:
             graph_result["graph_scores"] = apply_temporal_boost(
                 graph_result["graph_scores"], case.observations, case.topology, case.alert.alert_timestamp)
             graph_result["ranked_entities"] = sorted(
                 graph_result["graph_scores"].items(), key=lambda kv: kv[1], reverse=True)
 
-        # --- Stage 0.5: Graph Anchor (cheap structural prior) ---------------------
+        # --- Stage 0.5: Graph Anchor --------------------------------------
         t2b = time.time()
+        propagation_ev = {"rows": [], "text": ""}
+        if config.USE_PROPAGATION_EVIDENCE:
+            t_prop = time.time()
+            propagation_ev = compute_propagation_evidence(
+                case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["propagation_evidence_time_s"] = round(time.time() - t_prop, 3)
+        stats["use_propagation_evidence"] = bool(config.USE_PROPAGATION_EVIDENCE)
+        stats["propagation_evidence_rows"] = len(propagation_ev["rows"])
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
-                                              use_llm=config.USE_LLM_GRAPH_ANCHOR)
+                                              use_llm=config.USE_LLM_GRAPH_ANCHOR,
+                                              propagation_text=propagation_ev["text"])
         stats["graph_anchor_time_s"] = time.time() - t2b
         stats["graph_anchor_entity_ids"] = "|".join(graph_anchor["anchor_entity_ids"])
         stats["graph_anchor_fault_type"] = graph_anchor["anchor_fault_type"]
 
-        # Factually-grounded propagation path (free -- pure graph algorithm,
-        # no LLM call) from the alert's entry entity (the symptom/"impact")
-        # to the anchor's top candidate (the "cause"). Maps directly onto
-        # RCA100's cause -> propagation -> impact reasoning structure: this
-        # path IS the "propagation" stage, computed from real topology
-        # edges rather than left for an LLM to invent from scratch.
         propagation_path = None
         if graph_anchor["anchor_entity_ids"] and parsed_alert["entry_entity_id"]:
             propagation_path = compute_propagation_path(
@@ -183,23 +350,57 @@ class GraphRAGPipeline:
         stats["propagation_path_hops"] = len(propagation_path) if propagation_path else 0
         stats["propagation_path"] = " -> ".join(propagation_path) if propagation_path else ""
 
-        # --- Module 3: Vector Retrieval (index build) -----------------------------
+        # --- TWIST: Trace-based anomaly scoring (GALA adaptation) ---------
+        # Computes 4 complementary service-level scores from distributed
+        # traces BEFORE any filtering/truncation, using the full raw
+        # observation list for maximum signal coverage:
+        #   c1 = self-anomaly (service's own spans anomalous)
+        #   c2 = trace impact (fraction of anomalous traces it appears in)
+        #   c3 = blast radius (downstream fan-out, propagation risk)
+        #   c4 = delay severity (magnitude of latency deviation)
+        # Adapted from GALA (Tian et al. 2025, arXiv:2508.12472). GALA uses
+        # TWIST for entity ranking only; we additionally expose the 4 scores
+        # as evidence for the Coordinator (via twist_summary in
+        # evidence_summary) so the LLM has quantitative anomaly profiles to
+        # reason over, not just text bullets.
+        t_twist = time.time()
+        twist_scores = compute_twist_scores(
+            case.observations.get("traces", []),
+            name_index=case.name_index,
+        )
+        twist_summary = twist_scores_to_summary(twist_scores, top_k=5)
+        stats["twist_time_s"] = round(time.time() - t_twist, 4)
+        # Save top TWIST entity and score for results.csv inspection
+        twist_top = twist_top_entity(twist_scores, name_index=case.name_index)
+        stats["twist_top_entity"] = twist_top[0] if twist_top else None
+        stats["twist_top_score"] = twist_top[1] if twist_top else None
+        if twist_scores:
+            top3_svcs = sorted(twist_scores, key=lambda s: twist_scores[s]["twist_score"], reverse=True)[:3]
+            stats["twist_c1_max"] = max(twist_scores[s]["c1_self_anomaly"] for s in top3_svcs)
+            stats["twist_c2_max"] = max(twist_scores[s]["c2_trace_impact"] for s in top3_svcs)
+            stats["twist_c3_max"] = max(twist_scores[s]["c3_blast_radius"] for s in top3_svcs)
+            stats["twist_c4_max"] = max(twist_scores[s]["c4_delay_severity"] for s in top3_svcs)
+        else:
+            stats["twist_c1_max"] = stats["twist_c2_max"] = stats["twist_c3_max"] = stats["twist_c4_max"] = None
+
+        # --- Proposal 2: TWIST-to-Text Evidence Synthesis ------------------
+        # Turns each service's TWIST c1..c4 into one synthesized sentence so
+        # the trace-derived anomaly signal becomes retrievable by the vector
+        # index's semantic search (see config.USE_TWIST_TEXT_EVIDENCE and
+        # twist_scoring.twist_scores_to_observations for the full rationale).
+        twist_text_observations = []
+        if config.USE_TWIST_TEXT_EVIDENCE:
+            twist_text_observations = twist_scores_to_observations(
+                twist_scores, name_index=case.name_index,
+                top_n=config.TWIST_TEXT_TOP_N_SERVICES,
+            )
+        stats["twist_text_observations"] = len(twist_text_observations)
+
+        # --- Module 3: Vector Retrieval ------------------------------------
         t3 = time.time()
         subgraph_node_ids = set(graph_result["subgraph"].nodes)
 
-        # Compute BEFORE the recency-cap in _filter_modality below discards
-        # early-window data -- a trend needs both ends of the window, and
-        # "keep only the most recent N" would frequently throw away exactly
-        # the earliest points a trend comparison needs.
         metrics_in_subgraph = [o for o in case.observations.get("metrics", []) if o.entity_id in subgraph_node_ids]
-        # Genuine baseline preprocessing: per-(entity, metric) mean from ALL
-        # pre-alert observations (not just whatever survives retrieval), so
-        # trend bullets can compare "current value" against a real
-        # historical baseline -- mirrors the ground truth's own "基线均值"
-        # (baseline mean) methodology (see compute_baseline_stats() for the
-        # full rationale). Uses the same subgraph-filtered-but-not-yet-
-        # truncated metrics list as compute_metric_trends() below: relevant
-        # entities only, but not restricted by the later recency cap.
         baseline_stats = compute_baseline_stats(metrics_in_subgraph, case.alert.alert_timestamp, case.topology)
         metric_trends = compute_metric_trends(metrics_in_subgraph, case.topology, baseline_stats=baseline_stats)
 
@@ -211,37 +412,32 @@ class GraphRAGPipeline:
         def _filter_modality(obs_list, modality_name):
             resolved = [o for o in obs_list if o.entity_id in subgraph_node_ids]
             unresolved = [o for o in obs_list if o.entity_id is None]
-            if config.DEV_QUICK_TEST:
-                unresolved = unresolved[:config.DEV_MAX_UNRESOLVED_PER_MODALITY]
+            # Relevance-based reduction (GALA-style), always applied -- not
+            # gated behind DEV_QUICK_TEST. See reduce_unresolved_observations
+            # docstring: previously this was unresolved[:300] and ONLY in dev
+            # mode, so a real (--no-dev-quick-test) run saw the entire
+            # unfiltered unresolved set, which is what caused ~3000s/case
+            # runtimes once DEV_QUICK_TEST was turned off. DEV_QUICK_TEST now
+            # only shrinks the budget for faster dev iteration; it no longer
+            # changes WHETHER reduction happens.
+            unresolved_budget = (config.DEV_MAX_UNRESOLVED_PER_MODALITY if config.DEV_QUICK_TEST
+                                  else config.MAX_RESOLVED_PER_MODALITY)
+            unresolved = reduce_unresolved_observations(unresolved, modality_name, unresolved_budget)
             if len(resolved) > config.MAX_RESOLVED_PER_MODALITY:
                 truncated_modalities.append(modality_name)
                 budget = config.MAX_RESOLVED_PER_MODALITY
                 if alert_ts is not None:
-                    # Temporally-stratified truncation around the alert time,
-                    # instead of naive "keep the temporally-latest N" -- the
-                    # latter can disproportionately discard early-window
-                    # evidence (candidate CAUSES, per the causal-precedence
-                    # principle behind TEMPORAL_BOOST_ENABLED) in favor of
-                    # late-stage noise, whenever a modality genuinely exceeds
-                    # the cap. Bias 60/40 toward before-alert evidence
-                    # (closest to the alert first, since a precursor right
-                    # before the alert is more diagnostic than one from the
-                    # very start of a long window), backfilling from the
-                    # other side if either side has fewer than its share.
                     def _naive_ts(o):
                         ts = o.timestamp
                         return ts.replace(tzinfo=None) if ts and ts.tzinfo else ts
                     before = sorted([o for o in resolved if _naive_ts(o) and _naive_ts(o) < alert_ts],
-                                     key=_naive_ts, reverse=True)  # closest-to-alert first
+                                     key=_naive_ts, reverse=True)
                     after = sorted([o for o in resolved if _naive_ts(o) and _naive_ts(o) >= alert_ts],
-                                    key=_naive_ts)  # closest-to-alert first
+                                    key=_naive_ts)
                     before_budget = int(budget * 0.6)
                     after_budget = budget - before_budget
                     kept_before = before[:before_budget]
                     kept_after = after[:after_budget]
-                    # Backfill unused budget from whichever side has more
-                    # available, so the full cap is still used even when
-                    # evidence is lopsided to one side of the alert.
                     leftover = budget - len(kept_before) - len(kept_after)
                     if leftover > 0:
                         kept_before += before[len(kept_before):len(kept_before) + leftover]
@@ -250,8 +446,6 @@ class GraphRAGPipeline:
                         kept_after += after[len(kept_after):len(kept_after) + leftover]
                     resolved = kept_before + kept_after
                 else:
-                    # No alert timestamp available for this case -- fall
-                    # back to the original recency-based truncation.
                     resolved = sorted(resolved, key=lambda o: o.timestamp or 0,
                                        reverse=True)[:budget]
             return resolved + unresolved
@@ -260,27 +454,47 @@ class GraphRAGPipeline:
             modality: _filter_modality(obs_list, modality)
             for modality, obs_list in case.observations.items()
         }
+        # twist_synth is NOT entity-filtered via _filter_modality() -- it's
+        # already small (<= TWIST_TEXT_TOP_N_SERVICES rows, one per service)
+        # and was synthesized directly from the full-case trace scan, so the
+        # same resolved/unresolved subgraph-membership filtering that
+        # protects against raw observation volume doesn't apply here.
+        if twist_text_observations:
+            filtered_observations["twist_synth"] = twist_text_observations
         stats["truncated_modalities"] = "|".join(truncated_modalities)
-        vector_index = build_index_from_observations(filtered_observations)
+        vector_modalities = ("logs", "metrics", "events")
+        if config.USE_TWIST_TEXT_EVIDENCE and twist_text_observations:
+            vector_modalities = vector_modalities + ("twist_synth",)
+        if config.USE_VECTOR_RETRIEVAL:
+            vector_index = build_index_from_observations(filtered_observations, modalities=vector_modalities)
+        else:
+            vector_index = build_index_from_observations({}, modalities=vector_modalities)   # empty index (ablation)
         stats["vector_index_build_time_s"] = time.time() - t3
         stats["indexed_observations"] = vector_index.index.ntotal
+        # How much of retrieval/vector.py's text-dedup optimization paid off
+        # for this case -- 1.0 means every text was unique (no savings),
+        # lower means many repeated log/metric/span strings were collapsed
+        # to a single encode() call. Helps explain why vector_index_build_time_s
+        # varies a lot case-to-case even at the same observation count.
+        stats["vector_texts_submitted"] = vector_index.texts_submitted
+        stats["vector_texts_encoded_raw"] = vector_index.texts_encoded_raw
+        stats["vector_embed_dedup_ratio"] = (
+            round(vector_index.texts_encoded_raw / vector_index.texts_submitted, 4)
+            if vector_index.texts_submitted else None
+        )
         stats["observations_before_graph_filter"] = sum(len(v) for v in case.observations.values())
-        # Whether MAX_OBSERVATIONS_PER_INDEX actually capped the vector
-        # index for this case (indexed_observations hitting the ceiling
-        # exactly, vs the natural/uncapped total being smaller).
         total_filtered = sum(len(v) for v in filtered_observations.values())
         stats["vector_index_was_capped"] = total_filtered > config.MAX_OBSERVATIONS_PER_INDEX
 
-        # --- Module 4: Hybrid Retrieval --------------------------------------------
+        # --- Module 4: Hybrid Retrieval -----------------------------------
         t4 = time.time()
         hybrid = HybridRetriever(graph_result, vector_index)
         queries = [parsed_alert["alert_text"]] + parsed_alert["keywords"][:5]
-        vector_based_items = hybrid.retrieve_multi(queries, top_k=config.VECTOR_TOP_K)
+        vector_based_items = (hybrid.retrieve_multi(queries, top_k=config.VECTOR_TOP_K)
+                              if config.USE_VECTOR_RETRIEVAL else [])
+        stats["use_vector_retrieval"] = bool(config.USE_VECTOR_RETRIEVAL)
+        stats["embedding_model"] = config.EMBEDDING_MODEL
 
-        # Guarantee representation for structurally-central entities (e.g. a
-        # root cause 2-3 hops upstream) regardless of whether their text
-        # semantically resembles the alert wording -- see graph_direct_evidence
-        # docstring for why this is necessary on top of vector_based_items alone.
         service_membership = build_service_membership_index(case.topology)
         direct_items = graph_direct_evidence(filtered_observations, graph_result["graph_scores"],
                                               top_n_entities=25, max_per_entity=6,
@@ -293,57 +507,36 @@ class GraphRAGPipeline:
         stats["evidence_items_from_vector"] = len(vector_based_items)
         stats["evidence_items_from_graph_direct"] = len(direct_items)
 
-        # Semantic features for the fault-group classifier (see
-        # scripts/train_fault_group_classifier.py) -- per-modality evidence
-        # counts specifically, since the 30-case modality audit
-        # (scripts/audit_fault_groups.py) found Events correlates strongly
-        # with K8s lifecycle faults (5/5 usable there vs near-zero
-        # elsewhere) while being a near-useless raw signal for other
-        # groups -- exactly the kind of category-discriminating feature a
-        # classifier can exploit that pure volume/timing features can't.
         modality_counts = Counter(it.observation.modality for it in evidence_items)
-        for m in ("metrics", "logs", "traces", "events", "alerts"):
+        for m in ("metrics", "logs", "traces", "events", "alerts", "twist_synth"):
             stats[f"evidence_count_{m}"] = modality_counts.get(m, 0)
         stats["log_error_pattern_count"] = sum(
             1 for it in evidence_items
             if it.observation.modality == "logs" and ERROR_PATTERN.search(it.observation.text))
 
-        # Metric-trend direction counts (from compute_metric_trends above) --
-        # a fault whose evidence is dominated by "increase" trends looks
-        # structurally different (as a feature vector) from one dominated
-        # by "dropped to zero" or "new nonzero" signals, even before any
-        # LLM reads the text.
         trend_bullets = [b for bullets in metric_trends.values() for b in bullets]
         stats["trend_increase_count"] = sum(1 for b in trend_bullets if "increase" in b)
         stats["trend_decrease_count"] = sum(1 for b in trend_bullets if "decrease" in b)
         stats["trend_new_nonzero_count"] = sum(1 for b in trend_bullets if "new nonzero" in b)
         stats["trend_dropped_zero_count"] = sum(1 for b in trend_bullets if "dropped to zero" in b)
 
-        # --- Module 5: Evidence Summarizer -----------------------------------------
+        # --- Module 5: Evidence Summarizer --------------------------------
         t5 = time.time()
         evidence_summary = summarize_evidence(evidence_items, alert_timestamp=case.alert.alert_timestamp,
                                                metric_trends=metric_trends)
+
+        # Inject TWIST summary as an additional evidence block -- placed
+        # AFTER the per-entity metric/log/trace bullets so the Coordinator
+        # sees both raw evidence AND the quantitative anomaly profile.
+        # Keyed as "_twist" (underscore prefix = not a real entity_id) so
+        # the Coordinator prompt renders it as a separate section.
+        if twist_summary:
+            evidence_summary["_twist_scores"] = [twist_summary]
+        if propagation_ev["text"]:
+            evidence_summary["_propagation"] = [propagation_ev["text"]]
+
         stats["summarization_time_s"] = time.time() - t5
 
-        # Keyword-based fault-type detection: scans the RAW evidence text
-        # (before summarization -- the summarizer's own bullet compression
-        # can drop the exact phrase a keyword needs) for literal terms tied
-        # to each of the 28 fault types (see data.taxonomy.FAULT_TYPE_KEYWORDS).
-        # Deterministic, not embedding-similarity-based -- targets exactly
-        # the failure mode found earlier (the removed shortlist mechanism
-        # missing domain terms like "valkey" that generic embeddings don't
-        # associate with "redisUnavailable").
-        #
-        # SCOPED to the top-ranked candidate entities only (by hybrid_score),
-        # not the entire evidence pool. evidence_items routinely spans 100+
-        # items across dozens of different services (top_n_entities=25 in
-        # graph_direct_evidence, plus vector hits) -- if even one item from
-        # an unrelated service has a genuine but irrelevant "500" (normal
-        # background noise in any distributed system), it was flooding
-        # httpError5xx as a false "detection" on nearly every case
-        # regardless of the actual injected fault. This is a scope bug, not
-        # a regex bug: a keyword only means something if it's near the
-        # SUSPECTED root cause, not anywhere in the whole retrieved pool.
         top_entity_ids = set()
         for it in sorted(evidence_items, key=lambda x: x.hybrid_score, reverse=True):
             if it.observation.entity_id:
@@ -356,78 +549,30 @@ class GraphRAGPipeline:
         keyword_fault_candidates = detect_fault_keywords(scoped_evidence_text)[:5]
         stats["keyword_fault_candidates"] = "|".join(keyword_fault_candidates)
 
-        # Two-stage fault classification: predict the coarse group (0.66-0.68
-        # LOOCV accuracy on 103 cases, stable across runs where the LLM's own
-        # end-to-end fault_group accuracy swung 0.39-0.44 -- see
-        # findings_session_20260728.md Section 4) BEFORE the Coordinator
-        # runs, so its taxonomy prompt can be narrowed to that group's 3-7
-        # types instead of all 28. Soft narrowing, not a hard restriction --
-        # see coordinator_node in agents/multi_agent.py for why: the
-        # earlier graph_anchor hard-override design (forcing its own
-        # fault_type guess with no escape hatch) was found to collapse to a
-        # single generic answer, since the anchor has no evidence text to
-        # ground a fault-type decision in. A classifier with real accuracy
-        # deserves more trust than that, but still not unconditional
-        # override, given ~1/3 of predictions are wrong.
-        classifier_prediction = predict_fault_group(stats, case_id=case_id)
-        if classifier_prediction:
-            stats["classifier_predicted_group"] = classifier_prediction[0]
-            stats["classifier_confidence"] = classifier_prediction[1]
-        else:
-            stats["classifier_predicted_group"] = None
-            stats["classifier_confidence"] = None
-
-        # Tier-2 classifier: fine-grained type WITHIN the group just
-        # predicted above. Masked to only the ~3-7 types belonging to that
-        # group (see pipeline/fault_type_classifier.py) -- this is what
-        # makes the sparse per-type training data (several types have only
-        # 1 example in the full 103-case corpus) usable at all.
-        type_prediction = predict_fault_type(stats, known_group=stats["classifier_predicted_group"], case_id=case_id)
-        if type_prediction:
-            stats["classifier_predicted_type"] = type_prediction[0]
-            stats["classifier_type_confidence"] = type_prediction[1]
-        else:
-            stats["classifier_predicted_type"] = None
-            stats["classifier_type_confidence"] = None
-
-        # Case-Based Reasoning fallback (see pipeline/case_based_reasoning.py):
-        # nearest-neighbor lookup that only surfaces a hint when the closest
-        # historical case is one of the singleton (n=1) fault types the
-        # RandomForest tier-2 classifier structurally cannot learn from.
-        # Motivated by MicroCBR (Liu et al. 2022) -- complements, doesn't
-        # replace, the classifier above.
-        cbr_result = find_similar_case(stats, case_id=case_id)
-        if cbr_result:
-            stats["cbr_suggested_type"] = cbr_result[0]
-            stats["cbr_similarity"] = cbr_result[1]
-            stats["cbr_matched_case_id"] = cbr_result[2]
-        else:
-            stats["cbr_suggested_type"] = None
-            stats["cbr_similarity"] = None
-            stats["cbr_matched_case_id"] = None
-
-        # Zero-shot semantic matching (see pipeline/zero_shot_matching.py):
-        # compares the same scoped evidence text used for keyword detection
-        # against fault-type DEFINITION text (not examples) -- works even
-        # for types with zero labeled examples. Scoped to a candidate
-        # group -- prefer the tier-1 classifier's prediction when
-        # available, but fall back to graph_anchor's own fault_type guess
-        # (converted to its group) when the classifier .pkl isn't present.
-        # This fallback matters: without it, zero-shot silently depended on
-        # the classifier for group scoping, defeating its whole point of
-        # working without any trained/labeled-example model at all.
-        zeroshot_group = stats["classifier_predicted_group"]
-        if not zeroshot_group and graph_anchor.get("anchor_fault_type") not in (None, "unknown"):
-            zeroshot_group = fault_group(graph_anchor["anchor_fault_type"])
-        zeroshot_result = zero_shot_type_match(scoped_evidence_text, zeroshot_group)
-        if zeroshot_result:
-            stats["zeroshot_suggested_type"] = zeroshot_result[0]
-            stats["zeroshot_similarity"] = zeroshot_result[1]
+        # Zero-shot semantic matching -- the ONLY structured fault-type
+        # signal reaching the Coordinator now. The two-stage RandomForest
+        # classifier, its CBR fallback, and TWIST-guided narrowing were all
+        # removed: each was trained or hand-tuned on RCA100's OWN
+        # ground-truth labels (even the classifier's leave-one-out
+        # cross-validation only avoids literal same-case leakage, not
+        # overfitting to this specific 103-case benchmark's label
+        # distribution), which the project treats as invalid for evaluating
+        # genuine agentic reasoning. zero_shot_matching.py has no such
+        # dependency -- it only compares evidence text against each fault
+        # type's public taxonomy definition, so it works standalone with no
+        # group hint (searches all 28 types directly) and needs no prior
+        # pipeline run or trained model.
+        zeroshot_topk = zero_shot_type_match_topk(scoped_evidence_text, candidate_group=None, k=3)
+        if zeroshot_topk:
+            stats["zeroshot_suggested_type"] = zeroshot_topk[0][0]
+            stats["zeroshot_similarity"] = zeroshot_topk[0][1]
+            stats["zeroshot_topk"] = "|".join(f"{t}:{s}" for t, s in zeroshot_topk)
         else:
             stats["zeroshot_suggested_type"] = None
             stats["zeroshot_similarity"] = None
+            stats["zeroshot_topk"] = None
 
-        # --- Module 6: Multi-Agent + Coordinator -----------------------------------
+        # --- Module 6: Multi-Agent + Coordinator --------------------------
         t6 = time.time()
         neighbors = graph_result.get("neighbors", {})
         candidate_entities = [eid for eid, _ in graph_result["ranked_entities"][:20]]
@@ -441,14 +586,13 @@ class GraphRAGPipeline:
             "graph_anchor": graph_anchor,
             "propagation_path": propagation_path,
             "keyword_fault_candidates": keyword_fault_candidates,
-            "classifier_predicted_group": stats["classifier_predicted_group"],
-            "classifier_confidence": stats["classifier_confidence"],
-            "classifier_predicted_type": stats["classifier_predicted_type"],
-            "classifier_type_confidence": stats["classifier_type_confidence"],
-            "cbr_suggested_type": stats["cbr_suggested_type"],
-            "cbr_similarity": stats["cbr_similarity"],
             "zeroshot_suggested_type": stats["zeroshot_suggested_type"],
             "zeroshot_similarity": stats["zeroshot_similarity"],
+            "zeroshot_topk": zeroshot_topk,
+            # TWIST top entity for optional Coordinator re-ranking hint
+            "twist_top_entity": stats.get("twist_top_entity"),
+            "twist_top_score": stats.get("twist_top_score"),
+            "propagation_text": propagation_ev["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
@@ -465,20 +609,48 @@ class GraphRAGPipeline:
         final = final_state.get("final_result") or {}
         agent_findings = build_agent_findings_list(final_state)
 
-        # Split override by task, NOT a uniform anchor-wins-everything rule.
-        # entity_id: anchor is demonstrably strong here (pure topology
-        # ranking is a good WHERE signal, confirmed by entity_localization
-        # jumping to exact matches like t002=1.0).
-        # fault_type: anchor is structurally blind here -- its prompt has
-        # NO evidence text at all (only entity_id:score pairs), so it has
-        # zero signal to distinguish "Redis unavailable" from "node OOM"
-        # from "traffic surge" and collapsed to the same generic
-        # "Application logic"-group guess (often literally
-        # "F006-trafficSurge") across every case regardless of the real
-        # fault. The Coordinator DOES see real evidence bullets, so
-        # fault_type stays its responsibility, not the anchor's.
+        sc_stats = final_state.get("self_consistency_stats") or {}
+        if sc_stats:
+            stats["self_consistency_n_samples"] = sc_stats.get("n_samples")
+            stats["self_consistency_n_valid"] = sc_stats.get("n_valid")
+            stats["self_consistency_agreement"] = sc_stats.get("agreement")
+            stats["self_consistency_votes"] = json.dumps(sc_stats.get("votes", {}))
+
+        ts_stats = final_state.get("two_stage_stats") or {}
+        if ts_stats:
+            s1_type = ts_stats.get("stage1_fault_type")
+            stats["stage1_fault_type"] = s1_type
+            stats["stage1_entity_ids"] = "|".join(
+                str(e) for e in (ts_stats.get("stage1_entity_ids") or []))
+            stats["stage1_confidence"] = ts_stats.get("stage1_confidence")
+            stats["stage1_parse_error"] = ts_stats.get("stage1_parse_error")
+            # Faithfulness probes (no GT involved -- prediction vs prediction):
+            # did exposure to the anchor change the evidence-only answer, and
+            # does the evidence-only answer already equal the anchor's guess.
+            stats["stage1_vs_final_flipped"] = (
+                s1_type != final.get("predicted_fault_type"))
+            stats["stage1_matches_anchor"] = (
+                s1_type == graph_anchor.get("anchor_fault_type"))
+
+        # Record which Coordinator-ablation config actually ran for THIS case,
+        # read straight from config/env at call time. Added 2026-10-04 after a
+        # mix-up where a results.csv was re-sent and assumed to be from the
+        # COORDINATOR_TWO_STAGE_ANCHOR=1 run when it wasn't -- with these
+        # columns saved to results.csv, which config produced a given file is
+        # verifiable from the file itself instead of relying on remembering
+        # which shell command was run.
+        stats["coordinator_two_stage_anchor"] = bool(config.COORDINATOR_TWO_STAGE_ANCHOR)
+        stats["coordinator_anchor_confirm_bias"] = bool(config.COORDINATOR_ANCHOR_CONFIRM_BIAS)
+        stats["self_consistency_enabled"] = bool(config.USE_SELF_CONSISTENCY)
+
         anchor_entities = graph_anchor.get("anchor_entity_ids") or []
-        if anchor_entities:
+        coord_entities = normalize_entity_ids(
+            final.get("predicted_entity_ids", []) or [], case.topology, case.name_index)
+        stats["entity_source"] = config.ENTITY_SOURCE
+        if config.ENTITY_SOURCE == "coordinator" and coord_entities:
+            predicted_entity_ids = coord_entities
+            used_fallback = False
+        elif anchor_entities:
             predicted_entity_ids = anchor_entities
             used_fallback = False
         else:
@@ -488,6 +660,17 @@ class GraphRAGPipeline:
             used_fallback = not llm_predicted_entities
         predicted_fault_type = final.get("predicted_fault_type", "unknown")
         stats["used_entity_fallback"] = used_fallback
+
+        # EVALUATION-ONLY diagnostics (no effect on predictions or on the
+        # official score): record the entity each alternative source WOULD
+        # have predicted, so scoring.full_case_report can report a
+        # counterfactual entity_localization per source. No GT is touched here.
+        _coord_ents = normalize_entity_ids(
+            final.get("predicted_entity_ids", []) or [], case.topology, case.name_index)
+        stats["alt_entity_coordinator"] = "|".join(_coord_ents)
+        stats["alt_entity_anchor"] = "|".join(anchor_entities)
+        stats["alt_entity_twist_top"] = stats.get("twist_top_entity") or ""
+        stats["alt_entity_entry"] = parsed_alert.get("entry_entity_id") or ""
 
         return RCAResult(
             case_id=case_id,

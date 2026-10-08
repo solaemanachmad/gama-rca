@@ -9,7 +9,13 @@ Comparison systems for the ablation study (RQ1-RQ5):
   4. multi_agent_only     - full multi-agent system but fed UNFILTERED
                             evidence (no hybrid ranking) to isolate the
                             retrieval contribution from the agent contribution
-  5. proposed_hybrid      - full framework -> see pipeline.GraphRAGPipeline
+  5. sea_rca              - Single-Shot Evidence-Augmented RCA: graphrag_only's
+                            topology prompt + a SMALL hybrid-ranked evidence
+                            slice, one LLM call. Tests whether proposed_hybrid's
+                            reasoning_process/explainability edge can be had
+                            without its 6-call multi-agent cost (see sea_rca()
+                            docstring for the 8-case finding that motivated it).
+  6. proposed_hybrid      - full framework -> see pipeline.GraphRAGPipeline
 
 Each baseline returns an RCAResult with the SAME schema as the proposed
 framework so evaluation.py can score all five identically.
@@ -21,8 +27,8 @@ from typing import Dict, List
 import config
 from data.loader import Case, normalize_entity_ids
 from retrieval.graph import GraphRetriever
-from retrieval.vector import build_case_index, build_index_from_observations
-from retrieval.hybrid import fuse_scores
+from retrieval.vector import build_case_index, build_index_from_observations, VectorIndex
+from retrieval.hybrid import fuse_scores, HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, render_summary_text
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
 from agents.llm_client import LLMClient
@@ -128,6 +134,100 @@ def graphrag_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DI
     return _to_rca_result(case_id, result, stats, topology=case.topology, name_index=case.name_index)
 
 
+SEA_RCA_SYSTEM_PROMPT = (
+    "You are an SRE performing root cause analysis using BOTH topology-derived "
+    "candidate entities AND a small set of retrieved log/metric/event evidence "
+    "snippets, in a single pass. Respond ONLY with valid JSON: "
+    '{"predicted_entity_ids": [], "predicted_fault_type": "", '
+    '"reasoning_chain": [], "confidence": 0.0}'
+)
+
+
+def sea_rca(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR,
+            max_observations_per_index: int = None, top_k_evidence: int = None) -> RCAResult:
+    """Single-Shot Evidence-Augmented RCA (SEA-RCA).
+
+    Motivated by an 8-case head-to-head (t001/t013/t026/t039/t052/t064/t077/
+    t090, 2026-10-02): graphrag_only (1 LLM call, topology only) BEATS
+    proposed_hybrid on entity_localization (0.3203 vs 0.2383 mean) and TIES
+    on fault_identification (0.25 vs 0.25), but scores near-zero on
+    reasoning_process (0.018 vs 0.381 mean) because it never sees any
+    evidence text -- reasoning_process/explainability specifically reward an
+    evidence-grounded cause -> propagation -> impact chain, not just a
+    correct final entity/type. Separately, pipeline.py's predicted_entity_ids
+    assignment already overrides the Coordinator's own entity pick with
+    graph_anchor's whenever graph_anchor produces one -- so proposed_hybrid's
+    4 specialist-agent calls + Coordinator call (5 of its 6 total_calls)
+    contribute ZERO measured entity_localization value in that same sample.
+
+    SEA_RCA tests whether folding a SMALL amount of hybrid-ranked evidence
+    (top-`top_k_evidence` items, from an index capped at
+    `max_observations_per_index` -- both deliberately independent of
+    config.MAX_OBSERVATIONS_PER_INDEX, see config/__init__.py) into
+    graphrag_only's single prompt recovers most of proposed_hybrid's
+    reasoning_process/explainability value, at a cost close to graphrag_only's
+    (1 LLM call, a small fast index) rather than proposed_hybrid's (6 calls,
+    a 10k-capped index). If it does, that's a direct speed+cost contribution:
+    comparable accuracy, a fraction of the wall-clock time and token spend."""
+    llm.reset_usage()
+    t0 = time.time()
+    case = Case(case_id, cases_dir=cases_dir)
+    parsed = parse_alert(case)
+
+    graph_retriever = GraphRetriever(case.topology)
+    graph_result = graph_retriever.retrieve(parsed["entry_entity_id"])
+    ranked = graph_result["ranked_entities"][:20]
+    ranked_text = "\n".join(f"  {eid}: score={score:.4f}" for eid, score in ranked)
+
+    cap = max_observations_per_index or config.SEA_RCA_MAX_OBSERVATIONS_PER_INDEX
+    top_k = top_k_evidence or config.SEA_RCA_TOP_K_EVIDENCE
+
+    observations = case.observations
+    if config.DEV_QUICK_TEST:
+        observations = {m: obs[:config.DEV_MAX_UNRESOLVED_PER_MODALITY]
+                         for m, obs in observations.items()}
+
+    # Small, independent vector index -- NOT build_index_from_observations()
+    # (that reads config.MAX_OBSERVATIONS_PER_INDEX, tuned for
+    # proposed_hybrid's own needs). Still only logs/metrics/events, matching
+    # the rest of the pipeline's vector-modality scope.
+    vector_index = VectorIndex(max_observations=cap)
+    for modality in ("logs", "metrics", "events"):
+        vector_index.add(observations.get(modality, []))
+
+    hybrid = HybridRetriever(graph_result, vector_index)
+    queries = [parsed["alert_text"]] + parsed["keywords"][:5]
+    vector_based_items = hybrid.retrieve_multi(queries, top_k=top_k)
+
+    direct_items = graph_direct_evidence(observations, graph_result["graph_scores"],
+                                          top_n_entities=10, max_per_entity=2,
+                                          force_include=graph_result.get("boosted_entities"))
+    evidence_items = merge_evidence(vector_based_items, direct_items)[:top_k]
+
+    summary = summarize_evidence(evidence_items, alert_timestamp=case.alert.alert_timestamp)
+    summary_text = render_summary_text(summary)
+
+    prompt = (
+        f"Alert: {parsed['alert_text']}\n"
+        f"Entry entity: {parsed['entry_entity_id']}\n"
+        f"Top-20 topology-ranked candidate entities (entity_id: propagation_score):\n{ranked_text}\n\n"
+        f"Top-{len(evidence_items)} retrieved evidence snippets (hybrid graph+vector ranked):\n{summary_text}\n\n"
+        f"{taxonomy_prompt_block()}\n\n"
+        f"Diagnose the root cause. Build an explicit cause -> propagation -> impact "
+        f"reasoning chain, citing the specific evidence and/or entities above that support it."
+    )
+    result = llm.generate_json(prompt, system=SEA_RCA_SYSTEM_PROMPT)
+    stats = {
+        "total_pipeline_time_s": time.time() - t0,
+        "candidate_subgraph_size": graph_result["subgraph"].number_of_nodes(),
+        "evidence_items_retrieved": len(evidence_items),
+        "indexed_observations": vector_index.index.ntotal,
+        **llm.usage_stats(),
+    }
+    return _to_rca_result(case_id, result, stats, evidence_items=evidence_items,
+                           topology=case.topology, name_index=case.name_index)
+
+
 def multi_agent_only(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR,
                       max_raw_observations: int = 200) -> RCAResult:
     """Full multi-agent + coordinator pipeline, but evidence is an
@@ -209,5 +309,6 @@ BASELINE_REGISTRY = {
     "standard_rag": standard_rag,
     "graphrag_only": graphrag_only,
     "multi_agent_only": multi_agent_only,
+    "sea_rca": sea_rca,
     # "proposed_hybrid" is run via pipeline.GraphRAGPipeline, not this registry
 }

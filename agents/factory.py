@@ -18,7 +18,8 @@ def get_llm_client():
         return GeminiClient(model_name=config.GEMINI_MODEL_NAME)
     if config.LLM_BACKEND == "kaggle":
         from agents.kaggle_client import KaggleTransformersClient
-        return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE)
+        return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE,
+                                         local_path=config.KAGGLE_MODEL_LOCAL_PATH)
     from agents.llm_client import LLMClient
     return LLMClient()
 

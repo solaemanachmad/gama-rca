@@ -10,12 +10,12 @@ A Coordinator agent then fuses findings into the final RCAResult via the LLM.
 Install: pip install langgraph
 """
 
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional, Tuple, TypedDict
 import json
 
 from langgraph.graph import StateGraph, END
 
-from data.taxonomy import taxonomy_prompt_block, taxonomy_prompt_block_for_group
+from data.taxonomy import taxonomy_prompt_block
 
 import config
 from schema import AgentFinding, RCAResult
@@ -45,35 +45,42 @@ class AgentState(TypedDict, total=False):
                                                    # (see data.taxonomy.detect_fault_keywords)
                                                    # -- a textual-evidence-grounded companion
                                                    # to graph_anchor's purely structural prior
-    classifier_predicted_group: Optional[str]       # fault_group predicted by the trained
-                                                   # structured-feature classifier (see
-                                                   # pipeline/fault_group_classifier.py),
-                                                   # None if no classifier has been trained yet
-    classifier_confidence: Optional[float]          # the classifier's own confidence (max
-                                                   # predict_proba) for classifier_predicted_group
-    classifier_predicted_type: Optional[str]        # fine-grained (28-type) prediction from the
-                                                   # tier-2 classifier, masked to only the types
-                                                   # within classifier_predicted_group (see
-                                                   # pipeline/fault_type_classifier.py)
-    classifier_type_confidence: Optional[float]     # renormalized confidence among just the
-                                                   # in-group candidates (not the diluted raw
-                                                   # 28-way predict_proba)
-    cbr_suggested_type: Optional[str]               # nearest-neighbor case-based-reasoning
-                                                   # suggestion, only present for singleton
-                                                   # (n=1) fault types the tier-2 classifier
-                                                   # cannot learn (see
-                                                   # pipeline/case_based_reasoning.py)
-    cbr_similarity: Optional[float]                 # cosine similarity to the matched case
     zeroshot_suggested_type: Optional[str]          # zero-shot match against fault-type
                                                    # DEFINITIONS (not examples) -- see
                                                    # pipeline/zero_shot_matching.py, works
-                                                   # even for types with zero examples
+                                                   # even for types with zero examples and no
+                                                   # trained model. Since the GT-trained
+                                                   # classifier, its CBR fallback, and the
+                                                   # GT-tuned TWIST group narrowing were all
+                                                   # removed (each depended on RCA100's own
+                                                   # ground-truth labels), this is now the
+                                                   # ONLY structured fault-type hint reaching
+                                                   # the Coordinator.
     zeroshot_similarity: Optional[float]
+    zeroshot_topk: Optional[List[tuple]]            # up to top-3 (fault_type, similarity)
+                                                   # pairs from zero_shot_type_match_topk(),
+                                                   # a ranked shortlist rather than a single
+                                                   # forced guess
+    twist_top_entity: Optional[str]                 # highest-TWIST-score entity (pure trace
+                                                   # statistics, no GT dependency -- see
+                                                   # pipeline/twist_scoring.py)
+    twist_top_score: Optional[float]
+    propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
+                                                   # pipeline/propagation_evidence.py)
     metrics_finding: Optional[dict]
     logs_finding: Optional[dict]
     trace_finding: Optional[dict]
     topology_finding: Optional[dict]
     final_result: Optional[dict]
+    two_stage_stats: Optional[dict]                 # Stage-1 (anchor-free) answer from
+                                                   # _two_stage_coordinate, kept so the
+                                                   # Stage1-vs-final flip rate (an
+                                                   # explanation-faithfulness probe) can
+                                                   # be computed post hoc
+    self_consistency_stats: Optional[dict]          # diagnostics from coordinator_node's
+                                                   # self-consistency ensemble (see
+                                                   # _self_consistency_sample below) --
+                                                   # {n_samples, n_valid, votes, agreement}
 
 
 AGENT_SYSTEM_PROMPT = (
@@ -247,175 +254,41 @@ def coordinator_node(llm: LLMClient):
             "topology_agent": state.get("topology_finding"),
         }, indent=2)
 
-        # Two-stage classification: if the trained structured-feature
-        # classifier made a confident prediction (see
-        # pipeline/fault_group_classifier.py), narrow the taxonomy shown
-        # here to just that group's 3-7 types instead of all 28. This is
-        # SOFT narrowing, not a hard restriction: the LLM can still name a
-        # type outside the list if evidence clearly contradicts the
-        # classifier, with justification in reasoning_chain. This is
-        # deliberately different from the earlier graph_anchor
-        # hard-override design (forcing its own fault_type guess with no
-        # escape hatch), which collapsed to one generic answer every time
-        # because the anchor has no evidence text to ground a fault-type
-        # decision in -- the classifier's LOOCV-validated 0.66-0.68
-        # accuracy earns more trust, but not unconditional override, since
-        # roughly 1/3 of its predictions are still wrong.
+        # Fault-type hint construction. Previously this narrowed the shown
+        # taxonomy using a two-stage RandomForest classifier (group, then
+        # type-within-group) plus a case-based-reasoning fallback -- both
+        # removed. Even with leave-one-out cross-validation, training or
+        # tuning on RCA100's own ground-truth labels (even for OTHER cases
+        # within this same closed 103-case benchmark) is overfitting to the
+        # benchmark rather than a genuine transferable signal, which
+        # undermines RCA100's validity as an agentic-reasoning benchmark.
+        # See pipeline/zero_shot_matching.py and pipeline/twist_scoring.py's
+        # module docstrings for why those two remain: both are grounded
+        # only in public, per-type-invariant information (the taxonomy's
+        # own definitions; each case's own trace statistics), never in
+        # RCA100's labels.
         #
-        # Falls back to the full list (same as before) when no classifier
-        # has been trained yet, or its confidence is low (<0.3 -- barely
-        # above the 1/6 random-guess floor for 6 classes, not worth
-        # narrowing on).
-        classifier_group = state.get("classifier_predicted_group")
-        classifier_conf = state.get("classifier_confidence") or 0.0
-        if classifier_group and classifier_conf >= 0.3:
-            # Escape-hatch strength now scales with confidence. Found via a
-            # 10-case spot check: at HIGH confidence (e.g. 84.7% for
-            # 'Cloud resource' in one case), the Coordinator still deviated
-            # to its default Application-logic/trafficSurge bias under the
-            # earlier flat "prefer, but you MAY deviate" wording -- the
-            # instruction wasn't forceful enough to overcome the model's own
-            # prior at high confidence. Threshold lowered from 0.6 to 0.45
-            # after a follow-up 10-case check: cases with confidence
-            # 0.40-0.56 (t001/t002/t006/t009) still fell back to the LLM's
-            # default favorite-type-per-group bias (trafficSurge,
-            # cacheBreakdown, fullGC) under the softer wording, while a
-            # 0.58-confidence case succeeded anyway -- moderate-confidence
-            # predictions appear to deserve the same firm treatment as
-            # high-confidence ones, not just >=0.6. Below 0.45, keep the
-            # framing (classifier is only modestly more likely to be right
-            # than not, so genuine deviation should stay easy).
-            if classifier_conf >= 0.45:
-                deviation_clause = (
-                    f"This is a HIGH-confidence prediction ({classifier_conf:.0%}) from a "
-                    f"classifier validated at 0.66-0.68 accuracy via cross-validation -- "
-                    f"noticeably more reliable than your own unaided guess tends to be on "
-                    f"this benchmark. Only pick a fault type outside this list if the "
-                    f"specialist findings contain a SPECIFIC, named piece of evidence that "
-                    f"directly contradicts it (cite it explicitly in reasoning_chain). "
-                    f"'the evidence looks like a generic traffic/error pattern' is NOT "
-                    f"sufficient justification to override this prediction."
-                )
-            else:
-                deviation_clause = (
-                    f"Prefer a type from this list, but you MAY pick any of the 28 RCA100 "
-                    f"fault types instead if the specialist findings clearly point "
-                    f"elsewhere; explain why in your reasoning_chain if so."
-                )
-            fault_hint = (
-                taxonomy_prompt_block_for_group(classifier_group)
-                + f"\n(Structured-feature classifier prediction: '{classifier_group}' "
-                  f"at {classifier_conf:.0%} confidence. {deviation_clause})"
-            )
-        else:
-            fault_hint = taxonomy_prompt_block()
-
-        # Tier-2: fine-grained TYPE within the already-narrowed group.
-        # Targets a specific failure pattern found empirically across
-        # several spot checks: even once the group is correctly narrowed,
-        # the Coordinator tends to collapse to one "favorite" type within
-        # it regardless of case-specific evidence (e.g. F009-cacheBreakdown
-        # guessed for BOTH t002 and t010 when the real answer was
-        # F029-redisUnavailable in both; F006-trafficSurge as the default
-        # for nearly every Application-logic case). Same confidence-scaled
-        # escape-hatch pattern as the group-level hint above -- soft
-        # narrowing, not a hard override.
-        classifier_type = state.get("classifier_predicted_type")
-        classifier_type_conf = state.get("classifier_type_confidence") or 0.0
-        if classifier_type and classifier_type_conf >= 0.2:
-            # Threshold lowered from 0.4 to 0.2, and confidence-scaled
-            # language added -- same pattern that fixed tier-1's escape-
-            # hatch (t008 case). Real-run evidence: several cases had
-            # tier-2 confidence 0.24-0.29 (just below the old 0.4 cutoff),
-            # giving the Coordinator NO hint at all and falling back to its
-            # default bias; the one case with high confidence (0.91)
-            # correctly followed the hint (F026-nodeCpuHigh, exact match).
-            # Tier-2 confidence is inherently lower on average than tier-1
-            # given sparser per-type training data, so both the activation
-            # threshold and the "firm" tier are set lower than tier-1's.
-            if classifier_type_conf >= 0.45:
-                deviation_clause = (
-                    "This is a HIGH-confidence prediction, comparable to cases where "
-                    "this classifier has been exactly correct. Only pick a different type "
-                    "within the group if a specialist finding cites SPECIFIC evidence "
-                    "contradicting it (name it in reasoning_chain)."
-                )
-            else:
-                deviation_clause = (
-                    "Prefer this type, but you may pick a different one within the same "
-                    "group if specialist findings clearly point elsewhere."
-                )
-            fault_hint += (
-                f"\n\nTIER-2 PREDICTION: among the group above, the classifier's specific "
-                f"guess is '{classifier_type}' ({classifier_type_conf:.0%} confidence among "
-                f"the in-group candidates). {deviation_clause}"
-            )
-
-        # Case-Based Reasoning hint (see pipeline/case_based_reasoning.py):
-        # only present for fault types with just 1 historical example --
-        # the tier-2 classifier above has no statistical basis to learn
-        # these, so this is a DIFFERENT mechanism (nearest-neighbor
-        # similarity on structured features, not a learned classifier).
-        cbr_type = state.get("cbr_suggested_type")
-        cbr_sim = state.get("cbr_similarity") or 0.0
-        if cbr_type:
-            fault_hint += (
-                f"\n\nSIMILAR HISTORICAL CASE: this case's structured features closely "
-                f"resemble ({cbr_sim:.0%} similarity) exactly one prior labeled case, of type "
-                f"'{cbr_type}' -- a fault type too rare (1 example) for the classifier above to "
-                f"learn, so this is a nearest-neighbor match rather than a trained prediction. "
-                f"Consider it alongside the specialist findings, especially if no other strong "
-                f"signal points elsewhere."
-            )
+        # The full 28-type taxonomy is always shown -- nothing is narrowed
+        # away before the Coordinator reasons over it. The zero-shot
+        # shortlist below is a soft, ranked hint on top of that full list.
+        fault_hint = taxonomy_prompt_block()
 
         # Zero-shot semantic hint (see pipeline/zero_shot_matching.py):
         # compares evidence TEXT against fault-type DEFINITIONS, not
-        # examples -- works even for types with zero training cases.
-        zeroshot_type = state.get("zeroshot_suggested_type")
-        zeroshot_sim = state.get("zeroshot_similarity") or 0.0
-        if zeroshot_type and zeroshot_type not in (cbr_type, classifier_type):
+        # examples or per-case labels -- works even for types with zero
+        # training cases, and needs no upstream group hint (searches all 28
+        # types directly). This is now the only structured fault-type
+        # signal reaching the Coordinator.
+        zeroshot_topk = state.get("zeroshot_topk") or []
+        if zeroshot_topk:
+            shortlist = "; ".join(f"'{t}' ({sim:.0%})" for t, sim in zeroshot_topk)
             fault_hint += (
-                f"\n\nDEFINITION-BASED MATCH: the evidence text semantically resembles "
-                f"({zeroshot_sim:.0%} similarity) the OFFICIAL DEFINITION of fault type "
-                f"'{zeroshot_type}' -- this comes from comparing evidence wording to each "
-                f"candidate type's own description, not from any labeled example, so it can "
-                f"surface types no other signal above covers. Weigh this alongside, not above, "
-                f"the specialist findings and other hints."
-            )
-
-        # Structural prior from Stage 0.5 (see pipeline.py's
-        # _compute_graph_anchor). A 4-case spot check showed a topology-only
-        # single-call guess (graphrag_only-style) scoring ~2x higher on both
-        # entity_localization and fault_identification than the full
-        # multi-agent Coordinator -- likely because a small local LLM
-        # reasons more reliably over a short, structured signal than a large
-        # multi-agent-findings-plus-evidence prompt. Handing that prior to
-        # the Coordinator as something to confirm-or-override (rather than
-        # re-deriving from scratch) is meant to recover that accuracy while
-        # keeping the Coordinator's richer reasoning_chain. Absent for
-        # multi_agent_only, which doesn't run graph retrieval at all.
-        anchor = state.get("graph_anchor") or {}
-        if anchor.get("anchor_entity_ids") or anchor.get("anchor_fault_type"):
-            anchor_block = (
-                f"\nSTRUCTURAL PRIOR (fast topology-only first pass, before detailed "
-                f"evidence was considered):\n"
-                f"  candidate entity: {anchor.get('anchor_entity_ids')}\n"
-                f"  candidate fault type: {anchor.get('anchor_fault_type')}\n"
-                f"This prior is often right (topology structure alone is a strong signal for "
-                f"this benchmark) -- CONFIRM it unless the specialist findings below clearly "
-                f"contradict it. If you override it, say why in your reasoning_chain.\n"
-            )
-        else:
-            anchor_block = ""
-
-        path = state.get("propagation_path")
-        path_block = ""
-        if path:
-            path_block = (
-                f"\nGRAPH-COMPUTED PROPAGATION PATH (real path in the topology, from the "
-                f"alerted/impacted entity to the structural candidate cause -- use this as "
-                f"the basis for your 'propagation' reasoning_chain step instead of "
-                f"inventing one):\n  {' -> '.join(path)}\n"
+                f"\n\nDEFINITION-BASED SHORTLIST: ranked by how closely the evidence text's "
+                f"wording resembles each candidate type's OFFICIAL DEFINITION (not any labeled "
+                f"example or per-case ground truth): {shortlist}. This can surface types no "
+                f"other signal covers, but it is a soft ranking, not an answer -- weigh it "
+                f"alongside the specialist findings above, and feel free to pick a type outside "
+                f"this shortlist if the evidence clearly points elsewhere."
             )
 
         keyword_candidates = state.get("keyword_fault_candidates")
@@ -430,6 +303,107 @@ def coordinator_node(llm: LLMClient):
                 f"only pick outside this list if the evidence clearly points elsewhere.\n"
             )
 
+        prop_text = state.get("propagation_text")
+        if prop_text:
+            keyword_block = keyword_block + (
+                f"\n{prop_text}\n"
+                f"For predicted_entity_ids, name the ORIGIN of the fault (the dependency whose "
+                f"anomaly is not explained by one of its own callees), not merely the service "
+                f"that raised the alert -- the alert service may only be relaying an error.\n"
+            )
+
+        # path_block is built here (needed by both the two-stage and
+        # single-call paths below) but IMPORTANT: it is DERIVED FROM the
+        # Stage-0.5 anchor's own top candidate entity (pipeline.py's
+        # compute_propagation_path call passes
+        # graph_anchor["anchor_entity_ids"][0] as the path's destination) --
+        # so it is NOT evidence-independent. _two_stage_coordinate() below
+        # deliberately withholds it from Stage 1 for this reason and only
+        # reveals it in Stage 2, alongside the anchor itself.
+        path = state.get("propagation_path")
+        path_block = ""
+        if path:
+            path_block = (
+                f"\nGRAPH-COMPUTED PROPAGATION PATH (real path in the topology, from the "
+                f"alerted/impacted entity to the structural candidate cause -- use this as "
+                f"the basis for your 'propagation' reasoning_chain step instead of "
+                f"inventing one):\n  {' -> '.join(path)}\n"
+            )
+
+        # Structural prior from Stage 0.5 (see pipeline.py's
+        # _compute_graph_anchor). A 4-case spot check showed a topology-only
+        # single-call guess (graphrag_only-style) scoring ~2x higher on both
+        # entity_localization and fault_identification than the full
+        # multi-agent Coordinator -- likely because a small local LLM
+        # reasons more reliably over a short, structured signal than a large
+        # multi-agent-findings-plus-evidence prompt. Handing that prior to
+        # the Coordinator as something to confirm-or-override (rather than
+        # re-deriving from scratch) is meant to recover that accuracy while
+        # keeping the Coordinator's richer reasoning_chain. Absent for
+        # multi_agent_only, which doesn't run graph retrieval at all.
+        #
+        # Found 2026-10-04 on the 8-case sample: predicted_fault_type matched
+        # graph_anchor_fault_type in 7/8 proposed_hybrid cases, and in 6 of
+        # those 7 the Coordinator ignored a DIFFERING zero-shot shortlist
+        # suggestion to do so -- not just "the anchor usually happens to be
+        # right," an active preference for the anchor over the one other
+        # structured fault-type signal available. Also found: specialist
+        # agents (FINDING_SCHEMA_HINT) have NO fault_type field at all --
+        # entity_id/summary/supporting_evidence/confidence only -- so the
+        # anchor is the ONLY ready-made structured fault-type candidate in
+        # the whole prompt; the Coordinator has to synthesize anything else
+        # from loose prose. Two independent, compounding causes, not one:
+        # (a) the "CONFIRM unless contradicted" wording (COORDINATOR_ANCHOR_
+        # CONFIRM_BIAS toggles this, but only changes wording AFTER the
+        # anchor is already visible), and (b) no competing evidence-based
+        # fault-type judgment ever gets formed independently of the anchor.
+        # COORDINATOR_TWO_STAGE_ANCHOR (below) addresses (b) directly via
+        # order-of-exposure: elicit an independent evidence-only diagnosis
+        # with the anchor NOT YET in context, then reveal the anchor and
+        # ask for an explicit, cited reconciliation. Standard anchoring-bias
+        # mitigation (Tversky & Kahneman) -- costs ONE extra Coordinator
+        # call, not N like self-consistency.
+        anchor = state.get("graph_anchor") or {}
+        has_anchor = bool(anchor.get("anchor_entity_ids") or anchor.get("anchor_fault_type"))
+
+        if has_anchor and config.COORDINATOR_TWO_STAGE_ANCHOR:
+            result, stage1_result = _two_stage_coordinate(
+                llm, state, findings_block, fault_hint, keyword_block, path_block, anchor)
+            state["final_result"] = result
+            state["two_stage_stats"] = {
+                "stage1_fault_type": stage1_result.get("predicted_fault_type"),
+                "stage1_entity_ids": stage1_result.get("predicted_entity_ids"),
+                "stage1_confidence": stage1_result.get("confidence"),
+                "stage1_parse_error": bool(stage1_result.get("_parse_error")),
+            }
+            return state
+
+        if has_anchor:
+            if config.COORDINATOR_ANCHOR_CONFIRM_BIAS:
+                anchor_block = (
+                    f"\nSTRUCTURAL PRIOR (fast topology-only first pass, before detailed "
+                    f"evidence was considered):\n"
+                    f"  candidate entity: {anchor.get('anchor_entity_ids')}\n"
+                    f"  candidate fault type: {anchor.get('anchor_fault_type')}\n"
+                    f"This prior is often right (topology structure alone is a strong signal for "
+                    f"this benchmark) -- CONFIRM it unless the specialist findings below clearly "
+                    f"contradict it. If you override it, say why in your reasoning_chain.\n"
+                )
+            else:
+                anchor_block = (
+                    f"\nSTRUCTURAL PRIOR (fast topology-only first pass, computed BEFORE any "
+                    f"evidence was examined):\n"
+                    f"  candidate entity: {anchor.get('anchor_entity_ids')}\n"
+                    f"  candidate fault type: {anchor.get('anchor_fault_type')}\n"
+                    f"Treat this as only ONE input among several, on equal footing with the "
+                    f"specialist findings below -- it has not seen any evidence, so it is not "
+                    f"more trustworthy by default. Independently judge which entity and fault "
+                    f"type the EVIDENCE actually supports, and explain in your reasoning_chain "
+                    f"whether you agree or disagree with this prior and why.\n"
+                )
+        else:
+            anchor_block = ""
+
         prompt = (
             f"Alert: {state['alert_text']}\n\n"
             f"Specialist agent findings:\n{findings_block}\n"
@@ -438,13 +412,149 @@ def coordinator_node(llm: LLMClient):
             f"{keyword_block}\n"
             f"{fault_hint}\n\n"
             f"Task: synthesize a final root-cause diagnosis with an explicit "
-            f"cause -> propagation -> impact reasoning chain.\n"
+            f"cause -> propagation -> impact reasoning chain. Each reasoning_chain "
+            f"step MUST name the specific entity_id or evidence detail (from the "
+            f"specialist findings, structural prior, or propagation path above) "
+            f"that supports it -- do not write a generic step with nothing cited.\n"
             f"Respond as JSON: {FINAL_SCHEMA_HINT}"
         )
-        result = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
+
+        if config.USE_SELF_CONSISTENCY and config.SELF_CONSISTENCY_SAMPLES > 1:
+            result, sc_stats = _self_consistency_sample(llm, prompt, COORDINATOR_SYSTEM_PROMPT)
+            state["self_consistency_stats"] = sc_stats
+        else:
+            result = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
         state["final_result"] = result
         return state
     return node
+
+
+def _two_stage_coordinate(llm: LLMClient, state: AgentState, findings_block: str,
+                           fault_hint: str, keyword_block: str, path_block: str,
+                           anchor: dict) -> Tuple[dict, dict]:
+    """Returns (final_result, stage1_result) -- stage1_result is returned only
+    for diagnostics (see AgentState.two_stage_stats); it never changes the
+    final answer.
+
+    Anchoring-bias mitigation via order-of-exposure (Tversky & Kahneman:
+    an independent judgment formed before exposure to an anchor resists it;
+    one formed after exposure can be pulled toward it regardless of how the
+    anchor is worded). Stage 1 elicits a diagnosis from the specialist
+    findings + keyword hints + taxonomy/zero-shot hint ONLY -- the anchor is
+    not in context at all. Stage 2 then reveals the anchor (and the
+    propagation path, which is withheld from Stage 1 because it is computed
+    FROM the anchor's own top entity -- see the caller's comment -- so
+    showing it earlier would leak the anchor's choice) and asks the
+    Coordinator to explicitly compare its own Stage-1 answer against it and
+    justify whichever it keeps.
+
+    The anchor is this pipeline's OWN cheap topology-only guess (Stage 0.5),
+    never RCA100's ground truth -- nothing here sees or references ground
+    truth at any point. "Two stages" means only the order in which two of
+    this pipeline's own intermediate guesses are shown to the Coordinator.
+
+    Costs ONE extra Coordinator call total (two calls here vs. one in the
+    single-call path), not N like self-consistency. Mutually exclusive with
+    USE_SELF_CONSISTENCY in this implementation -- combining 2-stage
+    reconciliation with N-way voting would be 2N calls and a confounded
+    experiment; test one mechanism at a time."""
+    stage1_prompt = (
+        f"Alert: {state['alert_text']}\n\n"
+        f"Specialist agent findings:\n{findings_block}\n"
+        f"{keyword_block}\n"
+        f"{fault_hint}\n\n"
+        f"Task: based ONLY on the evidence above, give your independent first-pass "
+        f"diagnosis with an explicit cause -> propagation -> impact reasoning chain. "
+        f"Each reasoning_chain step MUST name the specific entity_id or evidence "
+        f"detail that supports it.\n"
+        f"Respond as JSON: {FINAL_SCHEMA_HINT}"
+    )
+    stage1_result = llm.generate_json(stage1_prompt, system=COORDINATOR_SYSTEM_PROMPT)
+
+    stage2_prompt = (
+        f"Alert: {state['alert_text']}\n\n"
+        f"Your own independent, evidence-only diagnosis from a moment ago (before you'd "
+        f"seen anything else):\n{json.dumps(stage1_result)}\n\n"
+        f"A SEPARATE fast first-pass guess -- topology structure only, computed BEFORE "
+        f"any evidence was examined, NOT a verified answer -- produced:\n"
+        f"  candidate entity: {anchor.get('anchor_entity_ids')}\n"
+        f"  candidate fault type: {anchor.get('anchor_fault_type')}\n"
+        f"{path_block}\n"
+        f"Task: decide your FINAL diagnosis. Explicitly compare your own evidence-based "
+        f"answer above against this structural guess in your reasoning_chain -- state "
+        f"whether you are keeping your own answer or switching to the structural guess, "
+        f"and cite the specific evidence or structural reasoning that justifies your "
+        f"choice. Do not default to the structural guess just because it's shown second.\n"
+        f"Respond as JSON: {FINAL_SCHEMA_HINT}"
+    )
+    return llm.generate_json(stage2_prompt, system=COORDINATOR_SYSTEM_PROMPT), stage1_result
+
+
+def _self_consistency_sample(llm: LLMClient, prompt: str, system: str) -> Tuple[dict, dict]:
+    """Self-Consistency ensemble (Wang et al., ICLR 2023, "Self-Consistency
+    Improves Chain of Thought Reasoning in Language Models") applied ONLY to
+    the Coordinator's final-diagnosis call: sample config.SELF_CONSISTENCY_SAMPLES
+    independent completions at a temporarily raised temperature, take a
+    majority vote on predicted_fault_type, and return the highest-confidence
+    sample among those agreeing with the majority. Training-free, no GT
+    dependency -- pure test-time compute, the same family as the project's
+    other inference-time-only improvements (TWIST, zero-shot taxonomy
+    matching). Motivated by a direct observation on this project's 8-case
+    sample runs: this benchmark's 7B local model's single-shot
+    predicted_fault_type is noisy from run to run on the SAME evidence (no
+    GT leakage involved -- just ordinary LLM sampling variance), so voting
+    across a few samples should be a strictly-cheaper, training-free way to
+    reduce that noise than adding yet more upstream evidence.
+
+    The temperature bump matters: config.LLM_TEMPERATURE defaults to 0.1,
+    deliberately low so the Graph Anchor / Specialist Agents stay
+    near-deterministic single-pass priors (by design -- see
+    _compute_graph_anchor's docstring). At that temperature, repeated calls
+    on the same prompt are too similar for a majority vote to mean anything;
+    SELF_CONSISTENCY_TEMPERATURE restores real sampling diversity for just
+    these N extra calls, then the client's original temperature is restored
+    (try/finally -- even if a sample's generate_json raises).
+
+    Deliberately scoped to ONLY the Coordinator, not Graph Anchor or
+    Specialist Agents -- those are meant to stay cheap, minimal single-pass
+    signals; re-sampling them would multiply pipeline cost for stages that
+    were never the bottleneck. The Coordinator's fault-type call is the one
+    stage this project has repeatedly found to be noise-sensitive."""
+    original_temperature = getattr(llm, "temperature", None)
+    if original_temperature is not None:
+        llm.temperature = config.SELF_CONSISTENCY_TEMPERATURE
+    samples = []
+    try:
+        for _ in range(config.SELF_CONSISTENCY_SAMPLES):
+            samples.append(llm.generate_json(prompt, system=system))
+    finally:
+        if original_temperature is not None:
+            llm.temperature = original_temperature
+
+    valid = [s for s in samples
+             if isinstance(s, dict) and s.get("predicted_fault_type") and not s.get("_parse_error")]
+    if not valid:
+        # Every sample failed to parse -- fall back to the first raw sample,
+        # the same failure mode a single-shot call would have had anyway.
+        fallback = samples[0] if samples else {}
+        return fallback, {"n_samples": len(samples), "n_valid": 0, "votes": {}, "agreement": 0.0}
+
+    votes: Dict[str, int] = {}
+    for s in valid:
+        fault_type = str(s.get("predicted_fault_type"))
+        votes[fault_type] = votes.get(fault_type, 0) + 1
+    majority_type, majority_count = max(votes.items(), key=lambda kv: kv[1])
+
+    agreeing = [s for s in valid if str(s.get("predicted_fault_type")) == majority_type]
+    best = max(agreeing, key=lambda s: float(s.get("confidence", 0.0) or 0.0))
+
+    sc_stats = {
+        "n_samples": len(samples),
+        "n_valid": len(valid),
+        "votes": votes,
+        "agreement": round(majority_count / len(valid), 4),
+    }
+    return best, sc_stats
 
 
 # ---------------------------------------------------------------------------

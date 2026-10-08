@@ -12,8 +12,10 @@ writes a results CSV to config.RESULTS_DIR for RQ1-RQ5 analysis.
 
 import argparse
 import datetime as dt
+import os
 import traceback
 import pandas as pd
+from tqdm.auto import tqdm
 
 import config
 from config.args import build_parser, apply_overrides, print_effective_config
@@ -39,7 +41,8 @@ def _current_model_name() -> str:
 
 
 def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None, save_path=None,
-            wandb_enabled: bool = False, wandb_project: str = "gama-rca", wandb_group: str = None):
+            wandb_enabled: bool = False, wandb_project: str = "gama-rca", wandb_group: str = None,
+            checkpoint_every: int = 5, resume: bool = True):
     """
     n_cases: how many cases from manifest.txt to evaluate (start small on
              Kaggle CPU/GPU time limits, e.g. 5-10, before a full 103-case run).
@@ -55,6 +58,28 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
              splitting a 103-case run across several Kaggle notebooks) so
              they all show up together under one logical experiment in the
              W&B UI, while still being separate runs.
+    checkpoint_every: write the results CSV (+ manifest) to disk after every
+             N cases that had at least one new (case_id, system) pair
+             actually run -- not just once at the very end. A full run (up
+             to 5 systems x 103 cases, ~6 LLM calls/case for
+             proposed_hybrid alone) can run for hours; previously the CSV
+             was only written after EVERY case+system finished, so a Kaggle
+             session timeout or crash lost the entire run's results with
+             nothing recoverable from disk. Pass a very large number to get
+             the old "save once at the end" behavior.
+    resume: if True (default) and save_path already points to an existing
+             CSV (e.g. from an interrupted earlier session), loads it first
+             and skips any (case_id, system) pair that already has a
+             non-errored row there, so a resumed run only does the
+             remaining work instead of starting over. A pair whose row
+             says "error" is NOT skipped -- it's dropped and retried, since
+             the earlier failure might have been transient (network/API).
+             To always start fresh, pass resume=False (the old file at
+             save_path, if any, gets overwritten) or use a fresh save_path.
+             IMPORTANT for resumability across separate Kaggle sessions:
+             pass an explicit --save_path rather than relying on the
+             timestamped default (which is different every invocation, so
+             a later session would never find the earlier one's file).
     """
     systems = systems or ["direct_llm", "standard_rag", "graphrag_only",
                             "multi_agent_only", "proposed_hybrid"]
@@ -65,9 +90,32 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         case_ids = all_ids[start_case:start_case + n_cases]
     print(f"Running cases: {case_ids}")
 
+    # Fixed up front (not just when saving at the end) so checkpointing and
+    # resume both have one stable target path for the whole run.
+    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
+    save_path = save_path or f"{config.RESULTS_DIR}/{timestamp}_results.csv"
+
+    rows = []
+    done_pairs = set()   # {(case_id, system)} pairs with an existing non-errored row
+    if resume and os.path.exists(save_path):
+        try:
+            prior_df = pd.read_csv(save_path)
+            has_error_col = "error" in prior_df.columns
+            n_dropped = 0
+            for _, r in prior_df.iterrows():
+                is_error = has_error_col and pd.notna(r.get("error"))
+                if is_error:
+                    n_dropped += 1
+                    continue   # dropped here -- will be retried in the loop below
+                rows.append(r.to_dict())
+                done_pairs.add((r.get("case_id"), r.get("system")))
+            print(f"[resume] loaded {len(rows)} previously-completed rows from {save_path} "
+                  f"({n_dropped} errored rows dropped and will be retried)")
+        except Exception as e:
+            print(f"[resume] could not read existing {save_path} ({e}) -- starting fresh")
+
     wandb_run = None
     if wandb_enabled:
-        import os
         import wandb
         from config.args import get_effective_config
         # WANDB_API_KEY is loaded from .env automatically (see config/__init__.py's
@@ -94,30 +142,46 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     llm_model = _current_model_name()
     print(f"LLM backend: {llm_backend}  |  model: {llm_model}")
 
-    # Upfront classifier path check -- shown BEFORE any case processing
-    # starts, so a missing/misplaced .pkl is visible immediately rather
-    # than only surfacing (even with the fixed warning) once the first
-    # case reaches the classifier call.
-    import os as _os
-    _group_pkl = _os.path.join(config.WORK_DIR, "fault_group_classifier.pkl")
-    _type_pkl = _os.path.join(config.WORK_DIR, "fault_type_classifier.pkl")
-    print(f"Classifier check -- group: {_group_pkl} "
-          f"({'FOUND' if _os.path.exists(_group_pkl) else 'NOT FOUND -- running without group narrowing'})")
-    print(f"Classifier check -- type:  {_type_pkl} "
-          f"({'FOUND' if _os.path.exists(_type_pkl) else 'NOT FOUND -- running without type narrowing'})")
+    # The two-stage RandomForest fault classifier (and its .pkl files) was
+    # removed: it was trained on RCA100's own ground-truth labels, which is
+    # invalid for evaluating genuine agentic reasoning even under
+    # leave-one-out cross-validation. Fault typing now relies solely on
+    # pipeline/zero_shot_matching.py (public taxonomy definitions only) and
+    # the full 28-type taxonomy shown to the Coordinator -- no classifier
+    # path check is needed here anymore.
 
-    rows = []
-    for case_id in case_ids:
-        print(f"=== {case_id} ===")
+    def _write_checkpoint():
+        df = pd.DataFrame(rows)
+        df.to_csv(save_path, index=False)
+        return df
+
+    cases_with_new_work = 0
+    # tqdm gives the case-level "epoch" analog the user is used to from deep
+    # learning training loops: a bar advancing one tick per case (not per
+    # case+system, since systems-per-case varies with --systems/resume), an
+    # ETA, and a postfix showing running mean final_score + error count so a
+    # degenerate run (e.g. every case scoring ~0) is visible within the
+    # first few ticks instead of only after the whole run finishes. Actual
+    # per-case/system detail (scores, predicted vs. GT fault type, timing)
+    # still prints via pbar.write() below so it doesn't get clobbered by the
+    # bar redrawing itself.
+    score_sum, score_n, error_n = 0.0, 0, 0
+    case_pbar = tqdm(case_ids, desc="Cases", unit="case")
+    for case_id in case_pbar:
+        case_pbar.write(f"=== {case_id} ===")
+        pending_systems = [s for s in systems if (case_id, s) not in done_pairs]
+        if not pending_systems:
+            case_pbar.write("  [skip] all requested systems already completed for this case (resume)")
+            continue
         try:
             case = Case(case_id)
             gt = load_ground_truth(case_id, name_index=case.name_index)
         except Exception as e:
-            print(f"  [skip] failed to load case/ground-truth: {e}")
+            case_pbar.write(f"  [skip] failed to load case/ground-truth: {e}")
             continue
 
-        for system_name in systems:
-            print(f"  -> {system_name}")
+        for system_name in pending_systems:
+            case_pbar.write(f"  -> {system_name}")
             try:
                 if system_name == "proposed_hybrid":
                     result = hybrid_pipeline.run(case_id)
@@ -137,12 +201,18 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
                 # run (e.g. every case scoring 0) early without waiting hours.
                 def _fmt(key, default=-1.0):
                     return report.get(key, default)
-                print("     entity_loc={:.3f}  fault_id={:.3f}  fault_group={:.3f}  "
+                case_pbar.write("     entity_loc={:.3f}  fault_id={:.3f}  fault_group={:.3f}  "
                       "reasoning={:.3f}  final={:.3f}  pred={} (gt={})  [{:.1f}s]".format(
                           _fmt("entity_localization"), _fmt("fault_identification"),
                           _fmt("fault_group_identification"), _fmt("reasoning_process"),
                           _fmt("final_score"), report.get("predicted_fault_type", "?"),
                           report.get("gt_fault_type", "?"), _fmt("total_pipeline_time_s", 0.0)))
+                fs = report.get("final_score")
+                if isinstance(fs, (int, float)):
+                    score_sum += fs
+                    score_n += 1
+                case_pbar.set_postfix(avg_score=f"{score_sum / score_n:.3f}" if score_n else "n/a",
+                                       errors=error_n)
                 if wandb_run:
                     # Live per-case logging -- lets you watch scores/timing
                     # trend across a long run in the W&B dashboard instead
@@ -150,17 +220,23 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
                     wandb_run.log({k: v for k, v in report.items()
                                     if isinstance(v, (int, float, bool)) and not isinstance(v, str)})
             except Exception as e:
-                print(f"     [error] {system_name} on {case_id}: {e}")
+                case_pbar.write(f"     [error] {system_name} on {case_id}: {e}")
                 traceback.print_exc()
                 rows.append({"case_id": case_id, "system": system_name, "error": str(e),
                              "llm_backend": llm_backend, "llm_model": llm_model})
+                error_n += 1
+                case_pbar.set_postfix(avg_score=f"{score_sum / score_n:.3f}" if score_n else "n/a",
+                                       errors=error_n)
                 if wandb_run:
                     wandb_run.log({"case_error": 1})
 
-    df = pd.DataFrame(rows)
-    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
-    save_path = save_path or f"{config.RESULTS_DIR}/{timestamp}_results.csv"
-    df.to_csv(save_path, index=False)
+        cases_with_new_work += 1
+        if cases_with_new_work >= checkpoint_every:
+            _write_checkpoint()
+            cases_with_new_work = 0
+            case_pbar.write(f"  [checkpoint] saved {len(rows)} rows so far to {save_path}")
+
+    df = _write_checkpoint()
     print(f"\nSaved {len(df)} rows to {save_path}")
 
     # Companion JSON manifest, saved alongside the CSV -- captures run
@@ -235,6 +311,17 @@ if __name__ == "__main__":
                          help="W&B group name -- use the SAME value across parallel chunks "
                               "(e.g. when splitting a 103-case run across several Kaggle "
                               "notebooks) so they all show up together in the W&B UI.")
+    parser.add_argument("--checkpoint_every", type=int, default=5,
+                         help="Write the results CSV to disk after every N cases with new "
+                              "work done (default: 5), not just once at the end -- so a "
+                              "session timeout/crash loses at most this many cases' worth "
+                              "of progress. Use a very large number to save only at the end.")
+    parser.add_argument("--no-resume", dest="resume", action="store_false", default=True,
+                         help="Ignore any existing file at --save_path and start fresh "
+                              "instead of resuming from it (default: resume if the file "
+                              "exists). IMPORTANT: resuming across separate sessions only "
+                              "works if you pass the SAME --save_path each time -- the "
+                              "default path is timestamped differently on every invocation.")
     parser = build_parser(parser)   # adds --embedding-backend, --llm-backend, etc.
     args = parser.parse_args()
     apply_overrides(args)           # mutates config.* in place before anything reads it
@@ -242,4 +329,5 @@ if __name__ == "__main__":
     run_all(n_cases=args.n_cases, start_case=args.start_case,
             case_ids=args.case_ids, systems=args.systems, save_path=args.save_path,
             wandb_enabled=args.wandb_enabled, wandb_project=args.wandb_project,
-            wandb_group=args.wandb_group)
+            wandb_group=args.wandb_group, checkpoint_every=args.checkpoint_every,
+            resume=args.resume)
