@@ -378,3 +378,11 @@ USE_PROPAGATION_EVIDENCE = os.environ.get("USE_PROPAGATION_EVIDENCE", "0") == "1
 #   "anchor"      (previous behaviour: Stage-0.5 anchor overrides the Coordinator)
 #   "coordinator" (the Coordinator's own entity, falling back to the anchor)
 ENTITY_SOURCE = os.environ.get("ENTITY_SOURCE", "anchor")
+
+# --- P2: numeric infra evidence + chain-first Coordinator (2026-10-09) -------
+# USE_INFRA_EVIDENCE=1 adds pipeline/infra_evidence.py tables (evidence only).
+# CHAIN_FIRST=1 makes the Coordinator emit a structured chain
+# ("step_type: target ...") and derives entity + fault type from its cause step
+# (fault type no longer copied from the Stage-0.5 anchor).
+USE_INFRA_EVIDENCE = os.environ.get("USE_INFRA_EVIDENCE", "0") == "1"
+CHAIN_FIRST = os.environ.get("CHAIN_FIRST", "0") == "1"

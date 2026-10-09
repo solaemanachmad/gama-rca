@@ -32,8 +32,9 @@ from pipeline.evidence_summarizer import summarize_evidence, compute_metric_tren
 from pipeline.zero_shot_matching import zero_shot_type_match_topk
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
 from agents.llm_client import LLMClient
-from schema import RCAResult
+from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
+from pipeline.infra_evidence import compute_infra_evidence
 
 
 ANCHOR_SYSTEM_PROMPT = (
@@ -336,6 +337,16 @@ class GraphRAGPipeline:
             stats["propagation_evidence_time_s"] = round(time.time() - t_prop, 3)
         stats["use_propagation_evidence"] = bool(config.USE_PROPAGATION_EVIDENCE)
         stats["propagation_evidence_rows"] = len(propagation_ev["rows"])
+        infra_ev = {"rows": [], "text": "", "observations": []}
+        if config.USE_INFRA_EVIDENCE:
+            t_inf = time.time()
+            infra_ev = compute_infra_evidence(
+                case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["infra_evidence_time_s"] = round(time.time() - t_inf, 3)
+        stats["use_infra_evidence"] = bool(config.USE_INFRA_EVIDENCE)
+        stats["infra_evidence_rows"] = len(infra_ev["rows"])
+        stats["infra_evidence_chars"] = len(infra_ev["text"])
+        stats["chain_first"] = bool(config.CHAIN_FIRST)
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
                                               use_llm=config.USE_LLM_GRAPH_ANCHOR,
                                               propagation_text=propagation_ev["text"])
@@ -593,6 +604,7 @@ class GraphRAGPipeline:
             "twist_top_entity": stats.get("twist_top_entity"),
             "twist_top_score": stats.get("twist_top_score"),
             "propagation_text": propagation_ev["text"] or None,
+            "infra_text": infra_ev["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
@@ -647,7 +659,7 @@ class GraphRAGPipeline:
         coord_entities = normalize_entity_ids(
             final.get("predicted_entity_ids", []) or [], case.topology, case.name_index)
         stats["entity_source"] = config.ENTITY_SOURCE
-        if config.ENTITY_SOURCE == "coordinator" and coord_entities:
+        if (config.ENTITY_SOURCE == "coordinator" or config.CHAIN_FIRST) and coord_entities:
             predicted_entity_ids = coord_entities
             used_fallback = False
         elif anchor_entities:
@@ -659,6 +671,8 @@ class GraphRAGPipeline:
                 ([parsed_alert["entry_entity_id"]] if parsed_alert["entry_entity_id"] else [])
             used_fallback = not llm_predicted_entities
         predicted_fault_type = final.get("predicted_fault_type", "unknown")
+        stats["fault_type_equals_anchor"] = bool(
+            predicted_fault_type and predicted_fault_type == graph_anchor.get("anchor_fault_type"))
         stats["used_entity_fallback"] = used_fallback
 
         # EVALUATION-ONLY diagnostics (no effect on predictions or on the
@@ -680,5 +694,7 @@ class GraphRAGPipeline:
             confidence=float(final.get("confidence", 0.0) or 0.0),
             agent_findings=agent_findings,
             retrieval_stats=stats,
-            evidence_items=evidence_items,
+            # infra tables were shown to the Coordinator: include so the checkpoint
+            # proxy sees the same text the LLM saw
+            evidence_items=list(evidence_items) + [EvidenceItem(observation=o) for o in infra_ev["observations"]],
         )

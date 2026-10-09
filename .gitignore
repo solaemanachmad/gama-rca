@@ -1,6 +1,7 @@
 # data & answer key (license CC BY-NC-SA; answer_key must never be public)
 RCA100/
 RCA100_src/
+RCA100*/
 answer_key/
 *.parquet
 

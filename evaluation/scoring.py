@@ -485,6 +485,14 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
         report["rp_checkpoint_hit_rate"] = round(_hits / len(gt.checkpoints), 4)
     else:
         report["rp_checkpoint_hit_rate"] = 0.0
+    # Stricter evaluation-only variant: checkpoint satisfied by a value the agent
+    # itself wrote in its reasoning chain (not merely present in retrieved evidence).
+    _chain_texts = [str(x) for x in (result.reasoning_chain or [])]
+    if gt.checkpoints and _chain_texts:
+        _ch = sum(1 for cp in gt.checkpoints if _checkpoint_satisfied(cp, _chain_texts))
+        report["rp_checkpoint_hit_chain"] = round(_ch / len(gt.checkpoints), 4)
+    else:
+        report["rp_checkpoint_hit_chain"] = 0.0
     # Counterfactual entity_localization per entity source (diagnostic only;
     # the official entity_localization above still uses result.predicted_entity_ids).
     for _key, _col in (("alt_entity_coordinator", "el_if_coordinator"),

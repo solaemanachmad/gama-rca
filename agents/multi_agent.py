@@ -65,6 +65,7 @@ class AgentState(TypedDict, total=False):
                                                    # statistics, no GT dependency -- see
                                                    # pipeline/twist_scoring.py)
     twist_top_score: Optional[float]
+    infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
     propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
                                                    # pipeline/propagation_evidence.py)
     metrics_finding: Optional[dict]
@@ -237,6 +238,14 @@ COORDINATOR_SYSTEM_PROMPT = (
     "agreement across agents heavily. Respond ONLY with valid JSON."
 )
 
+CHAIN_FIRST_SCHEMA_HINT = (
+    '{"reasoning_chain": ["cause: <target> <signal>=<value> ...", '
+    '"propagation: <target> <signal>=<value> ...", "impact: <target> <signal>=<value> ..."], '
+    '"predicted_entity_ids": ["<target of the cause step>"], '
+    '"predicted_fault_type": "<one taxonomy slug that best explains the cause step>", '
+    '"confidence": <float 0-1>}'
+)
+
 FINAL_SCHEMA_HINT = (
     '{"predicted_entity_ids": ["entity1", "entity2"], '
     '"predicted_fault_type": "<one of the 28 RCA100 fault types or best guess>", '
@@ -363,6 +372,33 @@ def coordinator_node(llm: LLMClient):
         # ask for an explicit, cited reconciliation. Standard anchoring-bias
         # mitigation (Tversky & Kahneman) -- costs ONE extra Coordinator
         # call, not N like self-consistency.
+        if config.CHAIN_FIRST:
+            # Chain-first: the structured chain is written BEFORE the entity and
+            # fault type (JSON key order = generation order), and the Stage-0.5
+            # anchor's fault type is deliberately NOT shown, so the fault type
+            # follows the cited evidence instead of copying the anchor.
+            infra_text = state.get("infra_text") or ""
+            prompt = (
+                f"Alert: {state['alert_text']}\n\n"
+                f"Specialist agent findings:\n{findings_block}\n"
+                f"{keyword_block}\n"
+                f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
+                f"{fault_hint}\n\n"
+                f"Task: write the root-cause reasoning chain FIRST, then derive the answer from it. "
+                f"Each chain step is 'step_type: target signal=value ...' with step_type in "
+                f"cause / propagation / impact. 'target' is a service, operation, node, pod or "
+                f"deployment name taken from the evidence; cite the concrete numeric signal values "
+                f"(request count, error count, latency, cpu/memory usage, replicas, event reasons "
+                f"and counts) from the tables above. The cause step names the ORIGIN of the fault, "
+                f"not merely the entity that raised the alert. Then set predicted_entity_ids to the "
+                f"target of the cause step, and predicted_fault_type to the single taxonomy type "
+                f"that best explains the cause step's evidence (node/pod/deployment faults are "
+                f"visible in the node, deployment and event tables).\n"
+                f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT}"
+            )
+            state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
+            return state
+
         anchor = state.get("graph_anchor") or {}
         has_anchor = bool(anchor.get("anchor_entity_ids") or anchor.get("anchor_fault_type"))
 
