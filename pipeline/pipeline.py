@@ -13,6 +13,7 @@ agents, llm_client are all composed here and nowhere else, so each stays
 independently testable/replaceable per the "keep modular" design principle.
 """
 
+import hashlib
 import json
 import random
 import re
@@ -137,6 +138,9 @@ def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, ll
         "anchor_entity_ids": entity_ids,
         "anchor_fault_type": raw.get("predicted_fault_type", "unknown"),
         "anchor_confidence": float(raw.get("confidence", 0.0) or 0.0),
+        # run-to-run diagnostics: same prompt md5 + different answer => model/GPU nondeterminism;
+        # different prompt md5 => the input (candidate order, set iteration) changed.
+        "anchor_prompt_md5": hashlib.md5(prompt.encode("utf-8")).hexdigest(),
     }
 
 
@@ -368,6 +372,7 @@ class GraphRAGPipeline:
         stats["graph_anchor_time_s"] = time.time() - t2b
         stats["graph_anchor_entity_ids"] = "|".join(graph_anchor["anchor_entity_ids"])
         stats["graph_anchor_fault_type"] = graph_anchor["anchor_fault_type"]
+        stats["graph_anchor_prompt_md5"] = graph_anchor.get("anchor_prompt_md5")
 
         propagation_path = None
         if graph_anchor["anchor_entity_ids"] and parsed_alert["entry_entity_id"]:
