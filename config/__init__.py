@@ -407,3 +407,6 @@ USE_LOG_TEMPLATES = os.environ.get("USE_LOG_TEMPLATES", "0") == "1"
 USE_COLOCATION_EVIDENCE = os.environ.get("USE_COLOCATION_EVIDENCE", "0") == "1"
 LAYER_AGENT = os.environ.get("LAYER_AGENT", "0") == "1"
 CHAIN_FIRST_ENTITY = os.environ.get("CHAIN_FIRST_ENTITY", "coordinator")
+# Debug: when set to a directory, pipeline writes one JSON per case with the exact prompts and
+# raw outputs of every LLM call (anchor, agents, layer, coordinator). No ground truth inside.
+DEBUG_DUMP_DIR = os.environ.get("DEBUG_DUMP_DIR", "")

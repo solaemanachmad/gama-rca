@@ -141,6 +141,7 @@ def _compute_graph_anchor(case: Case, parsed_alert: Dict, graph_result: Dict, ll
         # run-to-run diagnostics: same prompt md5 + different answer => model/GPU nondeterminism;
         # different prompt md5 => the input (candidate order, set iteration) changed.
         "anchor_prompt_md5": hashlib.md5(prompt.encode("utf-8")).hexdigest(),
+        **({"anchor_prompt": prompt, "anchor_raw": raw} if getattr(config, "DEBUG_DUMP_DIR", "") else {}),
     }
 
 
@@ -663,6 +664,17 @@ class GraphRAGPipeline:
         final = final_state.get("final_result") or {}
         agent_findings = build_agent_findings_list(final_state)
         layer = final_state.get("layer_result") or {}
+        if config.DEBUG_DUMP_DIR:
+            try:
+                os.makedirs(config.DEBUG_DUMP_DIR, exist_ok=True)
+                with open(os.path.join(config.DEBUG_DUMP_DIR, f"{case_id}.json"), "w", encoding="utf-8") as _f:
+                    json.dump({"case_id": case_id,
+                               "anchor": {k: v for k, v in graph_anchor.items()},
+                               "trace": final_state.get("debug_trace") or [],
+                               "final_result": final_state.get("final_result")},
+                              _f, ensure_ascii=False, indent=1, default=str)
+            except Exception as _e:  # debug output must never break a run
+                stats["debug_dump_error"] = repr(_e)
         if config.LAYER_AGENT:
             stats["layer_level"] = layer.get("level")
             stats["layer_suspect"] = layer.get("suspect")

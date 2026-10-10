@@ -68,6 +68,7 @@ class AgentState(TypedDict, total=False):
     infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
     colocation_text: Optional[str]                  # per-node hosted-service table (pipeline/colocation_evidence.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
+    debug_trace: Optional[list]                     # prompts + raw outputs per node (only when DEBUG_DUMP_DIR is set)
     propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
                                                    # pipeline/propagation_evidence.py)
     metrics_finding: Optional[dict]
@@ -101,6 +102,13 @@ FINDING_SCHEMA_HINT = (
 )
 
 
+def _trace(state, name, prompt, output):
+    """Debug only (config.DEBUG_DUMP_DIR): keep the exact prompt and raw output of one LLM call.
+    Contains no ground truth -- only what the model saw and said."""
+    if getattr(config, "DEBUG_DUMP_DIR", ""):
+        state.setdefault("debug_trace", []).append({"node": name, "prompt": prompt, "output": output})
+
+
 def _make_agent_node(agent_name: str, modality_filter: Optional[str],
                       llm: LLMClient):
     """Factory producing a LangGraph node function for one specialist agent."""
@@ -115,6 +123,7 @@ def _make_agent_node(agent_name: str, modality_filter: Optional[str],
             f"Respond as JSON: {FINDING_SCHEMA_HINT}"
         )
         result = llm.generate_json(prompt, system=AGENT_SYSTEM_PROMPT)
+        _trace(state, f"{agent_name}_agent", prompt, result)
         state[f"{agent_name}_finding"] = result
         return state
 
@@ -228,6 +237,7 @@ def topology_agent_node(llm: LLMClient):
             f"Respond as JSON: {FINDING_SCHEMA_HINT}"
         )
         result = llm.generate_json(prompt, system=AGENT_SYSTEM_PROMPT)
+        _trace(state, "topology_agent", prompt, result)
         state["topology_finding"] = result
         return state
     return node
@@ -288,7 +298,9 @@ def layer_node(llm: LLMClient):
             "on other nodes are not), (3) pick the level of the ORIGIN (not of the victim that "
             "raised the alert) and name the suspect, (4) name the runner-up level and one value "
             "that argues against it.\nRespond as JSON: " + LAYER_SCHEMA_HINT)
-        state["layer_result"] = llm.generate_json("\n\n".join(parts), system=LAYER_SYSTEM_PROMPT)
+        _layer_prompt = "\n\n".join(parts)
+        state["layer_result"] = llm.generate_json(_layer_prompt, system=LAYER_SYSTEM_PROMPT)
+        _trace(state, "layer_agent", _layer_prompt, state["layer_result"])
         return state
     return node
 
@@ -455,6 +467,7 @@ def coordinator_node(llm: LLMClient):
                 f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT}"
             )
             state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
+            _trace(state, "coordinator_chain_first", prompt, state["final_result"])
             return state
 
         anchor = state.get("graph_anchor") or {}
@@ -518,6 +531,7 @@ def coordinator_node(llm: LLMClient):
             state["self_consistency_stats"] = sc_stats
         else:
             result = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
+        _trace(state, "coordinator", prompt, result)
         state["final_result"] = result
         return state
     return node
