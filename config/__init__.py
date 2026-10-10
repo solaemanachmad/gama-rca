@@ -393,3 +393,17 @@ CHAIN_FIRST = os.environ.get("CHAIN_FIRST", "0") == "1"
 # LOG_TEMPLATE_ENGINE=drain3). Metrics are served by the numeric operators
 # (USE_INFRA_EVIDENCE) instead of embeddings. Default off = previous behaviour.
 USE_LOG_TEMPLATES = os.environ.get("USE_LOG_TEMPLATES", "0") == "1"
+
+# P4 (operator-style staged analysis; all default off = previous behaviour).
+# USE_COLOCATION_EVIDENCE: per-node table of hosted services' error/latency and node
+#   cpu/mem/disk (pipeline/colocation_evidence.py; evidence only).
+# LAYER_AGENT: one extra LLM call before the Coordinator that decides at which level
+#   (service / runtime / dependency / pod-deployment / node / cloud) the fault
+#   originates, citing the tables; its output is a soft hypothesis for the Coordinator
+#   (the full taxonomy stays visible, nothing is filtered).
+# CHAIN_FIRST_ENTITY: with CHAIN_FIRST, take the final entity from the "coordinator"
+#   chain (R5D behaviour) or from the topology "anchor" (R5D showed anchor EL 0.575 vs
+#   coordinator 0.479 on dev-30; chain still decides the fault type).
+USE_COLOCATION_EVIDENCE = os.environ.get("USE_COLOCATION_EVIDENCE", "0") == "1"
+LAYER_AGENT = os.environ.get("LAYER_AGENT", "0") == "1"
+CHAIN_FIRST_ENTITY = os.environ.get("CHAIN_FIRST_ENTITY", "coordinator")

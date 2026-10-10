@@ -66,6 +66,8 @@ class AgentState(TypedDict, total=False):
                                                    # pipeline/twist_scoring.py)
     twist_top_score: Optional[float]
     infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
+    colocation_text: Optional[str]                  # per-node hosted-service table (pipeline/colocation_evidence.py)
+    layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
     propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
                                                    # pipeline/propagation_evidence.py)
     metrics_finding: Optional[dict]
@@ -246,6 +248,51 @@ CHAIN_FIRST_SCHEMA_HINT = (
     '"confidence": <float 0-1>}'
 )
 
+LAYER_SCHEMA_HINT = (
+    '{"evidence": ["<name> <signal>=<value> ..."], '
+    '"level": "<service | runtime | dependency | pod_deployment | node | cloud_resource>", '
+    '"suspect": "<service, pod, deployment or node name>", '
+    '"runner_up": {"level": "<other level>", "why_not": "<one sentence citing a value>"}, '
+    '"confidence": <float 0-1>}'
+)
+
+LAYER_SYSTEM_PROMPT = (
+    "You are an on-call SRE doing the first triage step of a microservice incident: decide at "
+    "which LEVEL the fault originates before naming a fault type. Reason only from the tables "
+    "given. Respond ONLY with valid JSON."
+)
+
+
+def layer_node(llm: LLMClient):
+    """Operator-style layer attribution (flag LAYER_AGENT). One LLM call; output is a soft
+    hypothesis passed to the Coordinator -- nothing is filtered and the Coordinator still sees
+    the full taxonomy."""
+    def node(state: AgentState) -> AgentState:
+        parts = [f"Alert: {state['alert_text']}"]
+        if state.get("propagation_text"):
+            parts.append(state["propagation_text"])
+        if state.get("infra_text"):
+            parts.append(state["infra_text"])
+        if state.get("colocation_text"):
+            parts.append(state["colocation_text"])
+        parts.append(
+            "Levels: service = application code/config/traffic of one service; runtime = JVM/GC/"
+            "thread pool of a service; dependency = database, cache, queue or external call; "
+            "pod_deployment = pod restarts, replicas, scheduling, limits of a deployment; node = "
+            "host CPU/memory/disk/network or node readiness; cloud_resource = cloud-managed "
+            "resource, quota or network.")
+        parts.append(
+            "Task: (1) list the numeric evidence you rely on (write it first), (2) say whether the "
+            "degradation follows a SERVICE (the same service is abnormal on every node it runs on) "
+            "or a HOST (several services on one node are abnormal together while the same services "
+            "on other nodes are not), (3) pick the level of the ORIGIN (not of the victim that "
+            "raised the alert) and name the suspect, (4) name the runner-up level and one value "
+            "that argues against it.\nRespond as JSON: " + LAYER_SCHEMA_HINT)
+        state["layer_result"] = llm.generate_json("\n\n".join(parts), system=LAYER_SYSTEM_PROMPT)
+        return state
+    return node
+
+
 FINAL_SCHEMA_HINT = (
     '{"predicted_entity_ids": ["entity1", "entity2"], '
     '"predicted_fault_type": "<one of the 28 RCA100 fault types or best guess>", '
@@ -378,11 +425,22 @@ def coordinator_node(llm: LLMClient):
             # anchor's fault type is deliberately NOT shown, so the fault type
             # follows the cited evidence instead of copying the anchor.
             infra_text = state.get("infra_text") or ""
+            coloc_text = state.get("colocation_text") or ""
+            layer_res = state.get("layer_result")
+            layer_block = ""
+            if layer_res and not layer_res.get("_parse_error"):
+                layer_block = ("\nLayer analysis by a preceding on-call analyst (a hypothesis to verify "
+                               "against the tables, not a conclusion):\n"
+                               + json.dumps({k: layer_res.get(k) for k in
+                                             ("evidence", "level", "suspect", "runner_up", "confidence")},
+                                            ensure_ascii=False) + "\n")
             prompt = (
                 f"Alert: {state['alert_text']}\n\n"
                 f"Specialist agent findings:\n{findings_block}\n"
                 f"{keyword_block}\n"
                 f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
+                f"{('' if not coloc_text else chr(10) + coloc_text + chr(10))}"
+                f"{layer_block}"
                 f"{fault_hint}\n\n"
                 f"Task: write the root-cause reasoning chain FIRST, then derive the answer from it. "
                 f"Each chain step is 'step_type: target signal=value ...' with step_type in "
@@ -618,6 +676,8 @@ def build_agent_graph(llm: Optional[LLMClient] = None, coordinator_llm: Optional
         graph.add_node("trace_agent", _rule_based_agent_node("trace", "span"))
         graph.add_node("topology_agent", _rule_based_topology_node())
     graph.add_node("coordinator", coordinator_node(coordinator_llm))
+    if config.LAYER_AGENT:
+        graph.add_node("layer_agent", layer_node(coordinator_llm))
 
     graph.set_entry_point("metrics_agent")
     # Fan out: entry triggers all four specialists (LangGraph runs nodes with
@@ -628,7 +688,11 @@ def build_agent_graph(llm: Optional[LLMClient] = None, coordinator_llm: Optional
     graph.add_edge("metrics_agent", "logs_agent")
     graph.add_edge("logs_agent", "trace_agent")
     graph.add_edge("trace_agent", "topology_agent")
-    graph.add_edge("topology_agent", "coordinator")
+    if config.LAYER_AGENT:
+        graph.add_edge("topology_agent", "layer_agent")
+        graph.add_edge("layer_agent", "coordinator")
+    else:
+        graph.add_edge("topology_agent", "coordinator")
     graph.add_edge("coordinator", END)
 
     return graph.compile()

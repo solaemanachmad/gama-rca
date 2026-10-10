@@ -37,6 +37,7 @@ from agents.llm_client import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
+from pipeline.colocation_evidence import compute_colocation_evidence
 from pipeline.log_templates import compute_log_templates
 
 
@@ -350,6 +351,17 @@ class GraphRAGPipeline:
         stats["infra_evidence_rows"] = len(infra_ev["rows"])
         stats["infra_evidence_chars"] = len(infra_ev["text"])
         stats["chain_first"] = bool(config.CHAIN_FIRST)
+        coloc_ev = {"text": "", "rows": 0, "stats": {}}
+        if config.USE_COLOCATION_EVIDENCE:
+            t_col = time.time()
+            coloc_ev = compute_colocation_evidence(case, case.alert.alert_timestamp)
+            stats["colocation_time_s"] = round(time.time() - t_col, 3)
+            stats["colocation_error"] = coloc_ev.get("error")
+        stats["use_colocation_evidence"] = bool(config.USE_COLOCATION_EVIDENCE)
+        stats["colocation_nodes_shown"] = coloc_ev["rows"]
+        stats["colocation_chars"] = len(coloc_ev["text"])
+        stats["layer_agent"] = bool(config.LAYER_AGENT)
+        stats["chain_first_entity"] = config.CHAIN_FIRST_ENTITY
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
                                               use_llm=config.USE_LLM_GRAPH_ANCHOR,
                                               propagation_text=propagation_ev["text"])
@@ -629,6 +641,7 @@ class GraphRAGPipeline:
             "twist_top_score": stats.get("twist_top_score"),
             "propagation_text": propagation_ev["text"] or None,
             "infra_text": infra_ev["text"] or None,
+            "colocation_text": coloc_ev["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
@@ -644,6 +657,12 @@ class GraphRAGPipeline:
 
         final = final_state.get("final_result") or {}
         agent_findings = build_agent_findings_list(final_state)
+        layer = final_state.get("layer_result") or {}
+        if config.LAYER_AGENT:
+            stats["layer_level"] = layer.get("level")
+            stats["layer_suspect"] = layer.get("suspect")
+            stats["layer_confidence"] = layer.get("confidence")
+            stats["layer_parse_error"] = bool(layer.get("_parse_error"))
 
         sc_stats = final_state.get("self_consistency_stats") or {}
         if sc_stats:
@@ -683,7 +702,12 @@ class GraphRAGPipeline:
         coord_entities = normalize_entity_ids(
             final.get("predicted_entity_ids", []) or [], case.topology, case.name_index)
         stats["entity_source"] = config.ENTITY_SOURCE
-        if (config.ENTITY_SOURCE == "coordinator" or config.CHAIN_FIRST) and coord_entities:
+        stats["entity_source_effective"] = (
+            "coordinator" if (config.ENTITY_SOURCE == "coordinator"
+                              or (config.CHAIN_FIRST and config.CHAIN_FIRST_ENTITY == "coordinator"))
+            else "anchor")
+        if (config.ENTITY_SOURCE == "coordinator"
+                or (config.CHAIN_FIRST and config.CHAIN_FIRST_ENTITY == "coordinator")) and coord_entities:
             predicted_entity_ids = coord_entities
             used_fallback = False
         elif anchor_entities:
@@ -698,6 +722,7 @@ class GraphRAGPipeline:
         stats["fault_type_equals_anchor"] = bool(
             predicted_fault_type and predicted_fault_type == graph_anchor.get("anchor_fault_type"))
         stats["used_entity_fallback"] = used_fallback
+        stats["coordinator_entity_empty"] = not bool(coord_entities)
 
         # EVALUATION-ONLY diagnostics (no effect on predictions or on the
         # official score): record the entity each alternative source WOULD

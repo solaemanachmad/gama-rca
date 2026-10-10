@@ -493,6 +493,17 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
         report["rp_checkpoint_hit_chain"] = round(_ch / len(gt.checkpoints), 4)
     else:
         report["rp_checkpoint_hit_chain"] = 0.0
+    # Strict RP / final (evaluation-only, added 2026-10-10 audit): the local
+    # rp_checkpoint_hit_rate counts any checkpoint value that merely appears in
+    # RETRIEVED evidence, including the synthetic infra tables, so arms that add
+    # evidence tables gain RP by construction. The *_chain variants credit only values
+    # the agent wrote in its own chain; compare arms on these.
+    report["reasoning_process_chain"] = round(
+        0.5 * report["rp_chain_overlap"] + 0.5 * report["rp_checkpoint_hit_chain"], 4)
+    report["final_score_chain"] = round(
+        config.WEIGHT_ENTITY_LOCALIZATION * report["entity_localization"]
+        + config.WEIGHT_FAULT_IDENTIFICATION * report["fault_identification"]
+        + config.WEIGHT_REASONING_PROCESS * report["reasoning_process_chain"], 4)
     # Counterfactual entity_localization per entity source (diagnostic only;
     # the official entity_localization above still uses result.predicted_entity_ids).
     for _key, _col in (("alt_entity_coordinator", "el_if_coordinator"),

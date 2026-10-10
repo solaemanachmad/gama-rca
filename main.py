@@ -178,6 +178,11 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
             gt = load_ground_truth(case_id, name_index=case.name_index)
         except Exception as e:
             case_pbar.write(f"  [skip] failed to load case/ground-truth: {e}")
+            # keep an explicit error row so the case is not silently dropped from the denominator
+            for _s in pending_systems:
+                rows.append({"case_id": case_id, "system": _s, "error": f"load failed: {e}",
+                             "llm_backend": llm_backend, "llm_model": llm_model})
+            error_n += len(pending_systems)
             continue
 
         for system_name in pending_systems:
