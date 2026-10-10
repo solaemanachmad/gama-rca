@@ -28,6 +28,7 @@ import statistics
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+import config
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
                                            _calls_graph, _node_name, _node_type)
 
@@ -64,8 +65,24 @@ def _stat(series, w0, w1):
     }
 
 
+def change_factor(base, peak):
+    """max-in-window / baseline-median as a plain number (evidence formatting only: no threshold,
+    no ranking). Returns 'x213', 'x1.0', 'new' (baseline 0, window >0) or '' if undefined."""
+    if base is None or peak is None:
+        return ""
+    if base == 0:
+        return "new" if peak != 0 else "x1"
+    r = peak / base
+    return f"x{r:.3g}" if r < 1000 else f"x{r:.0f}"
+
+
 def _row_text(label, metric, s):
-    return (f"{label} {metric}: base={_fmt(s['base_med'])} med={_fmt(s['win_med'])} max={_fmt(s['win_max'])}")
+    txt = f"{label} {metric}: base={_fmt(s['base_med'])} med={_fmt(s['win_med'])} max={_fmt(s['win_max'])}"
+    if getattr(config, "USE_CHANGE_FACTOR", False):
+        cf = change_factor(s["base_med"], s["win_max"])
+        if cf:
+            txt += f" change={cf}"
+    return txt
 
 
 def compute_infra_evidence(case, alert_ts: Optional[dt.datetime],

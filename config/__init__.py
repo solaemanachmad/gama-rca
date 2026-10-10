@@ -410,3 +410,16 @@ CHAIN_FIRST_ENTITY = os.environ.get("CHAIN_FIRST_ENTITY", "coordinator")
 # Debug: when set to a directory, pipeline writes one JSON per case with the exact prompts and
 # raw outputs of every LLM call (anchor, agents, layer, coordinator). No ground truth inside.
 DEBUG_DUMP_DIR = os.environ.get("DEBUG_DUMP_DIR", "")
+
+# USE_CHANGE_FACTOR=1: append "change=xN" (window max / baseline median) to every numeric row of the
+# infra and co-location tables. Pure evidence formatting (no threshold, no ranking). Motivation (A3
+# debug dump, 2026-10-11): the 7B model misread "base/med/max" triplets, e.g. ad CPU base=0.0008
+# max=0.56 (x670) vs memory flat, yet predicted memoryPressure.
+USE_CHANGE_FACTOR = os.environ.get("USE_CHANGE_FACTOR", "0") == "1"
+
+
+# USE_KEYWORD_HINT=0: do NOT show the coordinator the "KEYWORD-DETECTED FAULT-TYPE CANDIDATES" block
+# nor the zero-shot embedding shortlist (both are deterministic evidence->fault-type suggestions). Research rule: the LLM decides the fault type;
+# deterministic code may only extract evidence. Default "1" keeps legacy (archived R0-R5D) behaviour;
+# all operator-ladder arms (A0-A3) set it to 0. Keyword candidates are still LOGGED as a diagnostic.
+USE_KEYWORD_HINT = os.environ.get("USE_KEYWORD_HINT", "1") == "1"

@@ -348,7 +348,7 @@ def coordinator_node(llm: LLMClient):
         # types directly). This is now the only structured fault-type
         # signal reaching the Coordinator.
         zeroshot_topk = state.get("zeroshot_topk") or []
-        if zeroshot_topk:
+        if zeroshot_topk and config.USE_KEYWORD_HINT:
             shortlist = "; ".join(f"'{t}' ({sim:.0%})" for t, sim in zeroshot_topk)
             fault_hint += (
                 f"\n\nDEFINITION-BASED SHORTLIST: ranked by how closely the evidence text's "
@@ -361,7 +361,7 @@ def coordinator_node(llm: LLMClient):
 
         keyword_candidates = state.get("keyword_fault_candidates")
         keyword_block = ""
-        if keyword_candidates:
+        if keyword_candidates and config.USE_KEYWORD_HINT:
             keyword_block = (
                 f"\nKEYWORD-DETECTED FAULT-TYPE CANDIDATES (literal terms found in the raw "
                 f"evidence text, ordered by match strength -- these are the fault types with "

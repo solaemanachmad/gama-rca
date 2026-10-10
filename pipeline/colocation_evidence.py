@@ -23,6 +23,8 @@ import statistics
 from collections import defaultdict
 from typing import Dict, Optional
 
+import config
+from pipeline.infra_evidence import change_factor
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
                                            _node_name, _node_type)
 
@@ -34,6 +36,16 @@ CHAR_BUDGET = {"node": 4200, "placement": 1300}
 
 def _naive(ts):
     return ts.replace(tzinfo=None) if ts is not None and ts.tzinfo else ts
+
+
+def _bm(s):
+    """'b->m' plus the change factor when USE_CHANGE_FACTOR is on."""
+    txt = f"{_fmt(s[0])}->{_fmt(s[1])}"
+    if getattr(config, "USE_CHANGE_FACTOR", False):
+        cf = change_factor(s[0], s[1])
+        if cf:
+            txt += f" ({cf})"
+    return txt
 
 
 def _fmt(x):
@@ -118,14 +130,14 @@ def _compute(case, alert_ts):
         for metric, lab in NODE_METRICS:
             s = _bw(groups.get(("k8s.node", nn, metric), []), w0, w1)
             if s:
-                parts.append(f"{lab} {_fmt(s[0])}->{_fmt(s[1])}")
+                parts.append(f"{lab} {_bm(s)}")
         hosted = []
         for svc in sorted(node_svcs.get(nn, [])):
             sp = []
             for metric, lab in SVC_METRICS:
                 s = _bw(groups.get(("apm.service.legacy", svc, metric), []), w0, w1)
                 if s:
-                    sp.append(f"{lab} {_fmt(s[0])}->{_fmt(s[1])}")
+                    sp.append(f"{lab} {_bm(s)}")
             hosted.append(f"{svc}[{', '.join(sp)}]" if sp else svc)
         node_lines.append(f"node {short(nn)}: {'; '.join(parts) if parts else 'no node metrics'}"
                           f" | hosts: {', '.join(hosted) if hosted else 'no mapped service'}")
