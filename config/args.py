@@ -118,7 +118,13 @@ EFFECTIVE_CONFIG_KEYS = [
     "KAGGLE_MODEL_HANDLE", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "HYBRID_ALPHA",
     "HYBRID_BETA", "VECTOR_TOP_K", "DEV_QUICK_TEST", "MAX_OBSERVATIONS_PER_INDEX",
     "MAX_RESOLVED_PER_MODALITY", "TEMPORAL_BOOST_ENABLED",
+    "USE_PROPAGATION_EVIDENCE", "USE_INFRA_EVIDENCE", "CHAIN_FIRST",
+    "USE_LOG_TEMPLATES", "ENTITY_SOURCE",
 ]
+
+# Console summary: hide settings that do not affect the run being started.
+_HIDE_WHEN_LOG_TEMPLATES = ("MAX_OBSERVATIONS_PER_INDEX", "MAX_RESOLVED_PER_MODALITY")
+_ALWAYS_HIDDEN = ("DEV_QUICK_TEST", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "TEMPORAL_BOOST_ENABLED")
 
 
 def get_effective_config() -> dict:
@@ -149,5 +155,9 @@ def print_effective_config() -> None:
     for k, v in cfg.items():
         if k in ("LLM_MODEL_NAME", "GEMINI_MODEL_NAME", "KAGGLE_MODEL_HANDLE") and k != active_model_key:
             continue  # skip inactive backends' model settings
+        if k in _ALWAYS_HIDDEN:
+            continue
+        if cfg.get("USE_LOG_TEMPLATES") and k in _HIDE_WHEN_LOG_TEMPLATES:
+            continue
         print(f"  {k} = {v}")
     print()

@@ -157,7 +157,10 @@ def _infer_embedding_dim(model) -> int:
     a multilingual model needed for RCA100's Chinese-language alert
     subjects and log content -- paraphrase-multilingual-MiniLM-L12-v2 is
     also 384-dim (safe either way), but BAAI/bge-m3 is 1024-dim."""
-    get_dim = getattr(model, "get_sentence_embedding_dimension", None)
+    # sentence-transformers >=5 renamed the method (old name is deprecated and
+    # emits a FutureWarning); prefer the new one, fall back to the old one.
+    get_dim = (getattr(model, "get_embedding_dimension", None)
+               or getattr(model, "get_sentence_embedding_dimension", None))
     if callable(get_dim):
         dim = get_dim()
         if dim:
@@ -322,7 +325,8 @@ class VectorIndex:
         return results
 
 
-def build_index_from_observations(observations: Dict[str, list], modalities=("logs", "metrics", "events")) -> VectorIndex:
+def build_index_from_observations(observations: Dict[str, list], modalities=("logs", "metrics", "events"),
+                                  max_observations: Optional[int] = None) -> VectorIndex:
     """Build a FAISS index from a pre-filtered observations dict (e.g. only
     observations whose entity_id falls within the graph-retrieved candidate
     subgraph). This is what makes retrieval genuinely "topology-aware": the
@@ -342,7 +346,11 @@ def build_index_from_observations(observations: Dict[str, list], modalities=("lo
     embedded or how long that takes. Smallest-modality-first allocation
     means an under-sized modality gets everything it has, with its unused
     share redistributed to the modalities still waiting their turn."""
-    index = VectorIndex()
+    # max_observations=None -> config.MAX_OBSERVATIONS_PER_INDEX (legacy raw-row
+    # path). The log-template path passes an effectively unbounded value: the
+    # index size is then set by the number of distinct templates, not by a
+    # hand-picked constant.
+    index = VectorIndex() if max_observations is None else VectorIndex(max_observations=max_observations)
     lists = {m: list(observations.get(m, [])) for m in modalities}
     total = sum(len(v) for v in lists.values())
     if total > index.max_observations:

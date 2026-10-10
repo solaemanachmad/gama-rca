@@ -23,6 +23,7 @@ from pipeline.twist_scoring import (compute_twist_scores, twist_scores_to_summar
                                      twist_top_entity, twist_scores_to_observations)
 
 import os
+import sys
 import config
 from data.loader import Case, build_service_membership_index, normalize_entity_ids
 from data.taxonomy import taxonomy_prompt_block, detect_fault_keywords
@@ -493,7 +494,10 @@ class GraphRAGPipeline:
         if config.USE_TWIST_TEXT_EVIDENCE and twist_text_observations:
             vector_modalities = vector_modalities + ("twist_synth",)
         if config.USE_VECTOR_RETRIEVAL:
-            vector_index = build_index_from_observations(filtered_observations, modalities=vector_modalities)
+            # Template path: no hand-picked size cap (index size = #distinct templates + events).
+            vector_index = build_index_from_observations(
+                filtered_observations, modalities=vector_modalities,
+                max_observations=(sys.maxsize if config.USE_LOG_TEMPLATES else None))
         else:
             vector_index = build_index_from_observations({}, modalities=vector_modalities)   # empty index (ablation)
         stats["vector_index_build_time_s"] = time.time() - t3
@@ -510,8 +514,12 @@ class GraphRAGPipeline:
             if vector_index.texts_submitted else None
         )
         stats["observations_before_graph_filter"] = sum(len(v) for v in case.observations.values())
-        total_filtered = sum(len(v) for v in filtered_observations.values())
-        stats["vector_index_was_capped"] = total_filtered > config.MAX_OBSERVATIONS_PER_INDEX
+        # Count only the modalities that actually go into the vector index
+        # (with log templates the raw logs/metrics are not indexed, so counting
+        # them would report "capped" although the index is far below the cap).
+        total_filtered = sum(len(filtered_observations.get(m, ())) for m in vector_modalities)
+        stats["vector_index_was_capped"] = (False if config.USE_LOG_TEMPLATES
+                                            else total_filtered > config.MAX_OBSERVATIONS_PER_INDEX)
 
         # --- Module 4: Hybrid Retrieval -----------------------------------
         t4 = time.time()

@@ -45,6 +45,9 @@ _MASKS = [
     (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b"), "<IP>"),
     (re.compile(r"\b[0-9a-fA-F]{12,}\b"), "<HEX>"),
     (re.compile(r"\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b"), "<ID>"),
+    # Long single-case alphabetic token (e.g. detailInfo=AAKATXYHXOOEADAYPRPJXHTZMLXHIIWZY):
+    # random payloads, not vocabulary. Without this one case produced ~15.6k templates.
+    (re.compile(r"\b[A-Z]{16,}\b"), "<RND>"),
     (re.compile(r"(?<![A-Za-z_<])\d+(?:\.\d+)?"), "<N>"),
     (re.compile(r"\s+"), " "),
 ]
