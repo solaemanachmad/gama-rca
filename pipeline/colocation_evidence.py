@@ -24,7 +24,7 @@ from collections import defaultdict
 from typing import Dict, Optional
 
 import config
-from pipeline.infra_evidence import change_factor
+from pipeline.infra_evidence import change_text, CHANGE_LEGEND
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
                                            _node_name, _node_type)
 
@@ -40,12 +40,7 @@ def _naive(ts):
 
 def _bm(s):
     """'b->m' plus the change factor when USE_CHANGE_FACTOR is on."""
-    txt = f"{_fmt(s[0])}->{_fmt(s[1])}"
-    if getattr(config, "USE_CHANGE_FACTOR", False):
-        cf = change_factor(s[0], s[1])
-        if cf:
-            txt += f" ({cf})"
-    return txt
+    return f"{_fmt(s[0])}->{_fmt(s[1])}" + change_text(s[2], s[0], s[1], compact=True)
 
 
 def _fmt(x):
@@ -62,7 +57,7 @@ def _bw(series, w0, w1):
     win = [v for t, v in series if w0 <= t <= w1]
     if not win:
         return None
-    return (statistics.median(base) if base else None, max(win))
+    return (statistics.median(base) if base else None, max(win), base)
 
 
 def compute_colocation_evidence(case, alert_ts: Optional[dt.datetime]) -> Dict:
@@ -158,7 +153,7 @@ def _compute(case, alert_ts):
     shown_place = cap(placement, CHAR_BUDGET["placement"])
     text = ("Node co-location evidence. Services are spread over several nodes. Values are "
             "baseline median -> alert-window max (cpu/mem/disk = usage rate; pods = running pods; "
-            "err = error count; lat = latency). Nothing is filtered or ranked: judge yourself "
+            "err = error count; lat = latency)." + CHANGE_LEGEND().replace(" change =", " Brackets after a value: change =", 1) + " Nothing is filtered or ranked: judge yourself "
             "whether a node's own cpu/mem/disk/pods change while its hosted services degrade "
             "(host-level cause) or services degrade without any change on their nodes "
             "(service-level cause). Note: service err/lat are service-wide aggregates, so the "

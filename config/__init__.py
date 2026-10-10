@@ -423,3 +423,7 @@ USE_CHANGE_FACTOR = os.environ.get("USE_CHANGE_FACTOR", "0") == "1"
 # deterministic code may only extract evidence. Default "1" keeps legacy (archived R0-R5D) behaviour;
 # all operator-ladder arms (A0-A3) set it to 0. Keyword candidates are still LOGGED as a diagnostic.
 USE_KEYWORD_HINT = os.environ.get("USE_KEYWORD_HINT", "1") == "1"
+
+# USE_CHANGE_STATS=1 (needs USE_CHANGE_FACTOR=1): also append robust z-score (MAD), baseline rank
+# (% of baseline samples below the window max) and baseline sample count n next to the ratio.
+USE_CHANGE_STATS = os.environ.get("USE_CHANGE_STATS", "0") == "1"

@@ -58,6 +58,7 @@ def _stat(series, w0, w1):
     return {
         "base_med": statistics.median(base) if base else None,
         "base_max": max(base) if base else None,
+        "base_vals": base,
         "win_med": statistics.median(win) if win else None,
         "win_max": max(win) if win else None,
         "win_min": min(win) if win else None,
@@ -76,12 +77,59 @@ def change_factor(base, peak):
     return f"x{r:.3g}" if r < 1000 else f"x{r:.0f}"
 
 
+def change_stats(base_vals, peak):
+    """Robust companions to the ratio (evidence formatting only: no threshold, no ranking).
+    z    = (peak - median) / (1.4826 * MAD) over the baseline samples ('inf' if the baseline is
+           perfectly flat and the peak differs, '0' if equal);
+    rank = % of baseline samples strictly below the window max (bounded 0-100, never blows up);
+    n    = number of baseline samples (how much to trust the baseline).
+    Returns (z_txt, rank_txt, n) or None when undefined."""
+    if not base_vals or peak is None:
+        return None
+    med = statistics.median(base_vals)
+    mad = statistics.median([abs(v - med) for v in base_vals])
+    sig = 1.4826 * mad
+    if sig == 0:
+        z = "0" if peak == med else ("+inf" if peak > med else "-inf")
+    else:
+        z = f"{(peak - med) / sig:+.3g}"
+    rank = 100.0 * sum(1 for v in base_vals if v < peak) / len(base_vals)
+    return z, f"{rank:.0f}%", len(base_vals)
+
+
+def change_text(base_vals, base_med, peak, compact=False):
+    """' change=x670 z=+24 rank=100% n=40' (or compact '(x670,z+24,r100%,n40)'); '' when off/undefined."""
+    if not getattr(config, "USE_CHANGE_FACTOR", False):
+        return ""
+    cf = change_factor(base_med, peak)
+    st = change_stats(base_vals, peak) if getattr(config, "USE_CHANGE_STATS", False) else None
+    if compact:
+        items = [cf] if cf else []
+        if st:
+            items += [f"z{st[0]}", f"r{st[1]}", f"n{st[2]}"]
+        return f" ({','.join(items)})" if items else ""
+    items = [f"change={cf}"] if cf else []
+    if st:
+        items += [f"z={st[0]}", f"rank={st[1]}", f"n={st[2]}"]
+    return (" " + " ".join(items)) if items else ""
+
+
+def CHANGE_LEGEND():
+    """One-line explanation of the change columns (only when they are shown)."""
+    if not getattr(config, "USE_CHANGE_FACTOR", False):
+        return ""
+    txt = (" change = window max / baseline median (a ratio; 'new' = baseline was 0)")
+    if getattr(config, "USE_CHANGE_STATS", False):
+        txt += ("; z = (window max - baseline median) / robust baseline spread (MAD), i.e. how many "
+                "normal-variation units away; rank = % of baseline samples below the window max; "
+                "n = number of baseline samples. A large ratio with a small z means a tiny, noisy "
+                "baseline; a large z with ratio ~x1 means a very stable metric moved slightly")
+    return txt + "."
+
+
 def _row_text(label, metric, s):
     txt = f"{label} {metric}: base={_fmt(s['base_med'])} med={_fmt(s['win_med'])} max={_fmt(s['win_max'])}"
-    if getattr(config, "USE_CHANGE_FACTOR", False):
-        cf = change_factor(s["base_med"], s["win_max"])
-        if cf:
-            txt += f" change={cf}"
+    txt += change_text(s.get("base_vals"), s["base_med"], s["win_max"])
     return txt
 
 
@@ -216,7 +264,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
               "dep": "K8s deployment metrics (replicas, cpu vs limits)"}
     lines = [f"Numeric infrastructure/APM evidence. Window = [alert-{WINDOW_BEFORE_S//60}min, "
              f"alert+{WINDOW_AFTER_S}s]; baseline = samples before the window. Nothing is filtered by "
-             f"significance: judge which signals are abnormal yourself."]
+             f"significance: judge which signals are abnormal yourself." + CHANGE_LEGEND()]
     rows = []
 
     def emit(header, body_lines, budget):
