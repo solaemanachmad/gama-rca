@@ -19,6 +19,20 @@ Comparison systems for the ablation study (RQ1-RQ5):
 
 Each baseline returns an RCAResult with the SAME schema as the proposed
 framework so evaluation.py can score all five identically.
+
+FINAL_SCHEMA_HINT (shared with the Coordinator, agents/multi_agent.py) is used
+for every baseline's JSON schema instruction, not a locally-hardcoded one.
+Found via a sea_rca ablation (2026-10-02): the Coordinator's version includes
+a worked example -- '"reasoning_chain": ["cause step", "propagation step",
+"impact step"]' -- whose wording directly echoes gt.reasoning_chain's own
+format (evaluation/scoring.py's load_ground_truth builds it as "{step_type}:
+{target}", e.g. "cause: payment"). Every baseline here previously used a bare
+'"reasoning_chain": []' placeholder with none of that vocabulary, which meant
+cross-system reasoning_process comparisons were confounded by an inconsistent
+prompt, not just by each system's retrieval/evidence design -- proposed_hybrid
+had a built-in head start on this metric that had nothing to do with its
+multi-agent architecture. Standardizing on one shared constant removes that
+confound for every baseline at once.
 """
 
 import time
@@ -30,7 +44,7 @@ from retrieval.graph import GraphRetriever
 from retrieval.vector import build_case_index, build_index_from_observations, VectorIndex
 from retrieval.hybrid import fuse_scores, HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, render_summary_text
-from agents.multi_agent import build_agent_graph, build_agent_findings_list
+from agents.multi_agent import build_agent_graph, build_agent_findings_list, FINAL_SCHEMA_HINT
 from agents.llm_client import LLMClient
 from schema import RCAResult
 from pipeline.pipeline import parse_alert
@@ -39,8 +53,7 @@ from data.taxonomy import taxonomy_prompt_block
 DIRECT_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis from an alert alone, with "
     "no observability data provided. Respond ONLY with valid JSON: "
-    '{"predicted_entity_ids": [], "predicted_fault_type": "", '
-    '"reasoning_chain": [], "confidence": 0.0}'
+    f"{FINAL_SCHEMA_HINT}"
 )
 
 
@@ -57,8 +70,7 @@ def direct_llm(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR) 
 RAG_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis using retrieved log/metric/"
     "trace snippets (no topology information). Respond ONLY with valid JSON: "
-    '{"predicted_entity_ids": [], "predicted_fault_type": "", '
-    '"reasoning_chain": [], "confidence": 0.0}'
+    f"{FINAL_SCHEMA_HINT}"
 )
 
 
@@ -95,8 +107,7 @@ def standard_rag(case_id: str, llm: LLMClient, cases_dir: str = config.CASES_DIR
 GRAPHRAG_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis using topology-derived "
     "candidate entities (no log/metric/trace text). Respond ONLY with valid "
-    'JSON: {"predicted_entity_ids": [], "predicted_fault_type": "", '
-    '"reasoning_chain": [], "confidence": 0.0}'
+    f"JSON: {FINAL_SCHEMA_HINT}"
 )
 
 
@@ -138,8 +149,7 @@ SEA_RCA_SYSTEM_PROMPT = (
     "You are an SRE performing root cause analysis using BOTH topology-derived "
     "candidate entities AND a small set of retrieved log/metric/event evidence "
     "snippets, in a single pass. Respond ONLY with valid JSON: "
-    '{"predicted_entity_ids": [], "predicted_fault_type": "", '
-    '"reasoning_chain": [], "confidence": 0.0}'
+    f"{FINAL_SCHEMA_HINT}"
 )
 
 
@@ -310,5 +320,7 @@ BASELINE_REGISTRY = {
     "graphrag_only": graphrag_only,
     "multi_agent_only": multi_agent_only,
     "sea_rca": sea_rca,
+    "gala_lite": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
+        "pipeline.gala_lite", fromlist=["gala_lite"]).gala_lite(case_id, llm, cases_dir),
     # "proposed_hybrid" is run via pipeline.GraphRAGPipeline, not this registry
 }

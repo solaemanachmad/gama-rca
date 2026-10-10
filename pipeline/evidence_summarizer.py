@@ -262,6 +262,12 @@ def _rule_based_bullets(entity_items: List[EvidenceItem]) -> List[str]:
             snippet = it.observation.text[:200]
             bullets.append(f"Log observed: {snippet}")
 
+    if "log_template" in by_modality:
+        # One line per message template with baseline vs alert-window counts
+        # (see pipeline/log_templates.py); no significance filter is applied.
+        for it in by_modality["log_template"][:3]:
+            bullets.append("Log pattern: " + it.observation.text.replace("[logtpl:", "[")[:300])
+
     if "metrics" in by_modality:
         # surface each distinct metric name mentioned, most-relevant first
         seen_metrics = []

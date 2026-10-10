@@ -31,7 +31,10 @@ from typing import Dict, List, Optional
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
                                            _calls_graph, _node_name, _node_type)
 
-MAX_ROWS = {"svc": 40, "op": 24, "jvm": 24, "node": 40, "dep": 24, "event": 40}
+# Display budgets (characters) per section. Prompt-size control only: the
+# Coordinator prompt must fit the 7B model's GPU memory (a 16k-token prompt hit
+# CUDA OOM on a 15 GB T4). Entities are listed in name order, never ranked.
+CHAR_BUDGET = {"svc": 2600, "op": 1300, "jvm": 1200, "node": 2800, "dep": 1200, "event": 2200}
 
 
 def _naive(ts):
@@ -62,8 +65,7 @@ def _stat(series, w0, w1):
 
 
 def _row_text(label, metric, s):
-    return (f"{label} {metric}: base_med={_fmt(s['base_med'])} | "
-            f"win_med={_fmt(s['win_med'])} win_max={_fmt(s['win_max'])}")
+    return (f"{label} {metric}: base={_fmt(s['base_med'])} med={_fmt(s['win_med'])} max={_fmt(s['win_max'])}")
 
 
 def compute_infra_evidence(case, alert_ts: Optional[dt.datetime],
@@ -185,29 +187,48 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
     ev_lines = []
     for (obj, reason), g in sorted(ev.items(), key=lambda kv: (kv[1]["type"] != "Warning", kv[0])):
         ev_lines.append(f"event {obj} reason={reason} type={g['type']} count={g['count']} "
-                        f"first={g['first']} last={g['last']} msg={g['msg'][:80]}")
+                        f"first={g['first']} last={g['last']} msg={g['msg'][:60]}")
         obs_out.append(Observation(entity_id=None, timestamp=at, modality="infra_synth",
                                    text=f"{obj} {reason} count={g['count']}", payload={},
                                    source_file="infra_evidence"))
 
-    titles = {"svc": "APM service metrics (30s samples; request count=workload, error count=error)",
+    titles = {"svc": "APM service metrics (request count=workload, error count=error; base=baseline median, med/max=alert window)",
               "op": "APM operation metrics of the alert service",
               "jvm": "JVM / thread-pool metrics",
-              "node": "K8s node metrics (all nodes; usage rates, ready status, pod counts)",
+              "node": "K8s node metrics (all nodes; usage rates, ready status, pods)",
               "dep": "K8s deployment metrics (replicas, cpu vs limits)"}
     lines = [f"Numeric infrastructure/APM evidence. Window = [alert-{WINDOW_BEFORE_S//60}min, "
              f"alert+{WINDOW_AFTER_S}s]; baseline = samples before the window. Nothing is filtered by "
              f"significance: judge which signals are abnormal yourself."]
     rows = []
+
+    def emit(header, body_lines, budget):
+        out, used, dropped = [], 0, 0
+        for ln in body_lines:
+            if used + len(ln) + 1 > budget:
+                dropped += 1
+                continue
+            out.append(ln)
+            used += len(ln) + 1
+        if out:
+            lines.append("\n" + header + ":")
+            lines.extend(out)
+            if dropped:
+                lines.append(f"(+{dropped} more lines omitted for length)")
+        return out
+
     for k in ("svc", "op", "jvm", "node", "dep"):
-        items = sorted(sections[k])[:MAX_ROWS[k]]
-        if items:
-            lines.append(f"\n{titles[k]}:")
-            lines.extend("- " + t for _, _, t in items)
-            rows.extend(items)
+        by_entity = defaultdict(list)
+        for ename, metric, txt in sorted(sections[k]):
+            by_entity[ename].append((metric, txt))
+        body = []
+        for ename in sorted(by_entity):
+            metrics = [m for m, _ in by_entity[ename]]
+            parts = [t.split(" " + m + ": ", 1)[1] for m, t in by_entity[ename]]
+            label = by_entity[ename][0][1].split(" " + metrics[0] + ":")[0]
+            body.append("- " + label + " | " + "; ".join(f"{m} {p}" for m, p in zip(metrics, parts)))
+        rows.extend(emit(titles[k], body, CHAR_BUDGET[k]))
     if ev_lines:
-        lines.append("\nK8s events grouped by object and reason (counts and first/last timestamps; "
-                     "last may be later than the incident):")
-        lines.extend("- " + t for t in ev_lines[:MAX_ROWS["event"]])
-        rows.extend(ev_lines[:MAX_ROWS["event"]])
+        rows.extend(emit("K8s events grouped by object and reason (last may be later than the incident)",
+                         ["- " + t for t in ev_lines], CHAR_BUDGET["event"]))
     return {"rows": rows, "text": "\n".join(lines), "observations": obs_out}

@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 from pipeline.twist_scoring import (compute_twist_scores, twist_scores_to_summary,
                                      twist_top_entity, twist_scores_to_observations)
 
+import os
 import config
 from data.loader import Case, build_service_membership_index, normalize_entity_ids
 from data.taxonomy import taxonomy_prompt_block, detect_fault_keywords
@@ -35,6 +36,7 @@ from agents.llm_client import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
+from pipeline.log_templates import compute_log_templates
 
 
 ANCHOR_SYSTEM_PROMPT = (
@@ -474,6 +476,20 @@ class GraphRAGPipeline:
             filtered_observations["twist_synth"] = twist_text_observations
         stats["truncated_modalities"] = "|".join(truncated_modalities)
         vector_modalities = ("logs", "metrics", "events")
+        stats["use_log_templates"] = bool(config.USE_LOG_TEMPLATES)
+        if config.USE_LOG_TEMPLATES:
+            # Whole log modality as templates (hundreds of entries, no cap needed);
+            # metrics leave the vector index (numeric operators serve them).
+            t_tpl = time.time()
+            log_tpl = compute_log_templates(case, case.alert.alert_timestamp)
+            filtered_observations["log_template"] = log_tpl["observations"]
+            vector_modalities = ("log_template", "events")
+            stats["log_template_time_s"] = round(time.time() - t_tpl, 2)
+            stats["log_rows_raw"] = log_tpl["stats"].get("log_rows", 0)
+            stats["log_templates"] = log_tpl["stats"].get("log_templates", 0)
+            stats["log_template_engine"] = os.environ.get("LOG_TEMPLATE_ENGINE", "regex")
+            if log_tpl.get("error"):
+                stats["log_template_error"] = log_tpl["error"]
         if config.USE_TWIST_TEXT_EVIDENCE and twist_text_observations:
             vector_modalities = vector_modalities + ("twist_synth",)
         if config.USE_VECTOR_RETRIEVAL:
@@ -519,7 +535,7 @@ class GraphRAGPipeline:
         stats["evidence_items_from_graph_direct"] = len(direct_items)
 
         modality_counts = Counter(it.observation.modality for it in evidence_items)
-        for m in ("metrics", "logs", "traces", "events", "alerts", "twist_synth"):
+        for m in ("metrics", "logs", "traces", "events", "alerts", "twist_synth", "log_template"):
             stats[f"evidence_count_{m}"] = modality_counts.get(m, 0)
         stats["log_error_pattern_count"] = sum(
             1 for it in evidence_items

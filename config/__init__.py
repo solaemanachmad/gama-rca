@@ -386,3 +386,10 @@ ENTITY_SOURCE = os.environ.get("ENTITY_SOURCE", "anchor")
 # (fault type no longer copied from the Stage-0.5 anchor).
 USE_INFRA_EVIDENCE = os.environ.get("USE_INFRA_EVIDENCE", "0") == "1"
 CHAIN_FIRST = os.environ.get("CHAIN_FIRST", "0") == "1"
+
+# --- P3: log-template evidence layer (2026-10-10) ---------------------------
+# USE_LOG_TEMPLATES=1 replaces raw log + metric rows in the vector index with
+# one entry per log template (regex masking; optional Drain3 stage via
+# LOG_TEMPLATE_ENGINE=drain3). Metrics are served by the numeric operators
+# (USE_INFRA_EVIDENCE) instead of embeddings. Default off = previous behaviour.
+USE_LOG_TEMPLATES = os.environ.get("USE_LOG_TEMPLATES", "0") == "1"

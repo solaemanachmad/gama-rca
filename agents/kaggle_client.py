@@ -128,6 +128,7 @@ class KaggleTransformersClient:
 
     def generate(self, prompt: str, system: Optional[str] = None,
                  json_mode: bool = False) -> str:
+        import torch
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -147,12 +148,35 @@ class KaggleTransformersClient:
 
         input_len = inputs["input_ids"].shape[-1]
 
-        outputs = self.model.generate(
-            **inputs,
+        # Guard against GPU OOM on very long prompts (attention memory grows with
+        # the square of the length with the default SDPA path; a ~16k-token
+        # Coordinator prompt needed a 13 GiB allocation on a 15 GB T4). Keep the
+        # head (instructions) and tail (task + schema), drop the middle.
+        max_in = int(os.environ.get("MAX_INPUT_TOKENS", "9000"))
+        if input_len > max_in and self.tokenizer is not None:
+            ids = inputs["input_ids"][0]
+            head, tail = int(max_in * 0.55), max_in - int(max_in * 0.55)
+            ids = torch.cat([ids[:head], ids[-tail:]]).unsqueeze(0)
+            inputs = {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+            self.truncated_prompts = getattr(self, "truncated_prompts", 0) + 1
+            input_len = ids.shape[-1]
+
+        gen_kwargs = dict(
             max_new_tokens=self.max_tokens,
             temperature=max(self.temperature, 1e-4),  # 0 breaks some sampling configs
             do_sample=self.temperature > 0,
         )
+        try:
+            outputs = self.model.generate(**inputs, **gen_kwargs)
+        except torch.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            ids = inputs["input_ids"][0]
+            keep = max(2000, ids.shape[-1] // 2)
+            ids = torch.cat([ids[:keep // 2], ids[-(keep - keep // 2):]]).unsqueeze(0)
+            inputs = {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+            self.oom_retries = getattr(self, "oom_retries", 0) + 1
+            input_len = ids.shape[-1]
+            outputs = self.model.generate(**inputs, **gen_kwargs)
 
         self.total_calls += 1
         new_tokens = outputs[0][input_len:]
