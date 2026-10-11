@@ -391,14 +391,25 @@ FINAL_SCHEMA_HINT = (
 )
 
 
+def _findings_json(findings: dict, raw_cap: int = 300) -> str:
+    """Specialist findings as prompt text. ensure_ascii=False (escaped CJK was ~3x more tokens) and an unparsable
+    specialist output is cut to raw_cap chars (a runaway raw output was ~2k chars of junk in the Coordinator prompt)."""
+    clean = {}
+    for k, v in findings.items():
+        if isinstance(v, dict) and v.get("_parse_error"):
+            v = {"_parse_error": True, "_raw": str(v.get("_raw", ""))[:raw_cap]}
+        clean[k] = v
+    return json.dumps(clean, indent=1, ensure_ascii=False)
+
+
 def coordinator_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
-        findings_block = json.dumps({
+        findings_block = _findings_json({
             "metrics_agent": state.get("metrics_finding"),
             "logs_agent": state.get("logs_finding"),
             "trace_agent": state.get("trace_finding"),
             "topology_agent": state.get("topology_finding"),
-        }, indent=2)
+        })
 
         # Fault-type hint construction. Previously this narrowed the shown
         # taxonomy using a two-stage RandomForest classifier (group, then

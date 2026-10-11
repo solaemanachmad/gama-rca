@@ -166,8 +166,20 @@ class KaggleTransformersClient:
             temperature=max(self.temperature, 1e-4),  # 0 breaks some sampling configs
             do_sample=self.temperature > 0,
         )
+        outputs = None
+        chunk = int(os.environ.get("PREFILL_CHUNK", "1024"))
+        if (os.environ.get("CHUNKED_PREFILL", "0") == "1" and self.tokenizer is not None
+                and inputs["input_ids"].shape[-1] > chunk + 1):
+            try:
+                outputs = self._generate_chunked(inputs, gen_kwargs, chunk)
+                self.chunked_prefills = getattr(self, "chunked_prefills", 0) + 1
+            except Exception:                      # any failure -> original path below
+                torch.cuda.empty_cache()
+                self.chunked_fallbacks = getattr(self, "chunked_fallbacks", 0) + 1
+                outputs = None
         try:
-            outputs = self.model.generate(**inputs, **gen_kwargs)
+            if outputs is None:
+                outputs = self.model.generate(**inputs, **gen_kwargs)
         except torch.OutOfMemoryError:
             torch.cuda.empty_cache()
             ids = inputs["input_ids"][0]
@@ -187,6 +199,26 @@ class KaggleTransformersClient:
         else:
             response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
         return response.strip()
+
+    def _generate_chunked(self, inputs, gen_kwargs, chunk: int):
+        """Prefill the prompt in chunks into a KV cache (attention memory ~ chunk x length instead of length^2),
+        then generate from the cached prefix. Same model, same tokens, same greedy decoding."""
+        import torch
+        from transformers import DynamicCache
+        ids = inputs["input_ids"]
+        n = ids.shape[-1]
+        cache = DynamicCache()
+        with torch.no_grad():
+            pos = 0
+            while pos < n - 1:
+                end = min(pos + chunk, n - 1)
+                try:
+                    self.model(input_ids=ids[:, pos:end], past_key_values=cache, use_cache=True, logits_to_keep=1)
+                except TypeError:
+                    self.model(input_ids=ids[:, pos:end], past_key_values=cache, use_cache=True)
+                pos = end
+            return self.model.generate(input_ids=ids, attention_mask=torch.ones_like(ids),
+                                       past_key_values=cache, **gen_kwargs)
 
     def score_options(self, prompt: str, labels, system: Optional[str] = None):
         """Constrained choice: log-probability of each single-token label as the FIRST token of the answer
@@ -233,10 +265,14 @@ class KaggleTransformersClient:
     def usage_stats(self) -> dict:
         return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used,
                 "truncated_prompts": getattr(self, "truncated_prompts", 0),
-                "oom_retries": getattr(self, "oom_retries", 0)}
+                "oom_retries": getattr(self, "oom_retries", 0),
+                "chunked_prefills": getattr(self, "chunked_prefills", 0),
+                "chunked_fallbacks": getattr(self, "chunked_fallbacks", 0)}
 
     def reset_usage(self) -> None:
         self.total_calls = 0
         self.total_tokens_used = 0
         self.truncated_prompts = 0
         self.oom_retries = 0
+        self.chunked_prefills = 0
+        self.chunked_fallbacks = 0

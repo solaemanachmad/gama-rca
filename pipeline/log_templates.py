@@ -49,6 +49,8 @@ _MASKS = [
     # random payloads, not vocabulary. Without this one case produced ~15.6k templates.
     (re.compile(r"\b[A-Z]{16,}\b"), "<RND>"),
     (re.compile(r"(?<![A-Za-z_<])\d+(?:\.\d+)?"), "<N>"),
+    # long numeric arrays (byte dumps, "[<N> <N> <N> ...]") -> one marker; they flooded prompts and broke JSON output
+    (re.compile(r"(?:<N>[\s,;]*){4,}"), "<N...> "),
     (re.compile(r"\s+"), " "),
 ]
 _JSON_LEVEL = re.compile(r'"level"\s*:\s*"?(\w+)')

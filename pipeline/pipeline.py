@@ -775,7 +775,8 @@ class GraphRAGPipeline:
         predicted_fault_type = final.get("predicted_fault_type", "unknown")
         stats["use_dossier_ft"] = bool(config.USE_DOSSIER_FT)
         _cu = [self.llm] + ([self.coordinator_llm] if self.coordinator_llm is not None else [])
-        stats["truncated_prompts"] = sum(getattr(u, "truncated_prompts", 0) for u in _cu)
+        for _k in ("truncated_prompts", "oom_retries", "chunked_prefills", "chunked_fallbacks"):
+            stats[_k] = sum(getattr(u, _k, 0) for u in _cu)
         if config.USE_DOSSIER_FT:
             try:
                 from agents.dossier import build_dossier, decide_fault_type
