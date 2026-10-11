@@ -68,6 +68,7 @@ class AgentState(TypedDict, total=False):
     twist_top_score: Optional[float]
     infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
     colocation_text: Optional[str]                  # per-node hosted-service table (pipeline/colocation_evidence.py)
+    trace_text: Optional[str]                       # HTTP code / error message table (pipeline/trace_evidence.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
     verify_stats: Optional[dict]                    # VERIFY_CHAIN diagnostics (issues, revised, ungrounded numbers)
     debug_trace: Optional[list]                     # prompts + raw outputs per node (only when DEBUG_DUMP_DIR is set)
@@ -287,6 +288,8 @@ def layer_node(llm: LLMClient):
             parts.append(state["infra_text"])
         if state.get("colocation_text"):
             parts.append(state["colocation_text"])
+        if state.get("trace_text"):
+            parts.append(state["trace_text"])
         parts.append(
             "Levels: service = application code/config/traffic of one service; runtime = JVM/GC/"
             "thread pool of a service; dependency = database, cache, queue or external call; "
@@ -509,6 +512,7 @@ def coordinator_node(llm: LLMClient):
             # follows the cited evidence instead of copying the anchor.
             infra_text = state.get("infra_text") or ""
             coloc_text = state.get("colocation_text") or ""
+            trace_text = state.get("trace_text") or ""
             layer_res = state.get("layer_result")
             knowledge_block = (knowledge_prompt_block() + "\n\n") if config.USE_KNOWLEDGE_PROMPT else ""
             layer_block = ""
@@ -524,6 +528,7 @@ def coordinator_node(llm: LLMClient):
                 f"{keyword_block}\n"
                 f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
                 f"{('' if not coloc_text else chr(10) + coloc_text + chr(10))}"
+                f"{('' if not trace_text else chr(10) + trace_text + chr(10))}"
                 f"{layer_block}"
                 f"{fault_hint}\n\n"
                 f"{knowledge_block}"
@@ -542,7 +547,7 @@ def coordinator_node(llm: LLMClient):
             state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
             if config.VERIFY_CHAIN:
-                _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, coloc_text) if t) \
+                _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, coloc_text, trace_text) if t) \
                     or findings_block
                 state["final_result"] = _verify_and_revise(llm, state, prompt, state["final_result"], _ev)
             return state

@@ -460,3 +460,8 @@ USE_KNOWLEDGE_PROMPT = os.environ.get("USE_KNOWLEDGE_PROMPT", "0") == "1"
 # issues the Coordinator revises once. A deterministic pre-check only lists cited numbers that appear in no table
 # (grounding aid, decides nothing). Adds 1 call (+1 when revised).
 VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
+
+# USE_TRACE_EVIDENCE=1: per-service table (call-graph neighbourhood of the alert service) of HTTP status-code
+# counts, masked error messages and slowest operations, alert window vs baseline (pipeline/trace_evidence.py;
+# evidence extraction only). Meant to separate fault types that differ in what the failing calls say.
+USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"

@@ -38,6 +38,7 @@ from agents.llm_client import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
+from pipeline.trace_evidence import compute_trace_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
 from pipeline.log_templates import compute_log_templates
 
@@ -366,6 +367,16 @@ class GraphRAGPipeline:
         stats["use_colocation_evidence"] = bool(config.USE_COLOCATION_EVIDENCE)
         stats["colocation_nodes_shown"] = coloc_ev["rows"]
         stats["colocation_chars"] = len(coloc_ev["text"])
+        trace_ev = {"text": "", "rows": 0}
+        if config.USE_TRACE_EVIDENCE:
+            t_tr = time.time()
+            trace_ev = compute_trace_evidence(
+                case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["trace_evidence_time_s"] = round(time.time() - t_tr, 3)
+            stats["trace_evidence_error"] = trace_ev.get("error")
+        stats["use_trace_evidence"] = bool(config.USE_TRACE_EVIDENCE)
+        stats["trace_evidence_rows"] = trace_ev["rows"]
+        stats["trace_evidence_chars"] = len(trace_ev["text"])
         stats["layer_agent"] = bool(config.LAYER_AGENT)
         stats["chain_first_entity"] = config.CHAIN_FIRST_ENTITY
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
@@ -649,6 +660,7 @@ class GraphRAGPipeline:
             "propagation_text": propagation_ev["text"] or None,
             "infra_text": infra_ev["text"] or None,
             "colocation_text": coloc_ev["text"] or None,
+            "trace_text": trace_ev["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
