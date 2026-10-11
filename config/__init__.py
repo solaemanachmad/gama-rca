@@ -485,6 +485,11 @@ USE_DIRECTION_EVIDENCE = os.environ.get("USE_DIRECTION_EVIDENCE", "0") == "1"
 # Shown in the chain-first Coordinator prompt (needs CHAIN_FIRST=1). Default off = prompts unchanged.
 USE_ALERT_LIFECYCLE = os.environ.get("USE_ALERT_LIFECYCLE", "0") == "1"
 
+# USE_EVENT_DIGEST=1 (arm E): the k8s events section becomes a time-labelled digest (one line per type/kind/reason,
+# workload names, counts, first/last offset from the window start) instead of per-object rows cut alphabetically at
+# CHAR_BUDGET["event"]. Every group is represented; no significance filter. Evidence extraction only.
+USE_EVENT_DIGEST = os.environ.get("USE_EVENT_DIGEST", "0") == "1"
+
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
 # Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.

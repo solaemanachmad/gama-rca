@@ -24,18 +24,72 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import statistics
 from collections import defaultdict
 from typing import Dict, List, Optional
 
 import config
-from data.loader import event_time_bounds
+from data.loader import event_time_bounds, _parse_ts_iso
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
                                            _calls_graph, _node_name, _node_type)
 
 # Display budgets (characters) per section. Prompt-size control only: the
 # Coordinator prompt must fit the 7B model's GPU memory (a 16k-token prompt hit
 # CUDA OOM on a 15 GB T4). Entities are listed in name order, never ranked.
+# Arm E helpers (flag USE_EVENT_DIGEST lives in config): time-labelled event digest, every group represented.
+EVENT_DIGEST_NAMES = 6      # workload names listed per line; the rest is counted ("+n more")
+EVENT_MSG_CHARS = 90
+_POD_SUFFIX = re.compile(r"-[a-z0-9]{8,10}-[a-z0-9]{5}$|-[a-z0-9]{5}$")
+
+
+def _workload_name(kind: str, name: str) -> str:
+    return _POD_SUFFIX.sub("", name) if kind == "Pod" else name
+
+
+def _off(t, w0) -> str:
+    if t is None:
+        return "n/a"
+    sec = int(round((_naive(t) - w0).total_seconds()))
+    sign = "-" if sec < 0 else "+"
+    sec = abs(sec)
+    return f"T{sign}{sec // 60}:{sec % 60:02d}"
+
+
+def event_digest_lines(ev: dict, w0) -> List[str]:
+    """ev: {(obj 'Kind/name', reason): {count, first, last, msg, type}} -> digest lines. One line per
+    (type, kind, reason); workload names (pod hash suffix stripped) are NAMES, nothing is chosen by significance."""
+    agg: dict = {}
+    for (obj, reason), g in ev.items():
+        kind, _, name = obj.partition("/")
+        a = agg.setdefault((g["type"] or "?", kind, reason),
+                           {"count": 0, "first": None, "last": None, "wl": {}, "msg": "", "groups": 0})
+        a["count"] += g["count"]
+        a["groups"] += 1
+        wl = _workload_name(kind, name)
+        a["wl"][wl] = a["wl"].get(wl, 0) + 1
+        for key, t in (("first", g["first"]), ("last", g["last"])):
+            t = _naive(_parse_ts_iso(t))   # event times are ISO strings
+            if t is None:
+                continue
+            if a[key] is None or (t < a[key] if key == "first" else t > a[key]):
+                a[key] = t
+        a["msg"] = a["msg"] or g["msg"]
+    order = sorted(agg.items(), key=lambda kv: (kv[0][0] != "Warning", kv[1]["first"] is None,
+                                                kv[1]["first"] or w0, kv[0]))
+    n_warn = sum(a["groups"] for k, a in agg.items() if k[0] == "Warning")
+    lines = [f"{len(ev)} event groups ({n_warn} Warning, {len(ev) - n_warn} other) condensed to {len(order)} lines; "
+             f"T = window start (negative = before); Warning first, then by first occurrence"]
+    for (typ, kind, reason), a in order:
+        names = sorted(a["wl"])
+        shown = ", ".join(n + (f"x{a['wl'][n]}" if a["wl"][n] > 1 else "") for n in names[:EVENT_DIGEST_NAMES])
+        more = f" +{len(names) - EVENT_DIGEST_NAMES} more" if len(names) > EVENT_DIGEST_NAMES else ""
+        msg = f" | e.g. {a['msg'][:EVENT_MSG_CHARS]}" if a["msg"] else ""
+        lines.append(f"{typ} {kind} {reason}: x{a['count']} on {len(names)} name(s) [{shown}{more}]; "
+                     f"first {_off(a['first'], w0)}, last {_off(a['last'], w0)}{msg}")
+    return lines
+
+
 CHAR_BUDGET = {"svc": 2600, "op": 1300, "jvm": 1200, "node": 2800, "dep": 1200, "event": 2200}
 # Arm "direction evidence" (USE_DIRECTION_EVIDENCE=1): every row also carries the low side, so budgets grow with the rows.
 CHAR_BUDGET_DIRECTION = {"svc": 3800, "op": 1900, "jvm": 1800, "node": 2800, "dep": 1200, "event": 2200}
@@ -331,7 +385,12 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
             label = by_entity[ename][0][1].split(" " + metrics[0] + ":")[0]
             body.append("- " + label + " | " + "; ".join(f"{m} {p}" for m, p in zip(metrics, parts)))
         rows.extend(emit(titles[k], body, (CHAR_BUDGET_DIRECTION if getattr(config, "USE_DIRECTION_EVIDENCE", False) else CHAR_BUDGET)[k]))
-    if ev_lines:
+    if ev_lines and getattr(config, "USE_EVENT_DIGEST", False):
+        _dl = event_digest_lines(ev, w0)
+        lines.append("\nK8s events, condensed (no group omitted):")
+        lines.extend("- " + t for t in _dl)
+        rows.extend(_dl)
+    elif ev_lines:
         rows.extend(emit("K8s events grouped by object and reason (last may be later than the incident)",
                          ["- " + t for t in ev_lines], CHAR_BUDGET["event"]))
     return {"rows": rows, "text": "\n".join(lines), "observations": obs_out}
