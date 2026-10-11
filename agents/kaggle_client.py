@@ -101,7 +101,8 @@ class KaggleTransformersClient:
         if use_4bit:
             from transformers import BitsAndBytesConfig
             quant_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+                load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=getattr(torch, config.KAGGLE_DTYPE))
 
         if self._is_gemma4_unified:
             from transformers import AutoProcessor
@@ -113,7 +114,7 @@ class KaggleTransformersClient:
             self.processor = None
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=torch.bfloat16, device_map="auto", **quant_kwargs
+            model_path, dtype=getattr(torch, config.KAGGLE_DTYPE), device_map="auto", **quant_kwargs
         )
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -251,16 +252,8 @@ class KaggleTransformersClient:
 
     def generate_json(self, prompt: str, system: Optional[str] = None) -> dict:
         raw = self.generate(prompt, system=system, json_mode=True)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            start, end = raw.find("{"), raw.rfind("}")
-            if start != -1 and end != -1:
-                try:
-                    return json.loads(raw[start:end + 1])
-                except json.JSONDecodeError:
-                    pass
-            return {"_parse_error": True, "_raw": raw}
+        from agents.json_utils import parse_json_lenient
+        return parse_json_lenient(raw)
 
     def usage_stats(self) -> dict:
         return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used,

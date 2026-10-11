@@ -81,16 +81,8 @@ class GeminiClient:
 
     def generate_json(self, prompt: str, system: Optional[str] = None) -> dict:
         raw = self.generate(prompt, system=system, json_mode=True)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            start, end = raw.find("{"), raw.rfind("}")
-            if start != -1 and end != -1:
-                try:
-                    return json.loads(raw[start:end + 1])
-                except json.JSONDecodeError:
-                    pass
-            return {"_parse_error": True, "_raw": raw}
+        from agents.json_utils import parse_json_lenient
+        return parse_json_lenient(raw)
 
     def usage_stats(self) -> dict:
         return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used}

@@ -777,6 +777,7 @@ class GraphRAGPipeline:
         _cu = [self.llm] + ([self.coordinator_llm] if self.coordinator_llm is not None else [])
         for _k in ("truncated_prompts", "oom_retries", "chunked_prefills", "chunked_fallbacks"):
             stats[_k] = sum(getattr(u, _k, 0) for u in _cu)
+        _dossier_dump = None
         if config.USE_DOSSIER_FT:
             try:
                 from agents.dossier import build_dossier, decide_fault_type
@@ -806,6 +807,10 @@ class GraphRAGPipeline:
                     if _d["slug"]:
                         predicted_fault_type = _d["slug"]
                     stats["dossier_changed"] = predicted_fault_type != stats["chain_fault_type"]
+                    _dossier_dump = {"entity": _ename, "text": _dos, "mode": _d["mode"],
+                                     "p1": _d["p1"], "top3": _d["top3"],
+                                     "chain_fault_type": stats["chain_fault_type"],
+                                     "final_fault_type": predicted_fault_type}
                     _c = self.llm.usage_stats()
                     if self.coordinator_llm is not None:
                         _c2 = self.coordinator_llm.usage_stats()
@@ -815,6 +820,16 @@ class GraphRAGPipeline:
                     stats["truncated_prompts"] = sum(getattr(u, "truncated_prompts", 0) for u in _cu)
             except Exception as _ex:  # diagnostics + optional arm must never break the run
                 stats["dossier_error"] = repr(_ex)
+        if _dossier_dump is not None and config.DEBUG_DUMP_DIR:
+            try:
+                _p = os.path.join(config.DEBUG_DUMP_DIR, f"{case_id}.json")
+                with open(_p, encoding="utf-8") as _f:
+                    _dd = json.load(_f)
+                _dd["dossier"] = _dossier_dump
+                with open(_p, "w", encoding="utf-8") as _f:
+                    json.dump(_dd, _f, ensure_ascii=False, indent=1, default=str)
+            except Exception as _e2:  # debug output must never break a run
+                stats["debug_dump_error"] = repr(_e2)
         stats["fault_type_equals_anchor"] = bool(
             predicted_fault_type and predicted_fault_type == graph_anchor.get("anchor_fault_type"))
         stats["used_entity_fallback"] = used_fallback

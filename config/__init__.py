@@ -367,6 +367,11 @@ KAGGLE_MODEL_LOCAL_PATH = os.environ.get("KAGGLE_MODEL_LOCAL_PATH", None)
 COORDINATOR_MODEL_HANDLE = os.environ.get("COORDINATOR_MODEL_HANDLE", None)
 COORDINATOR_MODEL_LOCAL_PATH = os.environ.get("COORDINATOR_MODEL_LOCAL_PATH", None)
 COORDINATOR_USE_4BIT = os.environ.get("COORDINATOR_USE_4BIT", "0") == "1"
+# Main (all-agents) client: optional 4-bit NF4 and compute dtype. Defaults reproduce earlier runs
+# exactly (bf16, no quantisation). For a 14B run on T4 GPUs use KAGGLE_USE_4BIT=1 and
+# KAGGLE_DTYPE=float16 (T4 has no native bf16).
+KAGGLE_USE_4BIT = os.environ.get("KAGGLE_USE_4BIT", "0") == "1"
+KAGGLE_DTYPE = os.environ.get("KAGGLE_DTYPE", "bfloat16")   # bfloat16 | float16
                                       # bitsandbytes 4-bit quantization, NOT GPTQ (which hit an
                                       # unresolved optimum/auto-gptq compatibility bug this
                                       # session) -- lets a larger Coordinator-only model (e.g.

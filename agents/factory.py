@@ -19,7 +19,8 @@ def get_llm_client():
     if config.LLM_BACKEND == "kaggle":
         from agents.kaggle_client import KaggleTransformersClient
         return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE,
-                                         local_path=config.KAGGLE_MODEL_LOCAL_PATH)
+                                         local_path=config.KAGGLE_MODEL_LOCAL_PATH,
+                                         use_4bit=config.KAGGLE_USE_4BIT)
     from agents.llm_client import LLMClient
     return LLMClient()
 
