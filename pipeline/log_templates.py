@@ -23,7 +23,7 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from pipeline.propagation_evidence import WINDOW_AFTER_S, WINDOW_BEFORE_S
+from pipeline.propagation_evidence import WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds
 
 _KEEP_KEYS = ("level", "severity", "msg", "message", "error", "err", "reason", "status",
               "statuscode", "code", "event", "method", "path", "route", "type", "name")
@@ -90,10 +90,10 @@ def _compute(case, alert_ts, Observation):
     if not logs or alert_ts is None:
         return None
     at = _naive(alert_ts)
-    w0, w1 = at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
     tmin = min((_naive(o.timestamp) for o in logs if o.timestamp is not None), default=None)
     base_min = max(1.0, ((w0 - tmin).total_seconds() / 60.0) if tmin else 1.0)
-    win_min = (WINDOW_BEFORE_S + WINDOW_AFTER_S) / 60.0
+    win_min = (w1 - w0).total_seconds() / 60.0
 
     agg: Dict[tuple, dict] = {}
     n_rows = 0

@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 
 import config
 from data.loader import event_time_bounds
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
+from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
                                            _calls_graph, _node_name, _node_type)
 
 # Display budgets (characters) per section. Prompt-size control only: the
@@ -186,7 +186,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
     if alert_ts is None:
         return None
     at = _naive(alert_ts)
-    w0, w1 = at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
 
     # neighbourhood service names (alert service, callees <= max_hops, callers)
     svc_names = set()
@@ -296,8 +296,10 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
               "jvm": "JVM / thread-pool metrics",
               "node": "K8s node metrics (all nodes; usage rates, ready status, pods)",
               "dep": "K8s deployment metrics (replicas, cpu vs limits)"}
-    lines = [f"Numeric infrastructure/APM evidence. Window = [alert-{WINDOW_BEFORE_S//60}min, "
-             f"alert+{WINDOW_AFTER_S}s]; baseline = samples before the window. Nothing is filtered by "
+    _win_txt = (f"[alert_window.start, alert_window.end] ({int((w1 - w0).total_seconds())}s)"
+                if getattr(config, "ALERT_T0_MODE", "legacy") == "window"
+                else f"[alert-{WINDOW_BEFORE_S//60}min, alert+{WINDOW_AFTER_S}s]")
+    lines = [f"Numeric infrastructure/APM evidence. Window = {_win_txt}; baseline = samples before the window. Nothing is filtered by "
              f"significance: judge which signals are abnormal yourself." + CHANGE_LEGEND()]
     rows = []
 

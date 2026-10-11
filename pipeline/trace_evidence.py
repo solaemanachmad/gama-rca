@@ -22,7 +22,7 @@ from typing import Dict, Optional
 
 import networkx as nx
 
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, _calls_graph,
+from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds, _calls_graph,
                                            _node_name, _node_type, _p95)
 
 CHAR_BUDGET = 3800
@@ -71,8 +71,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
     by_name = {n: e for e, n in name_of.items()}
 
     at = alert_ts.replace(tzinfo=None) if alert_ts.tzinfo else alert_ts
-    w0 = at - dt.timedelta(seconds=WINDOW_BEFORE_S)
-    w1 = at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
 
     S = defaultdict(lambda: {"win_n": 0, "win_err": 0, "base_n": 0, "base_err": 0,
                              "http_w": Counter(), "http_b": Counter(),

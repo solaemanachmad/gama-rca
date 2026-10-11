@@ -25,7 +25,7 @@ from typing import Dict, Optional
 
 import config
 from pipeline.infra_evidence import change_text, CHANGE_LEGEND
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
+from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
                                            _node_name, _node_type)
 
 NODE_METRICS = (("node_cpu_usage_rate", "cpu"), ("node_memory_usage_rate", "mem"),
@@ -79,7 +79,7 @@ def _compute(case, alert_ts):
         return None
     topo = case.topology
     at = _naive(alert_ts)
-    w0, w1 = at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
 
     pod_node, dep_pods, svc_deps = {}, defaultdict(list), defaultdict(list)
     for u, v in topo.edges:

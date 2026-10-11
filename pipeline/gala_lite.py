@@ -37,7 +37,7 @@ from agents.multi_agent import FINAL_SCHEMA_HINT
 from data.loader import Case, find_service_ancestor, resolve_entity_by_name
 from data.taxonomy import taxonomy_prompt_block
 from pipeline.evidence_summarizer import ERROR_PATTERN
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
+from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
                                            _calls_graph, _node_name, _node_type)
 from pipeline.twist_scoring import compute_twist_scores
 from schema import RCAResult
@@ -61,7 +61,7 @@ def _naive(ts):
 
 
 def _metric_z_ranking(case: Case, at, services: set):
-    w0, w1 = at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
     series = defaultdict(list)
     for o in case.observations.get("metrics", []):
         p = o.payload or {}
@@ -85,7 +85,7 @@ def _metric_z_ranking(case: Case, at, services: set):
 
 
 def _error_logs(case: Case, svc: str, at, k: int = 8) -> List[str]:
-    w0, w1 = at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
     tag = f" {svc}:"
     seen, out = set(), []
     for o in case.observations.get("logs", []):

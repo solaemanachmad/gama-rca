@@ -425,12 +425,25 @@ def load_alert_context(case_dir: str, case_id: str) -> AlertContext:
         if window.get("start"):
             ts = _parse_ts_iso(window["start"])
 
+    # moment the alert fired (tag, else task field, else earliest alert row); kept for display/reference in every mode
+    fire_ts = ts if tag_attrs.get("alert_time") else None
+    if fire_ts is None and raw.get("alert_trigger_time"):
+        fire_ts = _parse_ts_iso(raw["alert_trigger_time"])
+    if fire_ts is None:
+        fire_ts = _first_alert_time(case_dir)
+    if getattr(config, "ALERT_T0_MODE", "legacy") == "window":
+        # Uniform rule: T0 = alert_window.start for every case (baseline = everything before it).
+        _ws = _parse_ts_iso(((raw.get("alert_window") or {}).get("start")))
+        if _ws is not None:
+            ts = _ws
+
     return AlertContext(
         case_id=case_id,
         alert_text=str(alert_text),
         alert_timestamp=ts,
         entry_entity_id=entity_id,
-        raw={**raw, "_resolved_entity_name": entity_name, "_resolved_entity_type": entity_type},
+        raw={**raw, "_resolved_entity_name": entity_name, "_resolved_entity_type": entity_type,
+             "_alert_fire_time": fire_ts},
     )
 
 

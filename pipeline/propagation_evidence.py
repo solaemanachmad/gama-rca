@@ -30,6 +30,31 @@ WINDOW_BEFORE_S = 300      # alert window: [alert-5min, alert+1min]
 WINDOW_AFTER_S = 60
 
 
+def _naive_dt(ts):
+    return ts.replace(tzinfo=None) if ts is not None and getattr(ts, "tzinfo", None) else ts
+
+
+def window_bounds(case, at):
+    """(w0, w1) of the evidence window as naive UTC datetimes.
+
+    legacy / alert modes: [at - WINDOW_BEFORE_S, at + WINDOW_AFTER_S] (unchanged).
+    window mode (ALERT_T0_MODE=window): the task's own alert_window [start, end]; everything before w0 is the
+    baseline, which is clean by construction because the data export is anchored at alert_window.start."""
+    import config as _cfg
+    if getattr(_cfg, "ALERT_T0_MODE", "legacy") == "window":
+        try:
+            win = (getattr(case, "alert", None).raw or {}).get("alert_window") or {}
+            import pandas as _pd
+            w0 = _pd.Timestamp(win["start"]).tz_convert("UTC").tz_localize(None).to_pydatetime()
+            w1 = _pd.Timestamp(win["end"]).tz_convert("UTC").tz_localize(None).to_pydatetime()
+            if w1 > w0:
+                return w0, w1
+        except Exception:
+            pass  # no usable alert_window: fall through to the legacy geometry
+    at = _naive_dt(at)
+    return at - dt.timedelta(seconds=WINDOW_BEFORE_S), at + dt.timedelta(seconds=WINDOW_AFTER_S)
+
+
 def _calls_graph(topology: nx.DiGraph) -> nx.DiGraph:
     g = nx.DiGraph()
     for u, v, d in topology.edges(data=True):
@@ -79,8 +104,7 @@ def compute_propagation_evidence(case, alert_ts: Optional[dt.datetime],
     upstream = {p for p in calls.predecessors(svc0) if _node_type(topo, p) == "apm.service"}
 
     at = alert_ts.replace(tzinfo=None) if alert_ts.tzinfo else alert_ts
-    w0 = at - dt.timedelta(seconds=WINDOW_BEFORE_S)
-    w1 = at + dt.timedelta(seconds=WINDOW_AFTER_S)
+    w0, w1 = window_bounds(case, at)
 
     cand = set(hop) | upstream
     win = defaultdict(lambda: [0, 0, []])    # spans, errors, durations
