@@ -39,6 +39,7 @@ from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
+from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
 from pipeline.log_templates import compute_log_templates
 
@@ -377,6 +378,16 @@ class GraphRAGPipeline:
         stats["use_trace_evidence"] = bool(config.USE_TRACE_EVIDENCE)
         stats["trace_evidence_rows"] = trace_ev["rows"]
         stats["trace_evidence_chars"] = len(trace_ev["text"])
+        onset_ev = {"text": "", "rows": 0}
+        if config.USE_ONSET_EVIDENCE:
+            t_on = time.time()
+            onset_ev = compute_onset_evidence(
+                case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["onset_time_s"] = round(time.time() - t_on, 3)
+            stats["onset_error"] = onset_ev.get("error")
+        stats["use_onset_evidence"] = bool(config.USE_ONSET_EVIDENCE)
+        stats["onset_rows"] = onset_ev["rows"]
+        stats["onset_chars"] = len(onset_ev["text"])
         stats["layer_agent"] = bool(config.LAYER_AGENT)
         stats["chain_first_entity"] = config.CHAIN_FIRST_ENTITY
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
@@ -661,6 +672,7 @@ class GraphRAGPipeline:
             "infra_text": infra_ev["text"] or None,
             "colocation_text": coloc_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
+            "onset_text": onset_ev["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
@@ -694,6 +706,9 @@ class GraphRAGPipeline:
             stats["layer_confidence"] = layer.get("confidence")
             stats["layer_parse_error"] = bool(layer.get("_parse_error"))
 
+        stats["coordinator_prompt_chars"] = final_state.get("coordinator_prompt_chars")
+        stats["coordinator_prompt_long"] = bool(
+            (final_state.get("coordinator_prompt_chars") or 0) > config.PROMPT_CHAR_WARN)
         if config.VERIFY_CHAIN:
             _vs = final_state.get("verify_stats") or {}
             stats["verify_issues"] = _vs.get("issues")

@@ -465,3 +465,10 @@ VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
 # counts, masked error messages and slowest operations, alert window vs baseline (pipeline/trace_evidence.py;
 # evidence extraction only). Meant to separate fault types that differ in what the failing calls say.
 USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"
+
+# USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
+# call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
+# Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.
+USE_ONSET_EVIDENCE = os.environ.get("USE_ONSET_EVIDENCE", "0") == "1"
+# Diagnostic only: log the Coordinator prompt size (chars) per case; PROMPT_CHAR_WARN just flags long prompts in stats.
+PROMPT_CHAR_WARN = int(os.environ.get("PROMPT_CHAR_WARN", "24000"))
