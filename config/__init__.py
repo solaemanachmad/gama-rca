@@ -501,6 +501,11 @@ USE_LOG_EVIDENCE = os.environ.get("USE_LOG_EVIDENCE", "0") == "1"
 # USE_TRACE_EVIDENCE (arm T, per-service HTTP codes / error messages), which is kept as is for comparison.
 USE_TRACE_EDGES = os.environ.get("USE_TRACE_EDGES", "0") == "1"
 
+# USE_METRIC_STRUCTURE=1 (arm M): (1) identity-free K8s aggregates (statistics across nodes/deployments at each timestamp;
+# the export carries no node/deployment names) and (2) call-edge flow ratios callee/caller workload (pipeline/metric_structure.py),
+# in the Coordinator prompt after the infra tables. Default off.
+USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
+
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
 # Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.
