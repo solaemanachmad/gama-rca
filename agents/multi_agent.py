@@ -68,6 +68,7 @@ class AgentState(TypedDict, total=False):
     twist_top_score: Optional[float]
     infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
     colocation_text: Optional[str]                  # per-node hosted-service table (pipeline/colocation_evidence.py)
+    coordinator_prompt_chars: Optional[int]         # diagnostic: chars of the chain-first Coordinator prompt
     onset_text: Optional[str]                       # per-minute robust-z onset table (pipeline/onset_evidence.py)
     trace_text: Optional[str]                       # HTTP code / error message table (pipeline/trace_evidence.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
