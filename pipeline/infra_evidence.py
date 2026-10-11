@@ -37,6 +37,15 @@ from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
 # Coordinator prompt must fit the 7B model's GPU memory (a 16k-token prompt hit
 # CUDA OOM on a 15 GB T4). Entities are listed in name order, never ranked.
 CHAR_BUDGET = {"svc": 2600, "op": 1300, "jvm": 1200, "node": 2800, "dep": 1200, "event": 2200}
+# Arm "direction evidence" (USE_DIRECTION_EVIDENCE=1): every row also carries the low side, so budgets grow with the rows.
+CHAR_BUDGET_DIRECTION = {"svc": 3800, "op": 1900, "jvm": 1800, "node": 2800, "dep": 1200, "event": 2200}
+# Metric order inside a service/operation line under that arm: traffic first, then errors, then the rest.
+_METRIC_PRIORITY = ("workload", "request_count", "error", "error_count", "error_rate", "latency",
+                    "avg_request_latency_seconds", "slow", "slow_count", "cpu", "mem")
+
+
+def _metric_rank(metric):
+    return _METRIC_PRIORITY.index(metric) if metric in _METRIC_PRIORITY else len(_METRIC_PRIORITY)
 
 
 def _naive(ts):
@@ -125,12 +134,36 @@ def CHANGE_LEGEND():
                 "normal-variation units away; rank = % of baseline samples below the window max; "
                 "n = number of baseline samples. A large ratio with a small z means a tiny, noisy "
                 "baseline; a large z with ratio ~x1 means a very stable metric moved slightly")
+    if getattr(config, "USE_DIRECTION_EVIDENCE", False):
+        txt += ("; 'low' repeats ratio/z/rank at the window MINIMUM (a drop shows there; the max-based columns "
+                "cannot show one) and 'median change' is the window median over the baseline median (a sustained shift)")
     return txt + "."
+
+
+def low_side_text(s):
+    """' | low: min=.. change=x0.01 z=-9.5 rank=0%; median change=x0.01' -- the same ratio/z/rank as the max side, taken
+    at the window MINIMUM, plus the ratio of the window MEDIAN (a sustained shift). Evidence formatting only: no
+    threshold, no ranking, nothing filtered. The max-based columns cannot show a drop."""
+    low = s.get("win_min")
+    if low is None:
+        return ""
+    cf = change_factor(s["base_med"], low)
+    st = change_stats(s.get("base_vals"), low) if getattr(config, "USE_CHANGE_STATS", False) else None
+    items = [f"min={_fmt(low)}"]
+    if cf:
+        items.append(f"change={cf}")
+    if st:
+        items += [f"z={st[0]}", f"rank={st[1]}"]
+    med_cf = change_factor(s["base_med"], s.get("win_med"))
+    txt = " | low: " + " ".join(items)
+    return txt + (f"; median change={med_cf}" if med_cf else "")
 
 
 def _row_text(label, metric, s):
     txt = f"{label} {metric}: base={_fmt(s['base_med'])} med={_fmt(s['win_med'])} max={_fmt(s['win_max'])}"
     txt += change_text(s.get("base_vals"), s["base_med"], s["win_max"])
+    if getattr(config, "USE_DIRECTION_EVIDENCE", False) and getattr(config, "USE_CHANGE_FACTOR", False):
+        txt += low_side_text(s)
     return txt
 
 
@@ -285,7 +318,9 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
 
     for k in ("svc", "op", "jvm", "node", "dep"):
         by_entity = defaultdict(list)
-        for ename, metric, txt in sorted(sections[k]):
+        _rows = (sorted(sections[k], key=lambda r: (r[0], _metric_rank(r[1]), r[1]))
+                 if getattr(config, "USE_DIRECTION_EVIDENCE", False) else sorted(sections[k]))
+        for ename, metric, txt in _rows:
             by_entity[ename].append((metric, txt))
         body = []
         for ename in sorted(by_entity):
@@ -293,7 +328,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
             parts = [t.split(" " + m + ": ", 1)[1] for m, t in by_entity[ename]]
             label = by_entity[ename][0][1].split(" " + metrics[0] + ":")[0]
             body.append("- " + label + " | " + "; ".join(f"{m} {p}" for m, p in zip(metrics, parts)))
-        rows.extend(emit(titles[k], body, CHAR_BUDGET[k]))
+        rows.extend(emit(titles[k], body, (CHAR_BUDGET_DIRECTION if getattr(config, "USE_DIRECTION_EVIDENCE", False) else CHAR_BUDGET)[k]))
     if ev_lines:
         rows.extend(emit("K8s events grouped by object and reason (last may be later than the incident)",
                          ["- " + t for t in ev_lines], CHAR_BUDGET["event"]))

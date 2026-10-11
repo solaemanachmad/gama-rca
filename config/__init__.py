@@ -474,6 +474,11 @@ VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
 # evidence extraction only). Meant to separate fault types that differ in what the failing calls say.
 USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"
 
+# USE_DIRECTION_EVIDENCE=1 (arm D2): the infra tables also show the LOW side of every row (window minimum with its
+# ratio/z/rank, and the window-median ratio), lead each service/operation line with traffic then errors, and use larger
+# per-section budgets. Needs USE_CHANGE_FACTOR=1. Evidence formatting only. Default off = prompts unchanged.
+USE_DIRECTION_EVIDENCE = os.environ.get("USE_DIRECTION_EVIDENCE", "0") == "1"
+
 # USE_ALERT_LIFECYCLE=1 (arm L): one condensed block of the alert stream (pipeline/alert_lifecycle.py): repeated alert
 # rows are run-length-encoded (same condition values -> one run), T axis = first alert firing, only rows up to the
 # task's alert_window.end are used, final state (still firing / RECOVERED at T+x) is stated. Evidence extraction only.
