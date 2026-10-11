@@ -29,6 +29,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 import config
+from data.loader import event_time_bounds
 from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S,
                                            _calls_graph, _node_name, _node_type)
 
@@ -243,8 +244,8 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
         obj = f"{io.get('kind', '?')}/{io.get('name') or p.get('pod_name') or p.get('hostname') or '?'}"
         g = ev[(obj, e.get("reason", ""))]
         g["count"] += int(e.get("count") or 1)
-        for key, fld in (("first", "firstTimestamp"), ("last", "lastTimestamp")):
-            t = e.get(fld)
+        _f, _l = event_time_bounds(e)
+        for key, t in (("first", _f), ("last", _l)):
             if t and (g[key] is None or (t < g[key] if key == "first" else t > g[key])):
                 g[key] = t
         g["msg"] = g["msg"] or (e.get("message") or "")[:120]

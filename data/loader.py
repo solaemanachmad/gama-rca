@@ -44,7 +44,7 @@ import re
 import json
 import time
 import datetime as dt
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import warnings
@@ -117,6 +117,47 @@ def _parse_ts_epoch(value: Any, unit: str) -> Optional[dt.datetime]:
         return dt.datetime.utcfromtimestamp(v / divisor)
     except (OverflowError, OSError, ValueError):
         return None
+
+
+_MISSING_TS = (None, "", "None", "none", "null", "NaT", "nan")
+
+
+def event_time_bounds(e: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """(first, last) timestamp strings of a raw K8s Event dict.
+
+    Classic events carry firstTimestamp/lastTimestamp. Events written through
+    the events.k8s.io API (Scheduled, FailedScheduling, Preempted, Starting)
+    carry only `eventTime`, and the other two are the literal string 'None'.
+    Missing markers are skipped so that a real timestamp is never shadowed.
+    """
+    def pick(*keys):
+        for k in keys:
+            v = e.get(k)
+            if v not in _MISSING_TS:
+                return str(v)
+        return None
+    first = pick("firstTimestamp", "eventTime", "lastTimestamp")
+    last = pick("lastTimestamp", "eventTime", "firstTimestamp")
+    return first, last
+
+
+def _first_alert_time(case_dir: str) -> Optional[dt.datetime]:
+    """Earliest row in alerts.parquet = the moment the alert fired. Label-free."""
+    fp = os.path.join(case_dir, config.FILE_ALERTS)
+    try:
+        df = pd.read_parquet(fp, columns=["time_s", "timestamp"])
+    except Exception:
+        return None
+    for col, unit in (("time_s", "s"), ("timestamp", "ms")):
+        try:
+            v = pd.to_numeric(df[col], errors="coerce").min()
+        except Exception:
+            continue
+        if v == v:  # not NaN
+            t = _parse_ts_epoch(v, unit)
+            if t is not None:
+                return t.replace(tzinfo=dt.timezone.utc)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +384,17 @@ def load_alert_context(case_dir: str, case_id: str) -> AlertContext:
     ts = None
     if tag_attrs.get("alert_time"):
         ts = _parse_ts_iso(tag_attrs["alert_time"])
+    if ts is None and getattr(config, "ALERT_T0_MODE", "legacy") == "alert":
+        # Uniform rule (opt-in, ALERT_T0_MODE=alert): T0 is always the moment
+        # the alert fired -- tag alert_time, else task.alert_trigger_time, else
+        # the earliest alerts.parquet row. "legacy" (default, reproduces all
+        # runs before this flag) falls back to alert_window.start for the 74/103
+        # cases without a tag, which is a median 181 s (max 519 s) before the
+        # alert.
+        if raw.get("alert_trigger_time"):
+            ts = _parse_ts_iso(raw["alert_trigger_time"])
+        if ts is None:
+            ts = _first_alert_time(case_dir)
     if ts is None:
         # Fallback: alert_window.start. Note this is NOT the same moment as
         # the actual alert trigger -- inspection of a real case showed
@@ -446,7 +498,8 @@ def load_events(case_dir: str, name_index: Dict[str, str]) -> List[Observation]:
         k8s_event = _parse_json_field(r.get("eventId"))
         reason = k8s_event.get("reason", "")
         message = k8s_event.get("message", "")
-        ts = _parse_ts_iso(k8s_event.get("lastTimestamp") or k8s_event.get("firstTimestamp"))
+        _first, _last = event_time_bounds(k8s_event)
+        ts = _parse_ts_iso(_last)
 
         pod_name = r.get("pod_name")
         hostname = r.get("hostname")
