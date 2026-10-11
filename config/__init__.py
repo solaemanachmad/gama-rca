@@ -472,3 +472,8 @@ USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"
 USE_ONSET_EVIDENCE = os.environ.get("USE_ONSET_EVIDENCE", "0") == "1"
 # Diagnostic only: log the Coordinator prompt size (chars) per case; PROMPT_CHAR_WARN just flags long prompts in stats.
 PROMPT_CHAR_WARN = int(os.environ.get("PROMPT_CHAR_WARN", "24000"))
+
+# Arm D -- USE_DOSSIER_FT=1: after the entity is chosen, a SEPARATE short call sees only the evidence rows that mention
+# that entity (and its host) and picks the fault type among lettered options by next-token probability (two option
+# orders averaged). Replaces the chain-first Coordinator's fault type; entity and chain are unchanged (agents/dossier.py).
+USE_DOSSIER_FT = os.environ.get("USE_DOSSIER_FT", "0") == "1"

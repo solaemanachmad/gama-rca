@@ -773,6 +773,47 @@ class GraphRAGPipeline:
                 ([parsed_alert["entry_entity_id"]] if parsed_alert["entry_entity_id"] else [])
             used_fallback = not llm_predicted_entities
         predicted_fault_type = final.get("predicted_fault_type", "unknown")
+        stats["use_dossier_ft"] = bool(config.USE_DOSSIER_FT)
+        _cu = [self.llm] + ([self.coordinator_llm] if self.coordinator_llm is not None else [])
+        stats["truncated_prompts"] = sum(getattr(u, "truncated_prompts", 0) for u in _cu)
+        if config.USE_DOSSIER_FT:
+            try:
+                from agents.dossier import build_dossier, decide_fault_type
+                from data.taxonomy import build_fault_taxonomy, FAULT_DEFINITIONS, knowledge_prompt_block
+                from data.loader import find_service_ancestor
+                from pipeline.infra_evidence import CHANGE_LEGEND
+                from pipeline.propagation_evidence import _node_name, _node_type
+                _e = predicted_entity_ids[0] if predicted_entity_ids else None
+                if _e and _e in case.topology:
+                    _t = _node_type(case.topology, _e)
+                    _svc = _e if _t in ("apm.service", "k8s.node") else (find_service_ancestor(_e, case.topology) or _e)
+                    _ename = _node_name(case.topology, _svc)
+                    _texts = {"propagation_text": propagation_ev["text"], "infra_text": infra_ev["text"],
+                              "colocation_text": coloc_ev["text"], "trace_text": trace_ev["text"],
+                              "onset_text": onset_ev["text"]}
+                    _dos = build_dossier([_ename], _texts)
+                    stats["dossier_entity"] = _ename
+                    stats["dossier_chars"] = len(_dos)
+                    _d = decide_fault_type(self.coordinator_llm or self.llm, parsed_alert["alert_text"], _ename, _dos,
+                                           build_fault_taxonomy(), FAULT_DEFINITIONS, knowledge_prompt_block(),
+                                           CHANGE_LEGEND() if config.USE_CHANGE_FACTOR else "")
+                    stats["dossier_prompt_chars"] = _d["chars"]
+                    stats["dossier_mode"] = _d["mode"]
+                    stats["dossier_p1"] = _d["p1"]
+                    stats["dossier_top3"] = _d["top3"]
+                    stats["chain_fault_type"] = predicted_fault_type
+                    if _d["slug"]:
+                        predicted_fault_type = _d["slug"]
+                    stats["dossier_changed"] = predicted_fault_type != stats["chain_fault_type"]
+                    _c = self.llm.usage_stats()
+                    if self.coordinator_llm is not None:
+                        _c2 = self.coordinator_llm.usage_stats()
+                        _c = {"total_calls": _c.get("total_calls", 0) + _c2.get("total_calls", 0),
+                              "total_tokens": _c.get("total_tokens", 0) + _c2.get("total_tokens", 0)}
+                    stats.update(_c)
+                    stats["truncated_prompts"] = sum(getattr(u, "truncated_prompts", 0) for u in _cu)
+            except Exception as _ex:  # diagnostics + optional arm must never break the run
+                stats["dossier_error"] = repr(_ex)
         stats["fault_type_equals_anchor"] = bool(
             predicted_fault_type and predicted_fault_type == graph_anchor.get("anchor_fault_type"))
         stats["used_entity_fallback"] = used_fallback

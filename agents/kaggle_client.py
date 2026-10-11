@@ -188,6 +188,35 @@ class KaggleTransformersClient:
             response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
         return response.strip()
 
+    def score_options(self, prompt: str, labels, system: Optional[str] = None):
+        """Constrained choice: log-probability of each single-token label as the FIRST token of the answer
+        (log-softmax restricted to `labels`). One forward pass, no sampling. Returns {label: logprob} or None
+        if a label is not a single token / the processor path is in use."""
+        import torch
+        if self.tokenizer is None:
+            return None
+        ids = []
+        for lab in labels:
+            t = self.tokenizer.encode(lab, add_special_tokens=False)
+            if len(t) != 1:
+                return None
+            ids.append(t[0])
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+        max_in = int(os.environ.get("MAX_INPUT_TOKENS", "9000"))
+        if inputs["input_ids"].shape[-1] > max_in:
+            self.truncated_prompts = getattr(self, "truncated_prompts", 0) + 1
+            head, tail = int(max_in * 0.55), max_in - int(max_in * 0.55)
+            t_ids = torch.cat([inputs["input_ids"][0][:head], inputs["input_ids"][0][-tail:]]).unsqueeze(0)
+            inputs = {"input_ids": t_ids, "attention_mask": torch.ones_like(t_ids)}
+        with torch.no_grad():
+            logits = self.model(**inputs).logits[0, -1].float()
+        sel = torch.log_softmax(logits[ids], dim=-1).tolist()
+        self.total_calls += 1
+        self.total_tokens_used += int(inputs["input_ids"].shape[-1])
+        return dict(zip(labels, sel))
+
     def generate_json(self, prompt: str, system: Optional[str] = None) -> dict:
         raw = self.generate(prompt, system=system, json_mode=True)
         try:
@@ -202,8 +231,12 @@ class KaggleTransformersClient:
             return {"_parse_error": True, "_raw": raw}
 
     def usage_stats(self) -> dict:
-        return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used}
+        return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used,
+                "truncated_prompts": getattr(self, "truncated_prompts", 0),
+                "oom_retries": getattr(self, "oom_retries", 0)}
 
     def reset_usage(self) -> None:
         self.total_calls = 0
         self.total_tokens_used = 0
+        self.truncated_prompts = 0
+        self.oom_retries = 0
