@@ -682,6 +682,15 @@ class GraphRAGPipeline:
             stats["layer_confidence"] = layer.get("confidence")
             stats["layer_parse_error"] = bool(layer.get("_parse_error"))
 
+        if config.VERIFY_CHAIN:
+            _vs = final_state.get("verify_stats") or {}
+            stats["verify_issues"] = _vs.get("issues")
+            stats["verify_revised"] = _vs.get("revised")
+            stats["verify_parse_error"] = _vs.get("parse_error")
+            stats["verify_ungrounded_numbers"] = _vs.get("ungrounded")
+        stats["use_knowledge_prompt"] = bool(config.USE_KNOWLEDGE_PROMPT)
+        stats["verify_chain"] = bool(config.VERIFY_CHAIN)
+
         sc_stats = final_state.get("self_consistency_stats") or {}
         if sc_stats:
             stats["self_consistency_n_samples"] = sc_stats.get("n_samples")

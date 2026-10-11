@@ -449,3 +449,14 @@ USE_KEYWORD_HINT = os.environ.get("USE_KEYWORD_HINT", "1") == "1"
 # USE_CHANGE_STATS=1 (needs USE_CHANGE_FACTOR=1): also append robust z-score (MAD), baseline rank
 # (% of baseline samples below the window max) and baseline sample count n next to the ratio.
 USE_CHANGE_STATS = os.environ.get("USE_CHANGE_STATS", "0") == "1"
+
+# Arm K -- USE_KNOWLEDGE_PROMPT=1: add a block of "how to tell similar fault types apart" (written from
+# standard SRE knowledge + the public taxonomy definitions; no case-specific text, no GT) to the
+# chain-first Coordinator prompt. The LLM still decides; nothing is filtered. See data.taxonomy.knowledge_prompt_block.
+USE_KNOWLEDGE_PROMPT = os.environ.get("USE_KNOWLEDGE_PROMPT", "0") == "1"
+
+# Arm V -- VERIFY_CHAIN=1: after the chain-first Coordinator, one verifier call checks the chain against the
+# evidence tables (verbatim quotes, at most 3 issues, absence of evidence is not contradiction); if it reports
+# issues the Coordinator revises once. A deterministic pre-check only lists cited numbers that appear in no table
+# (grounding aid, decides nothing). Adds 1 call (+1 when revised).
+VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"

@@ -512,6 +512,20 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
                        ("alt_entity_entry", "el_if_entry")):
         _ids = [e for e in str(result.retrieval_stats.get(_key) or "").split("|") if e]
         report[_col] = entity_localization_score(_ids, gt, topology) if _ids else None
+    # Strict, benchmark-team-style metrics (eval-only; no partial credit): the SINGLE top predicted
+    # entity must be correct. rcl_strict rolls pods/operations up to their service (our tolerance);
+    # rcl_exact requires the exact entity id. ft_binary = official-style fault type correctness.
+    _first = (result.predicted_entity_ids or [None])[0]
+    _tg = gt.target_entity_ids or []
+    if _first and _tg:
+        _roll = lambda e: find_service_ancestor(e, topology) or e
+        report["rcl_strict"] = 1.0 if _roll(_first) in {_roll(t) for t in _tg} else 0.0
+        report["rcl_exact"] = 1.0 if _first in set(_tg) else 0.0
+    else:
+        report["rcl_strict"] = report["rcl_exact"] = 0.0
+    report["ft_binary"] = report["fault_identification"]
+    report["joint_strict"] = report["rcl_strict"] * report["ft_binary"]
+    report["joint_exact"] = report["rcl_exact"] * report["ft_binary"]
     report.update(result.retrieval_stats)
     # Raw predictions alongside the scores -- without this, diagnosing WHY a
     # score is low/zero means re-running the case with a separate debug

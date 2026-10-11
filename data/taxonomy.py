@@ -410,3 +410,35 @@ def fault_shortlist_prompt_block(evidence_text: str, top_k: int = 5) -> str:
         "OUTSIDE this shortlist if the evidence clearly contradicts all of them — "
         "if you do, explain why in your reasoning."
     )
+
+def knowledge_prompt_block() -> str:
+    """Arm K. Discriminating checks between fault types that share a symptom. Generic SRE knowledge (the
+    same for every case); each line names a signal that can be read in the evidence tables. Not derived from
+    any RCA100 label."""
+    return (
+        "How to tell similar fault types apart (check these signals in the tables before choosing):\n"
+        "- CPU: cpuDeadLoop = ONE service's cpu pinned by a single hot thread (node cpu rises only slightly); "
+        "cpuFullLoad = service cpu high across the whole workload; nodeCpuHigh = the NODE cpu is high and "
+        "several services hosted on that node degrade together; trafficSurge = request count itself rises first.\n"
+        "- Memory/JVM: memoryPressure = heap/memory near its limit with occasional GC, service still answers; "
+        "fullGC = GC runs continuously and latency spikes in pauses; nodeMemoryOOM = the NODE memory is "
+        "exhausted and OOMKilled events hit several pods on it; resourceLimitMisconfig = ONE workload's own "
+        "limit is too low (OOMKilled or throttling of that workload, restarts). A memory value that is flat "
+        "is not memory pressure.\n"
+        "- Errors: rateLimiting = throttling/429/quota wording in status messages or logs; nullPointerException = "
+        "an explicit null-dereference stack; codeDefect = other exception stacks; httpError5xx = 5xx errors with "
+        "no more specific mechanism visible (use it last).\n"
+        "- Slow dependency: slowSQL = long database query spans/timeouts; dbNetworkLatency = latency on the call "
+        "to the dependency while the dependency's own work is normal; redisUnavailable = cache calls fail "
+        "outright (connection refused/unreachable); cacheBreakdown = cache misses push load to the backend; "
+        "messageQueueBacklog = consumer lag/queue growth; threadExhaustion = thread pool saturated, requests "
+        "queue.\n"
+        "- Pods/nodes: replicaScaleDown = replicas drop to 0; podCrashLoop = CrashLoopBackOff/BackOff events "
+        "with fast-growing restarts; podRestartFlapping = periodic restarts, Unhealthy/probe events; "
+        "podPendingUnschedulable = FailedScheduling events; nodeDown = node NotReady and all its pods affected.\n"
+        "- Calls fail while both services look healthy: networkPolicyIsolation (specific service pairs "
+        "rejected/timeout), dnsResolutionFailure (name-resolution errors), loadBalancerFailure (Service "
+        "endpoints broken).\n"
+        "- A change factor like x600 on a tiny baseline matters only together with its absolute value and z; "
+        "a large absolute level that was already high before the window (change x1) is not a cause."
+    )

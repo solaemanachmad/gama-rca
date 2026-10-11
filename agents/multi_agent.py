@@ -15,8 +15,9 @@ import json
 
 from langgraph.graph import StateGraph, END
 
-from data.taxonomy import taxonomy_prompt_block
+from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block
 
+import re
 import config
 from schema import AgentFinding, RCAResult
 from agents.llm_client import LLMClient
@@ -68,6 +69,7 @@ class AgentState(TypedDict, total=False):
     infra_text: Optional[str]                       # numeric APM/k8s tables (pipeline/infra_evidence.py)
     colocation_text: Optional[str]                  # per-node hosted-service table (pipeline/colocation_evidence.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
+    verify_stats: Optional[dict]                    # VERIFY_CHAIN diagnostics (issues, revised, ungrounded numbers)
     debug_trace: Optional[list]                     # prompts + raw outputs per node (only when DEBUG_DUMP_DIR is set)
     propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
                                                    # pipeline/propagation_evidence.py)
@@ -305,6 +307,75 @@ def layer_node(llm: LLMClient):
     return node
 
 
+VERIFY_SCHEMA_HINT = (
+    '{"issues": [{"claim": "<value or statement from the answer>", "problem": "<what is unsupported or '
+    'contradicted>", "table_quote": "<verbatim text copied from the tables>", "suggestion": "<how to correct>"}]}'
+)
+
+VERIFY_SYSTEM_PROMPT = (
+    "You audit one root-cause answer against the evidence tables it was derived from. Report an issue only "
+    "when a cited value or conclusion is contradicted by, or cannot be found in, the tables. Absence of "
+    "evidence in a partial table is not a contradiction. Copy table text verbatim in table_quote. Report at "
+    "most 3 issues; return an empty list when the answer is consistent. Respond ONLY with valid JSON."
+)
+
+
+def ungrounded_numbers(chain, evidence_text: str, limit: int = 8):
+    """Deterministic grounding aid (VERIFY_CHAIN): numbers written in the chain that appear in no evidence
+    table. Evidence checking only -- it decides nothing."""
+    out, seen = [], set()
+    for step in chain or []:
+        for tok in re.findall(r"\d+(?:\.\d+)?(?:e[+-]?\d+)?", str(step)):
+            if tok in seen or ("." not in tok and len(tok) < 3):
+                continue
+            seen.add(tok)
+            variants = {tok, tok.rstrip("0").rstrip(".") if "." in tok else tok}
+            if not any(v and v in evidence_text for v in variants):
+                out.append(tok)
+    return out[:limit]
+
+
+def _verify_and_revise(llm, state, first_prompt: str, result: dict, evidence_blocks: str) -> dict:
+    """VERIFY_CHAIN: one audit call; if it reports issues, one revision call. Returns the final result."""
+    stats = {"issues": 0, "revised": False, "parse_error": False, "ungrounded": 0}
+    state["verify_stats"] = stats
+    if not isinstance(result, dict) or result.get("_parse_error"):
+        return result
+    chain = result.get("reasoning_chain") or []
+    ung = ungrounded_numbers(chain, evidence_blocks)
+    stats["ungrounded"] = len(ung)
+    answer = {k: result.get(k) for k in ("reasoning_chain", "predicted_entity_ids", "predicted_fault_type")}
+    vprompt = (
+        f"{evidence_blocks}\n\nAnswer to audit:\n{json.dumps(answer, ensure_ascii=False)}\n\n"
+        + (f"Automatic check: these numbers in the chain appear in none of the tables above: "
+           f"{', '.join(ung)}.\n" if ung else "Automatic check: every number in the chain appears in the tables.\n")
+        + f"Respond as JSON: {VERIFY_SCHEMA_HINT}"
+    )
+    v = llm.generate_json(vprompt, system=VERIFY_SYSTEM_PROMPT)
+    _trace(state, "verifier", vprompt, v)
+    if not isinstance(v, dict) or v.get("_parse_error"):
+        stats["parse_error"] = True
+        return result
+    issues = [i for i in (v.get("issues") or []) if isinstance(i, dict)][:3]
+    stats["issues"] = len(issues)
+    if not issues:
+        return result
+    rprompt = (
+        first_prompt + "\n\nYour first answer was:\n" + json.dumps(answer, ensure_ascii=False)
+        + "\n\nAn auditor checked it against the tables and reported:\n"
+        + json.dumps(issues, ensure_ascii=False)
+        + "\nRe-check each point against the tables. Correct only what is actually wrong, keep what is "
+          "supported, and answer with the same JSON schema."
+    )
+    revised = llm.generate_json(rprompt, system=COORDINATOR_SYSTEM_PROMPT)
+    _trace(state, "coordinator_revision", rprompt, revised)
+    if (isinstance(revised, dict) and not revised.get("_parse_error")
+            and revised.get("predicted_fault_type") and revised.get("predicted_entity_ids")):
+        stats["revised"] = True
+        return revised
+    return result
+
+
 FINAL_SCHEMA_HINT = (
     '{"predicted_entity_ids": ["entity1", "entity2"], '
     '"predicted_fault_type": "<one of the 28 RCA100 fault types or best guess>", '
@@ -439,6 +510,7 @@ def coordinator_node(llm: LLMClient):
             infra_text = state.get("infra_text") or ""
             coloc_text = state.get("colocation_text") or ""
             layer_res = state.get("layer_result")
+            knowledge_block = (knowledge_prompt_block() + "\n\n") if config.USE_KNOWLEDGE_PROMPT else ""
             layer_block = ""
             if layer_res and not layer_res.get("_parse_error"):
                 layer_block = ("\nLayer analysis by a preceding on-call analyst (a hypothesis to verify "
@@ -454,6 +526,7 @@ def coordinator_node(llm: LLMClient):
                 f"{('' if not coloc_text else chr(10) + coloc_text + chr(10))}"
                 f"{layer_block}"
                 f"{fault_hint}\n\n"
+                f"{knowledge_block}"
                 f"Task: write the root-cause reasoning chain FIRST, then derive the answer from it. "
                 f"Each chain step is 'step_type: target signal=value ...' with step_type in "
                 f"cause / propagation / impact. 'target' is a service, operation, node, pod or "
@@ -468,6 +541,10 @@ def coordinator_node(llm: LLMClient):
             )
             state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
+            if config.VERIFY_CHAIN:
+                _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, coloc_text) if t) \
+                    or findings_block
+                state["final_result"] = _verify_and_revise(llm, state, prompt, state["final_result"], _ev)
             return state
 
         anchor = state.get("graph_anchor") or {}
