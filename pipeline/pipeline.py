@@ -40,6 +40,7 @@ from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
 from pipeline.log_evidence import compute_log_evidence
+from pipeline.trace_edges import compute_trace_edges
 from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
@@ -387,6 +388,15 @@ class GraphRAGPipeline:
             stats["log_evidence_time_s"] = round(time.time() - t_lg, 3)
             stats["log_evidence_error"] = log_ev.get("error")
             stats.update({k: v for k, v in (log_ev.get("stats") or {}).items() if k != "chars"})
+        trace_edges = {"text": "", "rows": 0}
+        if config.USE_TRACE_EDGES:
+            t_te = time.time()
+            trace_edges = compute_trace_edges(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["trace_edges_time_s"] = round(time.time() - t_te, 3)
+            stats["trace_edges_error"] = trace_edges.get("error")
+            stats.update(trace_edges.get("stats") or {})
+        stats["use_trace_edges"] = bool(config.USE_TRACE_EDGES)
+        stats["trace_edges_chars"] = len(trace_edges["text"])
         stats["use_log_evidence"] = bool(config.USE_LOG_EVIDENCE)
         stats["log_evidence_chars"] = len(log_ev["text"])
         alert_lc = {"text": "", "runs": 0}
@@ -693,6 +703,7 @@ class GraphRAGPipeline:
             "colocation_text": coloc_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
             "log_evidence_text": log_ev["text"] or None,
+            "trace_edges_text": trace_edges["text"] or None,
             "onset_text": onset_ev["text"] or None,
             "alert_lifecycle_text": alert_lc["text"] or None,
         }

@@ -495,6 +495,12 @@ USE_EVENT_DIGEST = os.environ.get("USE_EVENT_DIGEST", "0") == "1"
 # for the alert service's call-graph neighbourhood. Raw counts and per-minute rates are not shown (export artefact).
 USE_LOG_EVIDENCE = os.environ.get("USE_LOG_EVIDENCE", "0") == "1"
 
+# USE_TRACE_EDGES=1 (arm H): per call-edge trace evidence per export burst in the Coordinator prompt
+# (pipeline/trace_edges.py): edge share, error fraction, p50/p95 duration (window burst(s) vs earlier bursts), inherited
+# vs leaf errors per service, orphan share. Raw span counts are not shown (export artefact). Independent of
+# USE_TRACE_EVIDENCE (arm T, per-service HTTP codes / error messages), which is kept as is for comparison.
+USE_TRACE_EDGES = os.environ.get("USE_TRACE_EDGES", "0") == "1"
+
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
 # Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.

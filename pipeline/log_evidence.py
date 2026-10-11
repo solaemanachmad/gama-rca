@@ -26,6 +26,7 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
+from pipeline.export_bursts import burst_ids, burst_spans, classify_bursts, drop_fragments
 from pipeline.log_templates import _HEAD, _JSON_LEVEL, mask, _naive
 from pipeline.propagation_evidence import window_bounds
 
@@ -137,27 +138,13 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
         return None
     rows.sort(key=lambda r: r[0])
 
-    # bursts: runs with gaps <= BURST_GAP_S
-    bid, b = [], 0
-    for i, r in enumerate(rows):
-        if i and r[0] - rows[i - 1][0] > BURST_GAP_S:
-            b += 1
-        bid.append(b)
-    n_b = b + 1
-    span = {}
-    for r, k in zip(rows, bid):
-        s = span.setdefault(k, [r[0], r[0]])
-        s[1] = r[0]
-    usable = [k for k in range(n_b) if span[k][0] <= w1s]
-    win = [k for k in usable if span[k][1] >= w0s]
-    note = ""
-    if not win:
-        earlier = [k for k in usable if span[k][1] < w0s]
-        if earlier:
-            win = [earlier[-1]]
-            note = (f" No burst intersects the evidence window; the latest earlier burst "
-                    f"({_off(span[win[0]][0], w0s)}..{_off(span[win[0]][1], w0s)}) is used instead.")
-    base = [k for k in usable if k not in win]
+    # bursts: runs with gaps <= BURST_GAP_S (shared helpers); tiny export fragments are ignored
+    times = [r[0] for r in rows]
+    ids = burst_ids(times)
+    bid = ids.tolist()
+    span, n_frag = drop_fragments(burst_spans(times, ids), ids)
+    n_b = len(span)
+    win, base, note = classify_bursts(span, w0s, w1s)
     if not win:
         return None
     win_set, base_set = set(win), set(base)
@@ -233,7 +220,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
     hdr = (f"Log evidence. Logs are exported as bursts (up to ~100,000 lines, about 1 minute every ~5 minutes), so raw "
            f"counts and per-minute rates carry no information; only each container's share of a burst does. "
            f"T = evidence-window start. Window burst(s): {len(win)} "
-           f"({', '.join(f'{_off(span[k][0], w0s)}..{_off(span[k][1], w0s)}' for k in win)}); earlier bursts: {nb}.{note} "
+           f"({', '.join(f'{_off(span[k][0], w0s)}..{_off(span[k][1], w0s)}' for k in win)}); earlier bursts: {nb}{f' ({n_frag} tiny export fragments ignored)' if n_frag else ''}.{note} "
            f"error-like = level error/fatal or an error word in the template; new = template present in the window "
            f"burst(s) but in no earlier burst; absent = the reverse. Nothing is filtered by significance.")
     out = [hdr]
