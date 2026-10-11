@@ -490,6 +490,11 @@ USE_ALERT_LIFECYCLE = os.environ.get("USE_ALERT_LIFECYCLE", "0") == "1"
 # CHAR_BUDGET["event"]. Every group is represented; no significance filter. Evidence extraction only.
 USE_EVENT_DIGEST = os.environ.get("USE_EVENT_DIGEST", "0") == "1"
 
+# USE_LOG_EVIDENCE=1 (arm G): per-burst log composition block in the Coordinator prompt (pipeline/log_evidence.py):
+# container share of each export burst (window vs earlier bursts), error-like share, new/absent message templates
+# for the alert service's call-graph neighbourhood. Raw counts and per-minute rates are not shown (export artefact).
+USE_LOG_EVIDENCE = os.environ.get("USE_LOG_EVIDENCE", "0") == "1"
+
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
 # Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.

@@ -40,6 +40,7 @@ from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, wind
 # Arm E helpers (flag USE_EVENT_DIGEST lives in config): time-labelled event digest, every group represented.
 EVENT_DIGEST_NAMES = 6      # workload names listed per line; the rest is counted ("+n more")
 EVENT_MSG_CHARS = 90
+EVENT_RECURRING_S = 86400   # first occurrence older than this before the window start -> 'recurring since', no counter
 _POD_SUFFIX = re.compile(r"-[a-z0-9]{8,10}-[a-z0-9]{5}$|-[a-z0-9]{5}$")
 
 
@@ -48,12 +49,17 @@ def _workload_name(kind: str, name: str) -> str:
 
 
 def _off(t, w0) -> str:
+    """Offset from the window start: m:ss within an hour, then hours, then days (event clocks reach back weeks)."""
     if t is None:
         return "n/a"
     sec = int(round((_naive(t) - w0).total_seconds()))
     sign = "-" if sec < 0 else "+"
-    sec = abs(sec)
-    return f"T{sign}{sec // 60}:{sec % 60:02d}"
+    a = abs(sec)
+    if a >= 86400:
+        return f"T{sign}{a / 86400:.1f}d"
+    if a >= 3600:
+        return f"T{sign}{a / 3600:.1f}h"
+    return f"T{sign}{a // 60}:{a % 60:02d}"
 
 
 def event_digest_lines(ev: dict, w0) -> List[str]:
@@ -75,18 +81,23 @@ def event_digest_lines(ev: dict, w0) -> List[str]:
             if a[key] is None or (t < a[key] if key == "first" else t > a[key]):
                 a[key] = t
         a["msg"] = a["msg"] or g["msg"]
-    order = sorted(agg.items(), key=lambda kv: (kv[0][0] != "Warning", kv[1]["first"] is None,
-                                                kv[1]["first"] or w0, kv[0]))
+    # most recent activity first (Warning before other types); groups without any timestamp last; name as tie-break
+    order = sorted(agg.items(), key=lambda kv: (kv[0][0] != "Warning", kv[1]["last"] is None,
+                                                -(kv[1]["last"] - w0).total_seconds() if kv[1]["last"] else 0, kv[0]))
     n_warn = sum(a["groups"] for k, a in agg.items() if k[0] == "Warning")
     lines = [f"{len(ev)} event groups ({n_warn} Warning, {len(ev) - n_warn} other) condensed to {len(order)} lines; "
-             f"T = window start (negative = before); Warning first, then by first occurrence"]
+             f"T = window start (negative = before); Warning first, then most recent activity first. xN = number of "
+             f"occurrences reported by Kubernetes, shown only when the event first occurred within {EVENT_RECURRING_S // 3600} h "
+             f"before the window start; older ones are marked 'recurring since' (their counter is cumulative over days)"]
     for (typ, kind, reason), a in order:
         names = sorted(a["wl"])
         shown = ", ".join(n + (f"x{a['wl'][n]}" if a["wl"][n] > 1 else "") for n in names[:EVENT_DIGEST_NAMES])
         more = f" +{len(names) - EVENT_DIGEST_NAMES} more" if len(names) > EVENT_DIGEST_NAMES else ""
         msg = f" | e.g. {a['msg'][:EVENT_MSG_CHARS]}" if a["msg"] else ""
-        lines.append(f"{typ} {kind} {reason}: x{a['count']} on {len(names)} name(s) [{shown}{more}]; "
-                     f"first {_off(a['first'], w0)}, last {_off(a['last'], w0)}{msg}")
+        old = a["first"] is not None and (w0 - a["first"]).total_seconds() > EVENT_RECURRING_S
+        when = (f"recurring since {_off(a['first'], w0)}, last {_off(a['last'], w0)}" if old
+                else f"x{a['count']}, first {_off(a['first'], w0)}, last {_off(a['last'], w0)}")
+        lines.append(f"{typ} {kind} {reason} on {len(names)} name(s) [{shown}{more}]; {when}{msg}")
     return lines
 
 

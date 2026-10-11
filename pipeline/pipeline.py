@@ -39,6 +39,7 @@ from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
+from pipeline.log_evidence import compute_log_evidence
 from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
@@ -379,6 +380,15 @@ class GraphRAGPipeline:
         stats["use_trace_evidence"] = bool(config.USE_TRACE_EVIDENCE)
         stats["trace_evidence_rows"] = trace_ev["rows"]
         stats["trace_evidence_chars"] = len(trace_ev["text"])
+        log_ev = {"text": "", "rows": 0}
+        if config.USE_LOG_EVIDENCE:
+            t_lg = time.time()
+            log_ev = compute_log_evidence(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["log_evidence_time_s"] = round(time.time() - t_lg, 3)
+            stats["log_evidence_error"] = log_ev.get("error")
+            stats.update({k: v for k, v in (log_ev.get("stats") or {}).items() if k != "chars"})
+        stats["use_log_evidence"] = bool(config.USE_LOG_EVIDENCE)
+        stats["log_evidence_chars"] = len(log_ev["text"])
         alert_lc = {"text": "", "runs": 0}
         if config.USE_ALERT_LIFECYCLE:
             alert_lc = compute_alert_lifecycle(case)
@@ -682,6 +692,7 @@ class GraphRAGPipeline:
             "infra_text": infra_ev["text"] or None,
             "colocation_text": coloc_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
+            "log_evidence_text": log_ev["text"] or None,
             "onset_text": onset_ev["text"] or None,
             "alert_lifecycle_text": alert_lc["text"] or None,
         }
