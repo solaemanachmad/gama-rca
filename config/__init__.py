@@ -505,6 +505,13 @@ USE_TRACE_EDGES = os.environ.get("USE_TRACE_EDGES", "0") == "1"
 # the export carries no node/deployment names) and (2) call-edge flow ratios callee/caller workload (pipeline/metric_structure.py),
 # in the Coordinator prompt after the infra tables. Default off.
 USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
+# STRICT_MODALITY_ROUTING=1 (audit 2026-10-12, claude/audit-agent-flow-2026-10-12.md, F2): the metrics/logs/trace specialists pick
+# their bullets by SUBSTRING ("metric"/"log"/"span") on the bullet text. That leaked the call-graph table (it contains "spans="
+# and e.g. "product-catalog") into the logs specialist, the twist summary and OpenTelemetry log lines (span_id=...) into the
+# trace specialist. With the flag on, a bullet reaches a specialist by its explicit kind (Metric.../Log.../span-count) and the
+# call-graph table (`_propagation`, derived from spans) goes to the trace specialist only; `_twist_scores` (cross-modality) goes
+# to none. Default 0 = legacy routing, so older CSVs stay reproducible.
+STRICT_MODALITY_ROUTING = os.environ.get("STRICT_MODALITY_ROUTING", "0") == "1"
 
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).

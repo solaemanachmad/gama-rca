@@ -139,6 +139,24 @@ def _make_agent_node(agent_name: str, modality_filter: Optional[str],
     return node
 
 
+_KIND_PREFIX = {
+    "metric": ("Metric observed:",),
+    "log": ("Log observed:", "Log pattern:", "Error/exception patterns in"),
+}
+_SPAN_COUNT = re.compile(r"^\d+ span\(s\) with error/timeout status")
+
+
+def _bullet_for(entity_key: str, bullet: str, modality: str) -> bool:
+    """STRICT_MODALITY_ROUTING: explicit kind of a bullet instead of a substring match (see config)."""
+    if entity_key == "_propagation":          # call-graph table computed from spans
+        return modality == "span"
+    if entity_key.startswith("_"):            # _twist_scores: cross-modality, not for a single-modality specialist
+        return False
+    if modality == "span":
+        return bool(_SPAN_COUNT.match(bullet))
+    return bullet.startswith(_KIND_PREFIX.get(modality, ()))
+
+
 def _filter_summary_dict(evidence_summary: Dict[str, List[str]],
                           modality_filter: Optional[str]) -> Dict[str, List[str]]:
     """Metrics/Logs/Trace agents only see bullets relevant to their modality
@@ -148,11 +166,14 @@ def _filter_summary_dict(evidence_summary: Dict[str, List[str]],
         return evidence_summary
     keep = {}
     for eid, bullets in evidence_summary.items():
-        filtered = [b for b in bullets if modality_filter.lower() in b.lower()]
+        if config.STRICT_MODALITY_ROUTING:
+            filtered = [b for b in bullets if _bullet_for(eid, b, modality_filter)]
+        else:
+            filtered = [b for b in bullets if modality_filter.lower() in b.lower()]
         if filtered:
             keep[eid] = filtered
-    if not keep:  # fall back to full summary if the filter emptied everything
-        keep = evidence_summary
+    if not keep and not config.STRICT_MODALITY_ROUTING:  # legacy: fall back to the full summary if the filter emptied everything
+        keep = evidence_summary                           # (strict routing: an empty modality stays empty, no leakage)
     return keep
 
 
@@ -163,6 +184,8 @@ def _filter_summary_text(evidence_summary: Dict[str, List[str]],
     for eid, bullets in keep.items():
         lines.append(eid)
         lines.extend(f"  • {b}" for b in bullets)
+    if not lines:
+        return "(no evidence of this modality was retrieved for this case)"
     return "\n".join(lines)
 
 

@@ -1,5 +1,7 @@
 # Kaggle smoke test (2026-10-11): paste each "# %% Cell N" block into its own notebook cell, in order.
 # Purpose: DEBUGGING ONLY (does the code run, are the prompts sane). Three cases are not a basis for choosing flags.
+# v2 (2026-10-12): Cell 3 no longer leaks flags into Cell 4 (the v1 reference arm was contaminated), Cell 4 builds a CLEAN env
+# per arm, STRICT_MODALITY_ROUTING arm added, Cell 5 also prints specialist prompt sizes.
 # Fill the two <...> placeholders in Cell 1. Nothing here reads the answer key except the scoring that main.py already does.
 
 # %% Cell 1 -- code (private repo) and data
@@ -33,6 +35,7 @@ for m in ("drain3", "faiss", "sentence_transformers", "networkx", "torch", "tran
 # %% Cell 3 -- evidence blocks only (NO LLM): do all new operators run and how long are they?
 import sys, time
 sys.path.insert(0, WORK)
+_ENV_BEFORE = dict(os.environ)          # restored at the end of this cell so nothing leaks into Cell 4
 os.environ.update(ALERT_T0_MODE="window", USE_CHANGE_FACTOR="1", USE_CHANGE_STATS="1",
                   USE_DIRECTION_EVIDENCE="1", USE_EVENT_DIGEST="1")
 import config
@@ -65,6 +68,7 @@ for cid in SMOKE:
 
 # look at one block of one case (change the keys to inspect others)
 print(blocks["t004"]["H trace edges"]["text"][:2500])
+os.environ.clear(); os.environ.update(_ENV_BEFORE)   # undo the flags set above
 
 # %% Cell 4 -- full pipeline on 3 cases, two arms (LLM; ~3 x 3 min per arm on a T4/P100)
 import json
@@ -78,20 +82,26 @@ BASE = dict(                       # arm A1rT: the proposed configuration BEFORE
 NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDENCE="1", USE_EVENT_DIGEST="1",
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
+FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
+         "USE_METRIC_STRUCTURE", "STRICT_MODALITY_ROUTING", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
+         "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
+
 def run_arm(name, extra):
-    env = {**os.environ, **BASE, **extra, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}"}
+    clean = {k: v for k, v in os.environ.items() if k not in FLAGS}          # no flag can come from the notebook process
+    env = {**clean, **BASE, **extra, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}"}
     out = f"/kaggle/working/smoke_{name}.csv"
     cmd = ["python", "main.py", "--case_ids", *SMOKE, "--systems", "proposed_hybrid", "--save_path", out, "--no-resume"]
     r = subprocess.run(cmd, env=env, capture_output=True, text=True)
     print(name, "rc =", r.returncode); print(r.stdout[-1500:]); print(r.stderr[-1500:])
     return out
 
-csv_a = run_arm("A1rT", {})            # reference: legacy T0, no new evidence
-csv_b = run_arm("A1rT_all_new", NEW)   # every new flag on at once (smoke only; real arms are added one group at a time)
+csv_a = run_arm("A1rT", {})                                         # reference: legacy T0, no new evidence, legacy routing
+csv_s = run_arm("A1rT_strict", {"STRICT_MODALITY_ROUTING": "1"})    # only the routing fix (specialist prompts change)
+csv_b = run_arm("A1rT_all_new", {**NEW, "STRICT_MODALITY_ROUTING": "1"})   # every new flag on at once (smoke only; real arms are added one group at a time)
 
 # %% Cell 5 -- health check (NOT a comparison of scores)
 import pandas as pd
-for name, p in (("A1rT", csv_a), ("A1rT_all_new", csv_b)):
+for name, p in (("A1rT", csv_a), ("A1rT_strict", csv_s), ("A1rT_all_new", csv_b)):
     d = pd.read_csv(p)
     cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries",
                         "chunked_fallbacks", "total_calls", "use_alert_lifecycle", "use_event_digest", "use_log_evidence",
@@ -102,3 +112,10 @@ for name, p in (("A1rT", csv_a), ("A1rT_all_new", csv_b)):
 # Pass criteria: error empty; truncated_prompts = 0; oom_retries = 0; *_error empty; coordinator_prompt_chars of the
 # all-new arm is roughly +8k chars over A1rT (if it is far larger, one block is much longer than measured offline).
 # Then open dump_A1rT_all_new/<case>*.json to read the real Coordinator prompt and check that the new blocks are present.
+
+# specialist prompt sizes per arm (metrics, logs, trace, topology) and the Coordinator prompt, from the dumps
+import json
+for name in ("A1rT", "A1rT_strict", "A1rT_all_new"):
+    for cid in SMOKE:
+        d = json.load(open(f"/kaggle/working/dump_{name}/{cid}.json"))
+        print(f"{name:14s} {cid}", [len(t["prompt"]) for t in d["trace"]])
