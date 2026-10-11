@@ -141,6 +141,19 @@ def event_time_bounds(e: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     return first, last
 
 
+def _alert_row_entity_id(case_dir: str) -> Optional[str]:
+    """entity_id of the alerting entity as recorded in the first alerts.parquet row."""
+    try:
+        df = pd.read_parquet(os.path.join(case_dir, config.FILE_ALERTS), columns=["resource"])
+        for r in df["resource"]:
+            eid = (_parse_json_field(r).get("entity") or {}).get("entity_id")
+            if eid:
+                return str(eid)
+    except Exception:
+        pass
+    return None
+
+
 def _first_alert_time(case_dir: str) -> Optional[dt.datetime]:
     """Earliest row in alerts.parquet = the moment the alert fired. Label-free."""
     fp = os.path.join(case_dir, config.FILE_ALERTS)
@@ -377,9 +390,13 @@ def load_alert_context(case_dir: str, case_id: str) -> AlertContext:
 
     if entity_id is None:
         # fall back to the embedded <alert_event .../> tag inside prompt_text
+        # (never overwrite a name/type the task already gives with a missing tag value)
         entity_id = tag_attrs.get("entity_id")
-        entity_name = tag_attrs.get("entity_name")
-        entity_type = tag_attrs.get("entity_type")
+        entity_name = tag_attrs.get("entity_name") or entity_name
+        entity_type = tag_attrs.get("entity_type") or entity_type
+    if entity_id is None:
+        # last resort: the alert stream itself names the alerting entity (same alert, label-free)
+        entity_id = _alert_row_entity_id(case_dir)
 
     ts = None
     if tag_attrs.get("alert_time"):

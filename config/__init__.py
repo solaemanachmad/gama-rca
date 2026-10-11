@@ -474,6 +474,12 @@ VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
 # evidence extraction only). Meant to separate fault types that differ in what the failing calls say.
 USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"
 
+# USE_ALERT_LIFECYCLE=1 (arm L): one condensed block of the alert stream (pipeline/alert_lifecycle.py): repeated alert
+# rows are run-length-encoded (same condition values -> one run), T axis = first alert firing, only rows up to the
+# task's alert_window.end are used, final state (still firing / RECOVERED at T+x) is stated. Evidence extraction only.
+# Shown in the chain-first Coordinator prompt (needs CHAIN_FIRST=1). Default off = prompts unchanged.
+USE_ALERT_LIFECYCLE = os.environ.get("USE_ALERT_LIFECYCLE", "0") == "1"
+
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
 # Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.

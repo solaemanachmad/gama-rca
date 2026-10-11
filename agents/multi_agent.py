@@ -71,6 +71,7 @@ class AgentState(TypedDict, total=False):
     coordinator_prompt_chars: Optional[int]         # diagnostic: chars of the chain-first Coordinator prompt
     onset_text: Optional[str]                       # per-minute robust-z onset table (pipeline/onset_evidence.py)
     trace_text: Optional[str]                       # HTTP code / error message table (pipeline/trace_evidence.py)
+    alert_lifecycle_text: Optional[str]             # condensed alert stream (pipeline/alert_lifecycle.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
     verify_stats: Optional[dict]                    # VERIFY_CHAIN diagnostics (issues, revised, ungrounded numbers)
     debug_trace: Optional[list]                     # prompts + raw outputs per node (only when DEBUG_DUMP_DIR is set)
@@ -529,6 +530,7 @@ def coordinator_node(llm: LLMClient):
             coloc_text = state.get("colocation_text") or ""
             trace_text = state.get("trace_text") or ""
             onset_text = state.get("onset_text") or ""
+            alert_lc_text = state.get("alert_lifecycle_text") or ""
             layer_res = state.get("layer_result")
             knowledge_block = (knowledge_prompt_block() + "\n\n") if config.USE_KNOWLEDGE_PROMPT else ""
             layer_block = ""
@@ -540,6 +542,7 @@ def coordinator_node(llm: LLMClient):
                                             ensure_ascii=False) + "\n")
             prompt = (
                 f"Alert: {state['alert_text']}\n\n"
+                f"{('' if not alert_lc_text else alert_lc_text + chr(10) + chr(10))}"
                 f"Specialist agent findings:\n{findings_block}\n"
                 f"{keyword_block}\n"
                 f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"

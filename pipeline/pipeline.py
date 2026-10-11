@@ -39,6 +39,7 @@ from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
+from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
 from pipeline.log_templates import compute_log_templates
@@ -378,6 +379,15 @@ class GraphRAGPipeline:
         stats["use_trace_evidence"] = bool(config.USE_TRACE_EVIDENCE)
         stats["trace_evidence_rows"] = trace_ev["rows"]
         stats["trace_evidence_chars"] = len(trace_ev["text"])
+        alert_lc = {"text": "", "runs": 0}
+        if config.USE_ALERT_LIFECYCLE:
+            alert_lc = compute_alert_lifecycle(case)
+            stats["alert_lifecycle_error"] = alert_lc.get("error")
+        stats["use_alert_lifecycle"] = bool(config.USE_ALERT_LIFECYCLE)
+        stats["alert_lifecycle_runs"] = alert_lc.get("runs", 0)
+        stats["alert_lifecycle_rows_used"] = alert_lc.get("rows_used", 0)
+        stats["alert_lifecycle_rows_after_end"] = alert_lc.get("rows_after_end", 0)
+        stats["alert_lifecycle_chars"] = len(alert_lc["text"])
         onset_ev = {"text": "", "rows": 0}
         if config.USE_ONSET_EVIDENCE:
             t_on = time.time()
@@ -673,6 +683,7 @@ class GraphRAGPipeline:
             "colocation_text": coloc_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
             "onset_text": onset_ev["text"] or None,
+            "alert_lifecycle_text": alert_lc["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
