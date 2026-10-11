@@ -35,15 +35,37 @@ except ImportError:
 # of editing the file (e.g. `export RCA100_ROOT=/home/you/data/RCA100`).
 # Falls back to Kaggle's mount path only if nothing else is set.
 # ---------------------------------------------------------------------------
-DATASET_ROOT = os.environ.get(
-    "RCA100_ROOT",
-    "C:/Users/achsoe/Developments/gama-rca/RCA100",
-)
+# Default = RCA100v1.1 next to the repo (v1.1 is the data version all our results use; the
+# repo's .gitignore already excludes RCA100*/). Override with RCA100_ROOT.
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATASET_ROOT = os.environ.get("RCA100_ROOT", os.path.join(_REPO_DIR, "RCA100v1.1"))
 
 CASES_DIR = os.path.join(DATASET_ROOT, "cases")
 ANSWER_KEY_DIR = os.path.join(DATASET_ROOT, "answer_key")   # underscore, per AIOps_README.md — NEVER read during retrieval/reasoning
 MANIFEST_PATH = os.path.join(DATASET_ROOT, "manifest.txt")
 SUMMARY_PATH = os.path.join(DATASET_ROOT, "summary.json")
+
+# Dataset version guard: all experiments are compared within ONE data version (v1.1).
+# DATASET_VERSION is read from summary.json (informational; logged per case and printed at start).
+EXPECTED_DATASET_VERSION = os.environ.get("EXPECTED_DATASET_VERSION", "1.1")
+
+
+def _read_dataset_version():
+    try:
+        import json as _json
+        with open(SUMMARY_PATH, "r", encoding="utf-8") as _f:
+            v = _json.load(_f).get("version")
+        if v:
+            return str(v)
+    except Exception:
+        pass
+    # fall back to the folder name (e.g. RCA100v1.1)
+    import re as _re
+    m = _re.search(r"v(\d+\.\d+)", os.path.basename(os.path.normpath(DATASET_ROOT)))
+    return m.group(1) if m else "unknown"
+
+
+DATASET_VERSION = _read_dataset_version()
 
 # Working directory (writable). Vector index, logs, results go here.
 WORK_DIR = os.environ.get("RCA100_WORK_DIR", os.path.join(os.getcwd(), "graphrag_rca_work"))

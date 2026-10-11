@@ -89,6 +89,10 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         all_ids = list_case_ids()
         case_ids = all_ids[start_case:start_case + n_cases]
     print(f"Running cases: {case_ids}")
+    print(f"Dataset: {config.DATASET_ROOT}  (version {config.DATASET_VERSION}; expected {config.EXPECTED_DATASET_VERSION})")
+    if config.DATASET_VERSION != config.EXPECTED_DATASET_VERSION:
+        print("  *** WARNING: dataset version differs from the expected one -- results are NOT comparable "
+              "with runs on other data versions. Set RCA100_ROOT to the right folder. ***")
 
     # Fixed up front (not just when saving at the end) so checkpointing and
     # resume both have one stable target path for the whole run.

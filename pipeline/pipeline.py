@@ -344,6 +344,7 @@ class GraphRAGPipeline:
             propagation_ev = compute_propagation_evidence(
                 case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
             stats["propagation_evidence_time_s"] = round(time.time() - t_prop, 3)
+        stats["dataset_version"] = config.DATASET_VERSION
         stats["use_propagation_evidence"] = bool(config.USE_PROPAGATION_EVIDENCE)
         stats["propagation_evidence_rows"] = len(propagation_ev["rows"])
         infra_ev = {"rows": [], "text": "", "observations": []}
