@@ -336,22 +336,25 @@ CHAIN_FIRST_SCHEMA_HINT_S = (
     '"confidence": <float 0-1>}'
 )
 # GROUNDED_FAULT=1 (arm P1, claude/design-arm-P-grounded-fault-choice-2026-10-12.md): one uniform rule + a 'fault_evidence' field BEFORE
-# predicted_fault_type: name the observable the chosen type's definition requires and quote where it appears in the tables. Probe 2026-10-12:
+# predicted_fault_type: the type must follow from the CHAIN (2026-10-12 audit: chain said cpu=670, label said httpError5xx); fault_evidence copies the
+# signal=value from the cause step that the chosen type's definition requires. Probe 2026-10-12:
 # Qwen2.5-7B/14B both know 403 is 4xx and reject it against a 5xx definition when asked directly; the long Coordinator prompt never asks that
 # question. No call added, nothing filtered, same rule for every case, no ground truth.
 CHAIN_FIRST_SCHEMA_HINT_P = (
     '{"reasoning_chain": ["cause: <target> <signal>=<value> ...", '
     '"propagation: <target> <signal>=<value> ...", "impact: <target> <signal>=<value> ..."], '
     '"predicted_entity_ids": ["<target of the cause step>"], '
-    '"fault_evidence": "<the observable the chosen type\'s definition requires, quoted from the tables with its table and value>", '
+    '"fault_evidence": "<signal=value copied from your cause step that the chosen type\'s definition requires>", '
     '"predicted_fault_type": "<one taxonomy slug whose definition is satisfied by fault_evidence>", '
     '"confidence": <float 0-1>}'
 )
 _GROUNDED_TASK = (
-    " For the fault type, first read the definition of the type you are considering and name the observable it requires (for example a "
-    "status-code class, a resource signal, an event reason); write in fault_evidence where in the tables above that observable appears, with "
-    "its value. A definition is satisfied only by what the tables actually show: a different status-code class, a different resource or a "
-    "missing signal does not satisfy it. If the tables do not show the observable, choose the type whose definition matches what they do show."
+    " The fault type must follow from the chain: the cause step must contain the signals that identify the kind of fault (for example the "
+    "status-code class or error message, which resource is saturated and its value, replica/restart/event reasons), not only an error rate. "
+    "In fault_evidence copy the signal=value from your own cause step that the definition of the chosen type requires. A definition is "
+    "satisfied only by what that signal shows: a different status-code class, a different resource or an absent signal does not satisfy it. "
+    "If the cause step does not contain the observable a type requires, do not choose that type; choose the type whose definition matches "
+    "the signals in the cause step."
 )
 # CHAIN_STEPS_FLEX=1: RCA100 chains have 3 steps (91 cases) or 4 (12 cases: one extra propagation hop). The default prompt asks for exactly 3.
 _FLEX_TASK = (" The chain has 3 steps (cause, propagation, impact); add one more propagation step only when the tables show one more "
