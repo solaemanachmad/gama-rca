@@ -775,6 +775,15 @@ class GraphRAGPipeline:
             stats["verify_revised"] = _vs.get("revised")
             stats["verify_parse_error"] = _vs.get("parse_error")
             stats["verify_ungrounded_numbers"] = _vs.get("ungrounded")
+        if config.VERIFY_FAULT_TYPE:
+            _tc = final_state.get("type_check_stats") or {}
+            stats["typecheck_checked"] = _tc.get("checked")
+            stats["typecheck_satisfied"] = _tc.get("satisfied")
+            stats["typecheck_quote_grounded"] = _tc.get("grounded")
+            stats["typecheck_revised"] = _tc.get("revised")
+            stats["typecheck_type_before"] = _tc.get("type_before")
+            stats["typecheck_rows_chars"] = _tc.get("rows_chars")
+        stats["verify_fault_type"] = bool(config.VERIFY_FAULT_TYPE)
         stats["use_knowledge_prompt"] = bool(config.USE_KNOWLEDGE_PROMPT)
         stats["verify_chain"] = bool(config.VERIFY_CHAIN)
 

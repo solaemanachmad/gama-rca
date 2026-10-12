@@ -15,7 +15,7 @@ import json
 
 from langgraph.graph import StateGraph, END
 
-from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block
+from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block, FAULT_DEFINITIONS
 
 import re
 import config
@@ -78,6 +78,7 @@ class AgentState(TypedDict, total=False):
     metric_structure_text: Optional[str]           # identity-free K8s aggregates + call-edge flow ratios (pipeline/metric_structure.py)
     alert_lifecycle_text: Optional[str]             # condensed alert stream (pipeline/alert_lifecycle.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
+    type_check_stats: Optional[dict]                # VERIFY_FAULT_TYPE diagnostics (checked, satisfied, quote grounded, revised)
     verify_stats: Optional[dict]                    # VERIFY_CHAIN diagnostics (issues, revised, ungrounded numbers)
     debug_trace: Optional[list]                     # prompts + raw outputs per node (only when DEBUG_DUMP_DIR is set)
     propagation_text: Optional[str]                 # call-graph/trace table (evidence only; see
@@ -485,6 +486,42 @@ def _verify_and_revise(llm, state, first_prompt: str, result: dict, evidence_blo
     return result
 
 
+def _check_fault_type(llm, state, first_prompt: str, result: dict, blocks: list) -> dict:
+    """VERIFY_FAULT_TYPE (arm C): one short check of the chosen type's definition against the rows of the chosen entity; if not satisfied,
+    one re-choice of predicted_fault_type only (entity and chain of the first answer are kept)."""
+    from agents.type_check import entity_rows, check_type, rechoice_prompt
+    st = {"checked": False, "satisfied": None, "grounded": None, "revised": False, "type_before": None, "type_after": None, "rows_chars": 0}
+    state["type_check_stats"] = st
+    if not isinstance(result, dict) or result.get("_parse_error"):
+        return result
+    ids = result.get("predicted_entity_ids") or []
+    ftype = str(result.get("predicted_fault_type") or "")
+    st["type_before"] = st["type_after"] = ftype
+    defs = FAULT_DEFINITIONS
+    if not ids or ftype not in defs:
+        return result
+    entity = str(ids[0])
+    rows = entity_rows([entity], blocks)
+    st["rows_chars"] = len(rows)
+    if not rows.strip():
+        return result
+    chk = check_type(llm, state["alert_text"], entity, rows, defs[ftype])
+    _trace(state, "type_check", chk.pop("prompt"), chk.get("raw") or {"_parse_error": True})
+    st.update(checked=True, satisfied=chk["satisfied"], grounded=chk["grounded"], quote=chk.get("quote"))
+    if chk["satisfied"] is not False:
+        return result
+    answer = {k: result.get(k) for k in ("reasoning_chain", "predicted_entity_ids", "predicted_fault_type")}
+    rp = rechoice_prompt(first_prompt, answer, entity, chk)
+    revised = llm.generate_json(rp, system=COORDINATOR_SYSTEM_PROMPT)
+    _trace(state, "coordinator_type_rechoice", rp, revised)
+    new_t = str((revised or {}).get("predicted_fault_type") or "") if isinstance(revised, dict) and not revised.get("_parse_error") else ""
+    if new_t in defs and new_t != ftype:
+        out = dict(result); out["predicted_fault_type"] = new_t; out["fault_type_rechosen_from"] = ftype
+        st.update(revised=True, type_after=new_t)
+        return out
+    return result
+
+
 FINAL_SCHEMA_HINT = (
     '{"predicted_entity_ids": ["entity1", "entity2"], '
     '"predicted_fault_type": "<one of the 28 RCA100 fault types or best guess>", '
@@ -683,6 +720,10 @@ def coordinator_node(llm: LLMClient):
                 _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, metric_struct_text, strip_text, coloc_text, trace_text, trace_edges_text, log_ev_text, onset_text) if t) \
                     or findings_block
                 state["final_result"] = _verify_and_revise(llm, state, prompt, state["final_result"], _ev)
+            if config.VERIFY_FAULT_TYPE:
+                state["final_result"] = _check_fault_type(llm, state, prompt, state["final_result"], [
+                    state.get("propagation_text"), infra_text, metric_struct_text, strip_text, coloc_text, trace_text, trace_edges_text,
+                    log_ev_text, onset_text])
             return state
 
         anchor = state.get("graph_anchor") or {}
