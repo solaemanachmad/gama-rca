@@ -314,6 +314,9 @@ CHAIN_FIRST_SCHEMA_HINT_S = (
     '"predicted_fault_type": "<one taxonomy slug whose defining observable appears in symptoms>", '
     '"confidence": <float 0-1>}'
 )
+# CHAIN_STEPS_FLEX=1: RCA100 chains have 3 steps (91 cases) or 4 (12 cases: one extra propagation hop). The default prompt asks for exactly 3.
+_FLEX_TASK = (" The chain has 3 steps (cause, propagation, impact); add one more propagation step only when the tables show one more "
+              "hop between the cause and the impact.")
 _SYMPTOM_TASK = (
     " Before the fault type, fill 'symptoms' for the cause target only from the tables above: the direction against its own baseline and "
     "the value, or 'no data'. Then choose predicted_fault_type from those symptoms: a type whose defining observable is not among the "
@@ -626,7 +629,8 @@ def coordinator_node(llm: LLMClient):
                 f"target of the cause step, and predicted_fault_type to the single taxonomy type "
                 f"that best explains the cause step's evidence (node/pod/deployment faults are "
                 f"visible in the node, deployment and event tables)."
-                f"{_SYMPTOM_TASK if config.SYMPTOM_FIRST else ''}\n"
+                f"{_SYMPTOM_TASK if config.SYMPTOM_FIRST else ''}"
+                f"{_FLEX_TASK if config.CHAIN_STEPS_FLEX else ''}\n"
                 f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_S if config.SYMPTOM_FIRST else CHAIN_FIRST_SCHEMA_HINT}"
             )
             state["coordinator_prompt_chars"] = len(prompt)

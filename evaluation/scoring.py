@@ -475,6 +475,11 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     report.update(rca100_final_score(result, gt, topology, retrieved_texts))
     if evidence_items is not None:
         report.update(retrieval_precision_recall(evidence_items, gt, topology))
+    # Exact 28-class match (evaluation-only, 2026-10-12): the official protocol is a fine-grained 28-class match; fault_identification above
+    # is a containment match. Report both; this one is the primary FI for the manuscript.
+    _p = result.predicted_fault_type if isinstance(result.predicted_fault_type, str) else ""
+    _p = _p.strip().lower(); _t = gt.fault_type.strip().lower()
+    report["fault_identification_exact"] = 1.0 if (_p and (_p == _t or _p == _t.split("-")[-1] or _p.split("-")[-1] == _t.split("-")[-1])) else 0.0
     report["explainability"] = explainability_proxy(result)
     # Reasoning-process components, reported separately. The official
     # combination (0.5 chain + 0.5 checkpoint) and final_score are unchanged;
