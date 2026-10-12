@@ -76,13 +76,18 @@ os.environ.clear(); os.environ.update(_ENV_BEFORE)   # undo the flags set above
 
 # %% Cell 4 -- full pipeline on 3 cases, two arms (LLM; ~3 x 3 min per arm on a T4/P100)
 import json
+# Model source: local copy of Qwen2.5-7B-Instruct (Add Input > Models > qwen-lm / qwen2.5 / transformers / 7b-instruct / 1); None = HF hub download.
+LOCAL_MODEL = "/kaggle/input/models/qwen-lm/qwen2.5/transformers/7b-instruct/1"
+if LOCAL_MODEL:
+    print("local model dir exists:", os.path.isdir(LOCAL_MODEL), os.listdir(LOCAL_MODEL)[:8] if os.path.isdir(LOCAL_MODEL) else "")
 BASE = dict(                       # arm A1rT: the proposed configuration BEFORE the new evidence (pre-registered base)
     LLM_BACKEND="kaggle", CHUNKED_PREFILL="1", MAX_INPUT_TOKENS="16000", PREFILL_CHUNK="1024",
     USE_LOG_TEMPLATES="1", LOG_TEMPLATE_ENGINE="drain3", DRAIN_SIM_TH="0.8",
     USE_PROPAGATION_EVIDENCE="1", ENTITY_SOURCE="coordinator", CHAIN_FIRST_ENTITY="coordinator",   # 2026-10-12 (U2): the Coordinator sees all evidence; el_if_anchor is still logged
     USE_KEYWORD_HINT="0", USE_INFRA_EVIDENCE="1", CHAIN_FIRST="1",
     USE_CHANGE_FACTOR="1", USE_CHANGE_STATS="1", USE_TRACE_EVIDENCE="1",
-    PYTHONHASHSEED="0", RCA100_ROOT=DATA)
+    PYTHONHASHSEED="0", RCA100_ROOT=DATA,
+    **({"KAGGLE_MODEL_LOCAL_PATH": LOCAL_MODEL} if LOCAL_MODEL else {}))
 NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDENCE="1", USE_EVENT_DIGEST="1",
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
