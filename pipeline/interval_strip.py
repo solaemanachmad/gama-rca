@@ -185,6 +185,11 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
             if s.empty:
                 continue
             ser = s.groupby("t")["value"].mean().sort_index()
+            if key == "error":
+                # the export keeps error samples only when the count is >= 1 (audit: min 1.0, 0 zero rows in 12,111; every error
+                # timestamp is a workload timestamp), so a workload sample without an error sample means 0 errors
+                wts = g[g["metric"] == "workload"]["t"].unique()
+                ser = ser.reindex(np.union1d(ser.index.values, wts)).fillna(0.0).sort_index()
             base = ser[ser.index < w0s]
             bm = float(base.median()) if len(base) else float("nan")
             win = ser[(ser.index >= w0s) & (ser.index < w0s + n_bins * BIN_S)]
@@ -280,14 +285,14 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
     out.append(
         f"Interval strip: the window [alert_window.start .. end] in {int(BIN_S)} s bins, one value per bin, T+m:ss = bin start "
         f"relative to the window start. Metric values are multiples of the series' own baseline median (baseline = all samples "
-        f"before the window); '·' = no sample, '~0' = below 0.01. A service that never reports errors has no error row. "
+        f"before the window); '·' = no sample, '~0' = below 0.01. The export keeps an error sample only when the count is at least 1, so an error value of 0 means a workload sample without an error sample. A service that never reports errors has no error row. "
         f"The log/trace exports cover only part of the window: outside the covered intervals a missing record is an export "
         f"artefact, NOT evidence of absence.")
     out.append("bins: " + " ".join(labels))
     out.extend(blocks)
     dropped = len([1 for _, nm in names if nm in set(m["entity_name"])]) - shown
     if dropped > 0:
-        out.append(f"({dropped} further neighbourhood service(s) not shown: length budget, structural order)")
+        out.append(f"({dropped} further neighbourhood service(s) not shown: service cap / length budget, structural order)")
     out.append("alert stream, evaluations per bin: " + " ".join(str(int(x)) for x in acounts))
     for rs in reasons[:MAX_REASONS]:
         if rs in first_c:
