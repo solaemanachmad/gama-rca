@@ -774,9 +774,15 @@ class GraphRAGPipeline:
             _m = re.match(r"\s*cause\s*:\s*(\S+)", str(_chain[0])) if _chain else None
             _tgt = _m.group(1).strip(",;:").split("::")[0].lower() if _m else None
             _ids = _fr.get("predicted_entity_ids") or []
-            _ent = str(_ids[0]).lower() if _ids else None
+            # compare in ID space: the Coordinator writes either a name ("inventory") or an id (hash) for the entity
+            from data.loader import resolve_entity_by_name
+            _tid = resolve_entity_by_name(_tgt, case.name_index) if _tgt else None
+            _eid = None
+            if _ids:
+                _e0 = str(_ids[0]).strip()
+                _eid = _e0 if _e0 in case.topology else resolve_entity_by_name(_e0.split("::")[0].lower(), case.name_index)
             stats["cause_target"] = _tgt
-            stats["cause_entity_mismatch"] = (None if (_tgt is None or _ent is None) else (_tgt != _ent))
+            stats["cause_entity_mismatch"] = (None if (_tid is None or _eid is None) else (_tid != _eid))
         except Exception as _ex:
             stats["cause_entity_mismatch"] = None
         stats["coordinator_prompt_long"] = bool(
