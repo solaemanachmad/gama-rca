@@ -132,7 +132,7 @@ for name, p in CSV.items():
     d = pd.read_csv(p)
     cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries", "chunked_fallbacks", "total_calls",
                         "entity_localization", "predicted_fault_type", "gt_fault_type", "fault_identification_exact", "fault_group_identification",
-                        "final_score", "typecheck_checked", "typecheck_satisfied", "typecheck_revised") if c in d.columns]
+                        "final_score", "cause_target", "cause_entity_mismatch", "typecheck_checked", "typecheck_satisfied", "typecheck_revised") if c in d.columns]
     print("\n==", name); print(d[cols].to_string(index=False))
     for cid in SMOKE:
         fr = json.load(open(f"/kaggle/working/dump_{name}/{cid}.json"))["final_result"]

@@ -363,9 +363,10 @@ _FLEX_TASK = (" The chain has 3 steps (cause, propagation, impact); add one more
 # CHAIN_ABSOLUTE_SIGNALS=1: RCA100 checkpoints are numeric constraints on request count (204 of 661), average request latency in seconds (178) and
 # error count (97) (paper, section 5.3), compared with >= against absolute values, and the GT example names operations as service::operation.
 # One uniform instruction, same for every case; derived from the public paper, not from any label of ours.
-_ABS_TASK = (" Cite the signals the way observability checkpoints are measured: request count, average request latency in seconds and error "
-             "count (with error rate), as the absolute values shown in the tables, not as change factors or ratios (not 'x670', not "
-             "p95_latency_ratio). Name each step's target at the finest level the tables show: a service, or service::operation.")
+_ABS_TASK = (" Cite signals as absolute values in their own units, as the tables show them: request count, average request latency in seconds, "
+             "error count and rate, cpu and memory usage, replicas, event reasons and counts. Do not write change factors or ratios as if they "
+             "were values (not 'x670', not p95_latency_ratio). Name each step's target at the finest level the tables show: a service, or "
+             "service::operation.")
 _SYMPTOM_TASK = (
     " Before the fault type, fill 'symptoms' for the cause target only from the tables above: the direction against its own baseline and "
     "the value, or 'no data'. Then choose predicted_fault_type from those symptoms: a type whose defining observable is not among the "

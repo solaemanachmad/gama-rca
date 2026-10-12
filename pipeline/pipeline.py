@@ -767,6 +767,18 @@ class GraphRAGPipeline:
             stats["layer_parse_error"] = bool(layer.get("_parse_error"))
 
         stats["coordinator_prompt_chars"] = final_state.get("coordinator_prompt_chars")
+        # GT-free diagnostic: does the entity the Coordinator answers equal the target of its own cause step? (chain-first only)
+        try:
+            _fr = final_state.get("final_result") or {}
+            _chain = _fr.get("reasoning_chain") or []
+            _m = re.match(r"\s*cause\s*:\s*(\S+)", str(_chain[0])) if _chain else None
+            _tgt = _m.group(1).strip(",;:").split("::")[0].lower() if _m else None
+            _ids = _fr.get("predicted_entity_ids") or []
+            _ent = str(_ids[0]).lower() if _ids else None
+            stats["cause_target"] = _tgt
+            stats["cause_entity_mismatch"] = (None if (_tgt is None or _ent is None) else (_tgt != _ent))
+        except Exception as _ex:
+            stats["cause_entity_mismatch"] = None
         stats["coordinator_prompt_long"] = bool(
             (final_state.get("coordinator_prompt_chars") or 0) > config.PROMPT_CHAR_WARN)
         if config.VERIFY_CHAIN:
