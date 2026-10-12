@@ -122,6 +122,50 @@ FINDING_SCHEMA_HINT = (
 )
 
 
+# SPEC_CHAIN_SEGMENTS=1 (arm SEG, claude/audit-fault-choice-and-design-seg-2026-10-13.md): a specialist no longer names one "most suspect
+# entity"; it writes the chain steps it can SEE in its own modality. The Coordinator assembles ONE chain from the segments and the tables.
+# Nothing is filtered by significance; same schema for every case; no ground truth.
+SEGMENT_SCHEMA_HINT = '{"segment": ["<step_type>: <target> <signal>=<value> ...", "..."], "confidence": <float 0-1>}'
+_SEG_RULES = (" Each step is 'step_type: target signal=value ...' with step_type in cause / propagation / impact. 'target' is the entity NAME "
+              "exactly as written in the evidence (a service, service::operation, node, pod or deployment), not an id hash; cite absolute values "
+              "as given. Write only steps this evidence supports. An empty list is the right answer when this modality shows nothing abnormal. "
+              "Do not name a final fault type.")
+COORDINATOR_SYSTEM_PROMPT_SEG = (
+    "You are the Coordinator agent for a microservice root-cause-analysis system. You receive chain segments written by Metrics, Logs, Trace and "
+    "Topology specialists, each of whom saw only its own modality, plus numeric tables. Assemble ONE causal chain from the segments and the "
+    "tables, and produce ONE final diagnosis. Respond ONLY with valid JSON."
+)
+_SEG_TASK = (" The specialist findings are chain segments, each written from one modality only; they can overlap, differ or be empty. "
+             "Merge them into one chain and check every step against the tables.")
+
+
+def _seg_finding(result):
+    """Normalises a segment answer and adds the legacy keys (entity_id, summary, supporting_evidence) used by AgentFinding / scoring."""
+    if not isinstance(result, dict) or result.get("_parse_error"):
+        return result
+    seg = result.get("segment")
+    seg = [str(x) for x in seg] if isinstance(seg, list) else ([str(seg)] if isinstance(seg, str) and seg else [])
+    result["segment"] = seg
+    first = re.match(r"\s*\w+\s*:\s*(\S+)", seg[0]) if seg else None
+    result["entity_id"] = first.group(1).strip(",;:").split("::")[0] if first else None
+    result["summary"] = " | ".join(seg)[:300]
+    result["supporting_evidence"] = list(seg)
+    return result
+
+
+def _seg_block(state) -> str:
+    """Coordinator view of the specialists in SEG mode: segments and confidence only."""
+    out = {}
+    for key, name in (("metrics_finding", "metrics_agent"), ("logs_finding", "logs_agent"), ("trace_finding", "trace_agent"),
+                      ("topology_finding", "topology_agent")):
+        f = state.get(key)
+        if isinstance(f, dict) and "segment" in f:
+            out[name] = {"segment": f["segment"], "confidence": f.get("confidence")}
+        else:
+            out[name] = f
+    return _findings_json(out)
+
+
 def _trace(state, name, prompt, output):
     """Debug only (config.DEBUG_DUMP_DIR): keep the exact prompt and raw output of one LLM call.
     Contains no ground truth -- only what the model saw and said."""
@@ -135,6 +179,18 @@ def _make_agent_node(agent_name: str, modality_filter: Optional[str],
 
     def node(state: AgentState) -> AgentState:
         summary_text = _filter_summary_text(state["evidence_summary"], modality_filter)
+        if config.SPEC_CHAIN_SEGMENTS:
+            prompt = (
+                f"Alert: {state['alert_text']}\n\n"
+                f"Evidence relevant to {agent_name} (entity: bullet list):\n{summary_text}\n\n"
+                f"Task: from the {agent_name.replace('_', ' ')} evidence above only, write the causal-chain steps you can see, in order."
+                f"{_SEG_RULES}\n"
+                f"Respond as JSON: {SEGMENT_SCHEMA_HINT}"
+            )
+            result = _seg_finding(llm.generate_json(prompt, system=_agent_system()))
+            _trace(state, f"{agent_name}_agent", prompt, result)
+            state[f"{agent_name}_finding"] = result
+            return state
         prompt = (
             f"Alert: {state['alert_text']}\n\n"
             f"Evidence relevant to {agent_name} (entity: bullet list):\n{summary_text}\n\n"
@@ -258,6 +314,26 @@ def topology_agent_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
         neighbors = state.get("graph_neighbors", {})
         path = state.get("propagation_path")
+        if config.SPEC_CHAIN_SEGMENTS:
+            _tv = state.get("topology_view") if config.TOPOLOGY_NAMES else None
+            _up = (_tv or {}).get("upstream", neighbors.get("upstream", []))
+            _down = (_tv or {}).get("downstream", neighbors.get("downstream", []))
+            _path = ((_tv or {}).get("path")) or path
+            prompt = (
+                f"Alert: {state['alert_text']}\n\n"
+                f"Upstream (callers) of the alerted entity: {_up}\n"
+                f"Downstream (dependencies): {_down}\n"
+                f"Computed call-graph path from the alerted entity (structure only, not evidence about the cause): "
+                f"{' -> '.join(_path) if _path else 'none'}\n\n"
+                f"Task: from the structure only, write the propagation steps that the call graph allows (who calls whom). "
+                f"Use step_type propagation or impact; there is no signal to cite, so write 'target' and, if useful, the relation "
+                f"(for example 'propagation: cart calls inventory').{_SEG_RULES}\n"
+                f"Respond as JSON: {SEGMENT_SCHEMA_HINT}"
+            )
+            result = _seg_finding(llm.generate_json(prompt, system=_agent_system()))
+            _trace(state, "topology_agent", prompt, result)
+            state["topology_finding"] = result
+            return state
         path_block = ""
         if path:
             path_block = (
@@ -550,7 +626,7 @@ def _findings_json(findings: dict, raw_cap: int = 300) -> str:
 
 def coordinator_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
-        findings_block = _findings_json({
+        findings_block = _seg_block(state) if config.SPEC_CHAIN_SEGMENTS else _findings_json({
             "metrics_agent": state.get("metrics_finding"),
             "logs_agent": state.get("logs_finding"),
             "trace_agent": state.get("trace_finding"),
@@ -718,11 +794,12 @@ def coordinator_node(llm: LLMClient):
                 f"{_SYMPTOM_TASK if config.SYMPTOM_FIRST else ''}"
                 f"{_GROUNDED_TASK if config.GROUNDED_FAULT else ''}"
                 f"{_FLEX_TASK if config.CHAIN_STEPS_FLEX else ''}"
-                f"{_ABS_TASK if config.CHAIN_ABSOLUTE_SIGNALS else ''}\n"
+                f"{_ABS_TASK if config.CHAIN_ABSOLUTE_SIGNALS else ''}"
+                f"{_SEG_TASK if config.SPEC_CHAIN_SEGMENTS else ''}\n"
                 f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_P if config.GROUNDED_FAULT else (CHAIN_FIRST_SCHEMA_HINT_S if config.SYMPTOM_FIRST else CHAIN_FIRST_SCHEMA_HINT)}"
             )
             state["coordinator_prompt_chars"] = len(prompt)
-            state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
+            state["final_result"] = llm.generate_json(prompt, system=(COORDINATOR_SYSTEM_PROMPT_SEG if config.SPEC_CHAIN_SEGMENTS else COORDINATOR_SYSTEM_PROMPT))
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
             if config.VERIFY_CHAIN:
                 _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, metric_struct_text, strip_text, coloc_text, trace_text, trace_edges_text, log_ev_text, onset_text) if t) \

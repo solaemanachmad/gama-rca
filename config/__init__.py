@@ -555,3 +555,7 @@ USE_DOSSIER_FT = os.environ.get("USE_DOSSIER_FT", "0") == "1"
 # INFRA_ALL_ENTITIES=1 (2026-10-13): the node and deployment tables list EVERY entity (rows are shortened: med, rank, n dropped) instead of
 # cutting the alphabetical tail at a character budget. Audit: the tables were cut in 30/30 dev cases (7-8 of ~15 nodes, 1-15 deployments missing).
 INFRA_ALL_ENTITIES = os.environ.get("INFRA_ALL_ENTITIES", "0") == "1"
+
+# SPEC_CHAIN_SEGMENTS=1 (2026-10-13, arm SEG): specialists write chain segments of their own modality instead of one suspect entity; the Coordinator
+# merges them (system prompt without "weigh agreement heavily"). Same LLM call count. See claude/audit-fault-choice-and-design-seg-2026-10-13.md.
+SPEC_CHAIN_SEGMENTS = os.environ.get("SPEC_CHAIN_SEGMENTS", "0") == "1"
