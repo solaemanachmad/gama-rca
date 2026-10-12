@@ -1,5 +1,6 @@
 # Kaggle smoke test (2026-10-11): paste each "# %% Cell N" block into its own notebook cell, in order.
 # Purpose: DEBUGGING ONLY (does the code run, are the prompts sane). Three cases are not a basis for choosing flags.
+# v3 (2026-10-12, after smoke v2): base entity = Coordinator (U2), arms A1rT / A1rT_fixed (strict routing + English specialists) / A1rT_fixed_all_new.
 # v2 (2026-10-12): Cell 3 no longer leaks flags into Cell 4 (the v1 reference arm was contaminated), Cell 4 builds a CLEAN env
 # per arm, STRICT_MODALITY_ROUTING arm added, Cell 5 also prints specialist prompt sizes.
 # Fill the two <...> placeholders in Cell 1. Nothing here reads the answer key except the scoring that main.py already does.
@@ -75,7 +76,7 @@ import json
 BASE = dict(                       # arm A1rT: the proposed configuration BEFORE the new evidence (pre-registered base)
     LLM_BACKEND="kaggle", CHUNKED_PREFILL="1", MAX_INPUT_TOKENS="16000", PREFILL_CHUNK="1024",
     USE_LOG_TEMPLATES="1", LOG_TEMPLATE_ENGINE="drain3", DRAIN_SIM_TH="0.8",
-    USE_PROPAGATION_EVIDENCE="1", ENTITY_SOURCE="anchor", CHAIN_FIRST_ENTITY="anchor",
+    USE_PROPAGATION_EVIDENCE="1", ENTITY_SOURCE="coordinator", CHAIN_FIRST_ENTITY="coordinator",   # 2026-10-12 (U2): the Coordinator sees all evidence; el_if_anchor is still logged
     USE_KEYWORD_HINT="0", USE_INFRA_EVIDENCE="1", CHAIN_FIRST="1",
     USE_CHANGE_FACTOR="1", USE_CHANGE_STATS="1", USE_TRACE_EVIDENCE="1",
     PYTHONHASHSEED="0", RCA100_ROOT=DATA)
@@ -83,7 +84,7 @@ NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDEN
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
 FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
-         "USE_METRIC_STRUCTURE", "STRICT_MODALITY_ROUTING", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
+         "USE_METRIC_STRUCTURE", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
          "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
 
 def run_arm(name, extra):
@@ -96,12 +97,13 @@ def run_arm(name, extra):
     return out
 
 csv_a = run_arm("A1rT", {})                                         # reference: legacy T0, no new evidence, legacy routing
-csv_s = run_arm("A1rT_strict", {"STRICT_MODALITY_ROUTING": "1"})    # only the routing fix (specialist prompts change)
-csv_b = run_arm("A1rT_all_new", {**NEW, "STRICT_MODALITY_ROUTING": "1"})   # every new flag on at once (smoke only; real arms are added one group at a time)
+FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # A1rT-fixed = base for the registered arms (U1 + U4)
+csv_s = run_arm("A1rT_fixed", FIXED)                                  # reference + routing fix + English specialists
+csv_b = run_arm("A1rT_fixed_all_new", {**NEW, **FIXED})   # every new flag on at once (smoke only; real arms are added one group at a time)
 
 # %% Cell 5 -- health check (NOT a comparison of scores)
 import pandas as pd
-for name, p in (("A1rT", csv_a), ("A1rT_strict", csv_s), ("A1rT_all_new", csv_b)):
+for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_all_new", csv_b)):
     d = pd.read_csv(p)
     cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries",
                         "chunked_fallbacks", "total_calls", "use_alert_lifecycle", "use_event_digest", "use_log_evidence",
@@ -115,7 +117,7 @@ for name, p in (("A1rT", csv_a), ("A1rT_strict", csv_s), ("A1rT_all_new", csv_b)
 
 # specialist prompt sizes per arm (metrics, logs, trace, topology) and the Coordinator prompt, from the dumps
 import json
-for name in ("A1rT", "A1rT_strict", "A1rT_all_new"):
+for name in ("A1rT", "A1rT_fixed", "A1rT_fixed_all_new"):
     for cid in SMOKE:
         d = json.load(open(f"/kaggle/working/dump_{name}/{cid}.json"))
         print(f"{name:14s} {cid}", [len(t["prompt"]) for t in d["trace"]])

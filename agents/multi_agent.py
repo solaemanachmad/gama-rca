@@ -103,6 +103,14 @@ AGENT_SYSTEM_PROMPT = (
     "requested schema — no prose outside the JSON object."
 )
 
+_ENGLISH_NOTE = (" Write the summary and supporting_evidence in English (keep entity names, metric names and "
+                 "log text exactly as given).")
+
+
+def _agent_system() -> str:
+    return AGENT_SYSTEM_PROMPT + (_ENGLISH_NOTE if config.SPECIALIST_ENGLISH else "")
+
+
 FINDING_SCHEMA_HINT = (
     '{"entity_id": "<most-suspect entity id or null>", '
     '"summary": "<2-3 sentence finding>", '
@@ -131,7 +139,7 @@ def _make_agent_node(agent_name: str, modality_filter: Optional[str],
             f"from a {agent_name.replace('_', ' ')} perspective only.\n"
             f"Respond as JSON: {FINDING_SCHEMA_HINT}"
         )
-        result = llm.generate_json(prompt, system=AGENT_SYSTEM_PROMPT)
+        result = llm.generate_json(prompt, system=_agent_system())
         _trace(state, f"{agent_name}_agent", prompt, result)
         state[f"{agent_name}_finding"] = result
         return state
@@ -268,7 +276,7 @@ def topology_agent_node(llm: LLMClient):
             f"(which entity is the likely origin vs. which are downstream victims).\n"
             f"Respond as JSON: {FINDING_SCHEMA_HINT}"
         )
-        result = llm.generate_json(prompt, system=AGENT_SYSTEM_PROMPT)
+        result = llm.generate_json(prompt, system=_agent_system())
         _trace(state, "topology_agent", prompt, result)
         state["topology_finding"] = result
         return state

@@ -512,6 +512,10 @@ USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
 # call-graph table (`_propagation`, derived from spans) goes to the trace specialist only; `_twist_scores` (cross-modality) goes
 # to none. Default 0 = legacy routing, so older CSVs stay reproducible.
 STRICT_MODALITY_ROUTING = os.environ.get("STRICT_MODALITY_ROUTING", "0") == "1"
+# SPECIALIST_ENGLISH=1 (audit 2026-10-12, U4): the specialists' free-text fields (summary, supporting_evidence) are asked to be written
+# in English. Without it, Qwen sometimes answers in Chinese (alert titles and some log messages are Chinese) and those characters
+# enter the Coordinator prompt. Wording change only; evidence is untouched. Default 0 = legacy prompts.
+SPECIALIST_ENGLISH = os.environ.get("SPECIALIST_ENGLISH", "0") == "1"
 
 # USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
 # call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
