@@ -144,6 +144,7 @@ class KaggleTransformersClient:
         else:
             text = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=self.enable_thinking,      # Qwen3 templates default to thinking ON; other templates ignore this kwarg
             )
             inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
 
@@ -235,7 +236,7 @@ class KaggleTransformersClient:
                 return None
             ids.append(t[0])
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=self.enable_thinking)
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
         max_in = int(os.environ.get("MAX_INPUT_TOKENS", "9000"))
         if inputs["input_ids"].shape[-1] > max_in:
