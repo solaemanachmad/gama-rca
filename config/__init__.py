@@ -462,6 +462,9 @@ USE_CHANGE_STATS = os.environ.get("USE_CHANGE_STATS", "0") == "1"
 # standard SRE knowledge + the public taxonomy definitions; no case-specific text, no GT) to the
 # chain-first Coordinator prompt. The LLM still decides; nothing is filtered. See data.taxonomy.knowledge_prompt_block.
 USE_KNOWLEDGE_PROMPT = os.environ.get("USE_KNOWLEDGE_PROMPT", "0") == "1"
+# USE_KNOWLEDGE_POS=1 (arm KP): same slot as arm K, text paraphrased from the public PoS agent catalog/methodology (MIT, cited in
+# data.taxonomy.knowledge_prompt_block_pos). Takes precedence over USE_KNOWLEDGE_PROMPT when both are set.
+USE_KNOWLEDGE_POS = os.environ.get("USE_KNOWLEDGE_POS", "0") == "1"
 
 # Arm V -- VERIFY_CHAIN=1: after the chain-first Coordinator, one verifier call checks the chain against the
 # evidence tables (verbatim quotes, at most 3 issues, absence of evidence is not contradiction); if it reports

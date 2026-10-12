@@ -442,3 +442,37 @@ def knowledge_prompt_block() -> str:
         "- A change factor like x600 on a tiny baseline matters only together with its absolute value and z; "
         "a large absolute level that was already high before the window (change x1) is not a cause."
     )
+
+
+def knowledge_prompt_block_pos() -> str:
+    """Arm KP. 'How to tell similar fault types apart', paraphrased from the agent-facing fault catalog and diagnostic methodology of the
+    PoS project (github.com/luoyu100/PoS, benchmarks/RCA100/info.py, MIT licence, (c) 2026 PoS Contributors; paper arXiv:2610.01415), whose
+    authors overlap with the RCA100 authors. Public text; not derived from any RCA100 label of ours. Slugs are ours (28 types); PoS's
+    extra type slowResource does not occur in RCA100 v1.1 (audit 2026-10-12: all 103 accepted types are in our 28).
+    NOTE for the paper: the rateLimiting line keeps PoS's remark that the status can be 403 with throttling wording; disclose it."""
+    return (
+        "How to tell similar fault types apart. Several types share a symptom and differ in one checkable signal; take the types consistent "
+        "with the symptom, verify the discriminating signal of each in the tables, and rule out the nearest alternative before answering.\n"
+        "- Application CPU high: F012-cpuDeadLoop = one hot method pins a single core at 100%; F034-cpuFullLoad = CPU high evenly across "
+        "cores; F026-nodeCpuHigh = the host NODE cpu is high and several co-located pods degrade together (a node-level fault); "
+        "F006-trafficSurge / F004-trafficHotspot = request count or workload rises first (hotspot: one key, product or endpoint).\n"
+        "- JVM / memory: F022-fullGC = GC fires continuously at high frequency with long stop-the-world pauses; F007-memoryPressure = memory "
+        "near its limit with bursty or occasional GC, the service keeps answering and is not OOM-killed; F031-nodeMemoryOOM = the host's "
+        "physical memory is exhausted and the kernel OOM killer acts; F039-resourceLimitMisconfig = the container limit itself is clearly too "
+        "low, the pod is OOMKilled or throttled again soon after restart.\n"
+        "- Errors returned by a service: F016-rateLimiting = throttling, quota or protective rejection, typically HTTP 429, sometimes a 403 "
+        "with throttling wording; F023-nullPointerException = an explicit null-dereference stack; F011-codeDefect = other code bugs "
+        "(validation, logic, configuration); F014-httpError5xx = the service clearly returns 5xx and the evidence does not converge on a "
+        "more specific mechanism (a fallback type).\n"
+        "- Slow dependency calls: F010-slowSQL = long database query spans; F018-dbNetworkLatency = added latency, jitter or loss on the path "
+        "to the dependency while the query itself is not slow; F029-redisUnavailable = cache calls fail outright (unreachable, connection "
+        "refused); F009-cacheBreakdown = cache misses push a flood of requests to the backend; F005-messageQueueBacklog = consumption falls "
+        "behind production, queue grows; F002-threadExhaustion = the thread pool is full, requests queue or time out.\n"
+        "- Pods not serving: F036-replicaScaleDown = desired replicas at 0, endpoints empty; F050-podCrashLoop = containers exit right after "
+        "start, CrashLoopBackOff, fast-growing restarts; F052-podRestartFlapping = periodic restarts, intermittent availability; "
+        "F051-podPendingUnschedulable = pods stuck Pending with a scheduling reason; F001-nodeDown = the whole node is unreachable.\n"
+        "- Calls fail while both services run: F056-networkPolicyIsolation = specific service pairs rejected or timing out; "
+        "F057-dnsResolutionFailure = name-resolution errors or a wrong address; F020-loadBalancerFailure = Service endpoints broken or the "
+        "load balancer misconfigured.\n"
+        "- F025-diskIOHigh = abnormal disk IOPS or latency slows reads and writes."
+    )

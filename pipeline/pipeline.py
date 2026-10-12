@@ -785,6 +785,7 @@ class GraphRAGPipeline:
             stats["typecheck_rows_chars"] = _tc.get("rows_chars")
         stats["verify_fault_type"] = bool(config.VERIFY_FAULT_TYPE)
         stats["use_knowledge_prompt"] = bool(config.USE_KNOWLEDGE_PROMPT)
+        stats["use_knowledge_pos"] = bool(config.USE_KNOWLEDGE_POS)
         stats["verify_chain"] = bool(config.VERIFY_CHAIN)
 
         sc_stats = final_state.get("self_consistency_stats") or {}

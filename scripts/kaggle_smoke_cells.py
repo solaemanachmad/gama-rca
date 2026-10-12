@@ -87,7 +87,7 @@ NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDEN
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
 FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
-         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "SYMPTOM_FIRST", "CHAIN_STEPS_FLEX", "GROUNDED_FAULT", "VERIFY_FAULT_TYPE", "TOPOLOGY_NAMES", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
+         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "SYMPTOM_FIRST", "CHAIN_STEPS_FLEX", "GROUNDED_FAULT", "VERIFY_FAULT_TYPE", "TOPOLOGY_NAMES", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT", "USE_KNOWLEDGE_POS",
          "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
 
 def run_arm(name, extra):
@@ -106,6 +106,7 @@ csv_x = run_arm("A1rT_fixed_X", {"ALERT_T0_MODE": "window", "USE_INTERVAL_STRIP"
 csv_k = run_arm("A1rT_fixed_K", {"USE_KNOWLEDGE_PROMPT": "1", **FIXED})          # arm K alone (type-discrimination knowledge block, code existed)
 csv_sy = run_arm("A1rT_fixed_S", {"SYMPTOM_FIRST": "1", **FIXED})                 # arm S alone (symptom-first JSON)
 csv_ks = run_arm("A1rT_fixed_KS", {"USE_KNOWLEDGE_PROMPT": "1", "SYMPTOM_FIRST": "1", **FIXED})
+csv_kp = run_arm("A1rT_fixed_KP", {"USE_KNOWLEDGE_POS": "1", **FIXED})   # arm KP: knowledge block paraphrased from the public PoS catalog (MIT)
 csv_tn = run_arm("A1rT_fixed_TN", {"TOPOLOGY_NAMES": "1", **FIXED})                # arm T-names: readable, order-neutral topology input
 csv_b = run_arm("A1rT_fixed_all_new", {**NEW, **FIXED})   # every new flag on at once (smoke only; real arms are added one group at a time)
 

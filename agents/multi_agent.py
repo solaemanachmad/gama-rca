@@ -15,7 +15,7 @@ import json
 
 from langgraph.graph import StateGraph, END
 
-from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block, FAULT_DEFINITIONS
+from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block, knowledge_prompt_block_pos, FAULT_DEFINITIONS
 
 import re
 import config
@@ -674,7 +674,7 @@ def coordinator_node(llm: LLMClient):
             onset_text = state.get("onset_text") or ""
             alert_lc_text = state.get("alert_lifecycle_text") or ""
             layer_res = state.get("layer_result")
-            knowledge_block = (knowledge_prompt_block() + "\n\n") if config.USE_KNOWLEDGE_PROMPT else ""
+            knowledge_block = ((knowledge_prompt_block_pos() if config.USE_KNOWLEDGE_POS else knowledge_prompt_block()) + "\n\n") if (config.USE_KNOWLEDGE_PROMPT or config.USE_KNOWLEDGE_POS) else ""
             layer_block = ""
             if layer_res and not layer_res.get("_parse_error"):
                 layer_block = ("\nLayer analysis by a preceding on-call analyst (a hypothesis to verify "
