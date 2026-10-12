@@ -360,6 +360,12 @@ _GROUNDED_TASK = (
 # CHAIN_STEPS_FLEX=1: RCA100 chains have 3 steps (91 cases) or 4 (12 cases: one extra propagation hop). The default prompt asks for exactly 3.
 _FLEX_TASK = (" The chain has 3 steps (cause, propagation, impact); add one more propagation step only when the tables show one more "
               "hop between the cause and the impact.")
+# CHAIN_ABSOLUTE_SIGNALS=1: RCA100 checkpoints are numeric constraints on request count (204 of 661), average request latency in seconds (178) and
+# error count (97) (paper, section 5.3), compared with >= against absolute values, and the GT example names operations as service::operation.
+# One uniform instruction, same for every case; derived from the public paper, not from any label of ours.
+_ABS_TASK = (" Cite the signals the way observability checkpoints are measured: request count, average request latency in seconds and error "
+             "count (with error rate), as the absolute values shown in the tables, not as change factors or ratios (not 'x670', not "
+             "p95_latency_ratio). Name each step's target at the finest level the tables show: a service, or service::operation.")
 _SYMPTOM_TASK = (
     " Before the fault type, fill 'symptoms' for the cause target only from the tables above: the direction against its own baseline and "
     "the value, or 'no data'. Then choose predicted_fault_type from those symptoms: a type whose defining observable is not among the "
@@ -710,7 +716,8 @@ def coordinator_node(llm: LLMClient):
                 f"visible in the node, deployment and event tables)."
                 f"{_SYMPTOM_TASK if config.SYMPTOM_FIRST else ''}"
                 f"{_GROUNDED_TASK if config.GROUNDED_FAULT else ''}"
-                f"{_FLEX_TASK if config.CHAIN_STEPS_FLEX else ''}\n"
+                f"{_FLEX_TASK if config.CHAIN_STEPS_FLEX else ''}"
+                f"{_ABS_TASK if config.CHAIN_ABSOLUTE_SIGNALS else ''}\n"
                 f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_P if config.GROUNDED_FAULT else (CHAIN_FIRST_SCHEMA_HINT_S if config.SYMPTOM_FIRST else CHAIN_FIRST_SCHEMA_HINT)}"
             )
             state["coordinator_prompt_chars"] = len(prompt)
