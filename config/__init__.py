@@ -512,6 +512,8 @@ USE_INTERVAL_STRIP = os.environ.get("USE_INTERVAL_STRIP", "0") == "1"
 # SYMPTOM_FIRST=1 (arm S): the chain-first JSON asks for a per-signal-family symptom reading of the cause target before predicted_fault_type
 # (agents/multi_agent.py CHAIN_FIRST_SCHEMA_HINT_S). Default off = prompt unchanged.
 SYMPTOM_FIRST = os.environ.get("SYMPTOM_FIRST", "0") == "1"
+# GROUNDED_FAULT=1 (arm P1): chain-first Task gets a grounding rule and the JSON a fault_evidence field before predicted_fault_type. Default off.
+GROUNDED_FAULT = os.environ.get("GROUNDED_FAULT", "0") == "1"
 # CHAIN_STEPS_FLEX=1: the chain-first Task text allows a fourth (propagation) step (12 of 103 RCA100 chains have 4 steps). Default off.
 CHAIN_STEPS_FLEX = os.environ.get("CHAIN_STEPS_FLEX", "0") == "1"
 # TOPOLOGY_NAMES=1 (arm T-names, claude/audit-top20-ranking-2026-10-12.md): the topology specialist sees service NAMES, an alphabetical list of
