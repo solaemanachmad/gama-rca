@@ -32,6 +32,7 @@ class AgentState(TypedDict, total=False):
     evidence_summary: Dict[str, List[str]]     # {entity_id: [bullets]}
     graph_neighbors: Dict[str, List[str]]       # {"upstream": [...], "downstream": [...]}
     candidate_entities: List[str]               # ranked by graph score
+    topology_view: Optional[dict]               # TOPOLOGY_NAMES: names + alphabetical neighbourhood (pipeline/topology_view.py)
     graph_anchor: Optional[dict]                 # cheap structural prior (Stage 0.5,
                                                    # see pipeline.py's _compute_graph_anchor)
                                                    # {"anchor_entity_ids", "anchor_fault_type",
@@ -266,6 +267,26 @@ def topology_agent_node(llm: LLMClient):
                 f"Use this path as your primary reasoning basis -- confirm it fits the "
                 f"evidence, or explain specifically why it doesn't.\n"
             )
+        tv = state.get("topology_view") if config.TOPOLOGY_NAMES else None
+        if tv:
+            path_txt = (f"\nCall-graph path from the alerted entity (a structural fact about nearness, not evidence about the cause):\n"
+                        f"  {' -> '.join(tv['path'])}\n") if tv.get("path") else ""
+            prompt = (
+                f"Alert: {state['alert_text']}\n\n"
+                f"Alerted service: {tv.get('alert_service')}\n"
+                f"Upstream (callers) of the alerted entity: {tv['upstream']}\n"
+                f"Downstream (dependencies): {tv['downstream']}\n"
+                f"Services in the call-graph neighbourhood of the alert (alphabetical; the order carries no information): "
+                f"{tv['services']}\n"
+                f"{path_txt}\n"
+                f"Task: reason about the most plausible fault-propagation path "
+                f"(which entity is the likely origin vs. which are downstream victims).\n"
+                f"Respond as JSON: {FINDING_SCHEMA_HINT}"
+            )
+            result = llm.generate_json(prompt, system=_agent_system())
+            _trace(state, "topology_agent", prompt, result)
+            state["topology_finding"] = result
+            return state
         prompt = (
             f"Alert: {state['alert_text']}\n\n"
             f"Upstream (callers) of the alerted entity: {neighbors.get('upstream', [])}\n"

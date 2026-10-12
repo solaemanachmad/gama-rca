@@ -43,6 +43,7 @@ from pipeline.log_evidence import compute_log_evidence
 from pipeline.trace_edges import compute_trace_edges
 from pipeline.metric_structure import compute_metric_structure
 from pipeline.interval_strip import compute_interval_strip
+from pipeline.topology_view import build_topology_view
 from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
@@ -703,7 +704,11 @@ class GraphRAGPipeline:
         neighbors = graph_result.get("neighbors", {})
         candidate_entities = [eid for eid, _ in graph_result["ranked_entities"][:20]]
 
+        topology_view = (build_topology_view(case, parsed_alert["entry_entity_id"], neighbors, propagation_path)
+                         if config.TOPOLOGY_NAMES else None)
+        stats["topology_names"] = bool(config.TOPOLOGY_NAMES)
         agent_state = {
+            "topology_view": topology_view,
             "case_id": case_id,
             "alert_text": parsed_alert["alert_text"],
             "evidence_summary": evidence_summary,

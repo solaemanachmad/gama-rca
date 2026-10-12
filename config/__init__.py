@@ -514,6 +514,10 @@ USE_INTERVAL_STRIP = os.environ.get("USE_INTERVAL_STRIP", "0") == "1"
 SYMPTOM_FIRST = os.environ.get("SYMPTOM_FIRST", "0") == "1"
 # CHAIN_STEPS_FLEX=1: the chain-first Task text allows a fourth (propagation) step (12 of 103 RCA100 chains have 4 steps). Default off.
 CHAIN_STEPS_FLEX = os.environ.get("CHAIN_STEPS_FLEX", "0") == "1"
+# TOPOLOGY_NAMES=1 (arm T-names, claude/audit-top20-ranking-2026-10-12.md): the topology specialist sees service NAMES, an alphabetical list of
+# the call-graph neighbourhood and the graph path as a neutral fact, instead of a Top-20 list of hex ids ranked by nearness (rank 1 = the
+# alert's service in 103/103) and a path presented as its "primary reasoning basis". Default off = prompt unchanged.
+TOPOLOGY_NAMES = os.environ.get("TOPOLOGY_NAMES", "0") == "1"
 # STRICT_MODALITY_ROUTING=1 (audit 2026-10-12, claude/audit-agent-flow-2026-10-12.md, F2): the metrics/logs/trace specialists pick
 # their bullets by SUBSTRING ("metric"/"log"/"span") on the bullet text. That leaked the call-graph table (it contains "spans="
 # and e.g. "product-catalog") into the logs specialist, the twist summary and OpenTelemetry log lines (span_id=...) into the
