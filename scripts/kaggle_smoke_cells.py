@@ -46,6 +46,7 @@ from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.log_evidence import compute_log_evidence
 from pipeline.trace_edges import compute_trace_edges
 from pipeline.metric_structure import compute_metric_structure
+from pipeline.interval_strip import compute_interval_strip
 
 SMOKE = ["t004", "t018", "t054"]
 blocks = {}
@@ -57,7 +58,8 @@ for cid in SMOKE:
            "infra (D2 + E)": compute_infra_evidence(k, at, ent, 2),
            "G log evidence": compute_log_evidence(k, at, ent),
            "H trace edges": compute_trace_edges(k, at, ent),
-           "M metric structure": compute_metric_structure(k, at, ent)}
+           "M metric structure": compute_metric_structure(k, at, ent),
+           "X interval strip": compute_interval_strip(k, at, ent)}
     blocks[cid] = out
     print(f"\n=== {cid}  T0={at}  ({time.time() - t:.1f}s)")
     tot = 0
@@ -69,6 +71,7 @@ for cid in SMOKE:
 
 # look at one block of one case (change the keys to inspect others)
 print(blocks["t004"]["H trace edges"]["text"][:2500])
+print(blocks["t018"]["X interval strip"]["text"][:4000])
 os.environ.clear(); os.environ.update(_ENV_BEFORE)   # undo the flags set above
 
 # %% Cell 4 -- full pipeline on 3 cases, two arms (LLM; ~3 x 3 min per arm on a T4/P100)
@@ -84,7 +87,7 @@ NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDEN
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
 FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
-         "USE_METRIC_STRUCTURE", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
+         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
          "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
 
 def run_arm(name, extra):
@@ -99,16 +102,17 @@ def run_arm(name, extra):
 csv_a = run_arm("A1rT", {})                                         # reference: legacy T0, no new evidence, legacy routing
 FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # A1rT-fixed = base for the registered arms (U1 + U4)
 csv_s = run_arm("A1rT_fixed", FIXED)                                  # reference + routing fix + English specialists
+csv_x = run_arm("A1rT_fixed_X", {"ALERT_T0_MODE": "window", "USE_INTERVAL_STRIP": "1", **FIXED})   # arm X alone on the fixed base (window T0)
 csv_b = run_arm("A1rT_fixed_all_new", {**NEW, **FIXED})   # every new flag on at once (smoke only; real arms are added one group at a time)
 
 # %% Cell 5 -- health check (NOT a comparison of scores)
 import pandas as pd
-for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_all_new", csv_b)):
+for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_X", csv_x), ("A1rT_fixed_all_new", csv_b)):
     d = pd.read_csv(p)
     cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries",
                         "chunked_fallbacks", "total_calls", "use_alert_lifecycle", "use_event_digest", "use_log_evidence",
                         "use_trace_edges", "use_metric_structure", "log_evidence_chars", "trace_edges_chars",
-                        "metric_structure_chars", "log_evidence_error", "trace_edges_error", "metric_structure_error")
+                        "metric_structure_chars", "use_interval_strip", "interval_strip_chars", "interval_strip_error", "log_evidence_error", "trace_edges_error", "metric_structure_error")
             if c in d.columns]
     print("\n==", name); print(d[cols].to_string(index=False))
 # Pass criteria: error empty; truncated_prompts = 0; oom_retries = 0; *_error empty; coordinator_prompt_chars of the
@@ -117,7 +121,7 @@ for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_all_new", c
 
 # specialist prompt sizes per arm (metrics, logs, trace, topology) and the Coordinator prompt, from the dumps
 import json
-for name in ("A1rT", "A1rT_fixed", "A1rT_fixed_all_new"):
+for name in ("A1rT", "A1rT_fixed", "A1rT_fixed_X", "A1rT_fixed_all_new"):
     for cid in SMOKE:
         d = json.load(open(f"/kaggle/working/dump_{name}/{cid}.json"))
         print(f"{name:14s} {cid}", [len(t["prompt"]) for t in d["trace"]])

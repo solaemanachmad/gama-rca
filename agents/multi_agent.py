@@ -73,7 +73,8 @@ class AgentState(TypedDict, total=False):
     trace_text: Optional[str]                       # HTTP code / error message table (pipeline/trace_evidence.py)
     log_evidence_text: Optional[str]                # per-burst log composition (pipeline/log_evidence.py)
     trace_edges_text: Optional[str]                 # per call-edge trace evidence per burst (pipeline/trace_edges.py)
-    metric_structure_text: Optional[str]            # identity-free K8s aggregates + call-edge flow ratios (pipeline/metric_structure.py)
+    interval_strip_text: Optional[str]              # arm X: time-aligned strip (pipeline/interval_strip.py)
+    metric_structure_text: Optional[str]           # identity-free K8s aggregates + call-edge flow ratios (pipeline/metric_structure.py)
     alert_lifecycle_text: Optional[str]             # condensed alert stream (pipeline/alert_lifecycle.py)
     layer_result: Optional[dict]                    # LAYER_AGENT output (level/suspect/evidence/runner_up)
     verify_stats: Optional[dict]                    # VERIFY_CHAIN diagnostics (issues, revised, ungrounded numbers)
@@ -566,6 +567,7 @@ def coordinator_node(llm: LLMClient):
             log_ev_text = state.get("log_evidence_text") or ""
             trace_edges_text = state.get("trace_edges_text") or ""
             metric_struct_text = state.get("metric_structure_text") or ""
+            strip_text = state.get("interval_strip_text") or ""
             onset_text = state.get("onset_text") or ""
             alert_lc_text = state.get("alert_lifecycle_text") or ""
             layer_res = state.get("layer_result")
@@ -584,6 +586,7 @@ def coordinator_node(llm: LLMClient):
                 f"{keyword_block}\n"
                 f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
                 f"{('' if not metric_struct_text else chr(10) + metric_struct_text + chr(10))}"
+                f"{('' if not strip_text else chr(10) + strip_text + chr(10))}"
                 f"{('' if not coloc_text else chr(10) + coloc_text + chr(10))}"
                 f"{('' if not trace_text else chr(10) + trace_text + chr(10))}"
                 f"{('' if not trace_edges_text else chr(10) + trace_edges_text + chr(10))}"
@@ -608,7 +611,7 @@ def coordinator_node(llm: LLMClient):
             state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
             if config.VERIFY_CHAIN:
-                _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, metric_struct_text, coloc_text, trace_text, trace_edges_text, log_ev_text, onset_text) if t) \
+                _ev = "\n\n".join(t for t in (state.get("propagation_text"), infra_text, metric_struct_text, strip_text, coloc_text, trace_text, trace_edges_text, log_ev_text, onset_text) if t) \
                     or findings_block
                 state["final_result"] = _verify_and_revise(llm, state, prompt, state["final_result"], _ev)
             return state

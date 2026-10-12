@@ -505,6 +505,10 @@ USE_TRACE_EDGES = os.environ.get("USE_TRACE_EDGES", "0") == "1"
 # the export carries no node/deployment names) and (2) call-edge flow ratios callee/caller workload (pipeline/metric_structure.py),
 # in the Coordinator prompt after the infra tables. Default off.
 USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
+# USE_INTERVAL_STRIP=1 (arm X, claude/design-arm-X-interval-strip-2026-10-12.md): time-aligned strip (30 s bins over the alert window)
+# of service workload/error/latency (multiples of own baseline), span error share (covered bins only), alert stream and K8s events
+# on neighbourhood pods, with export coverage stated (pipeline/interval_strip.py). Coordinator prompt only, after the infra tables.
+USE_INTERVAL_STRIP = os.environ.get("USE_INTERVAL_STRIP", "0") == "1"
 # STRICT_MODALITY_ROUTING=1 (audit 2026-10-12, claude/audit-agent-flow-2026-10-12.md, F2): the metrics/logs/trace specialists pick
 # their bullets by SUBSTRING ("metric"/"log"/"span") on the bullet text. That leaked the call-graph table (it contains "spans="
 # and e.g. "product-catalog") into the logs specialist, the twist summary and OpenTelemetry log lines (span_id=...) into the

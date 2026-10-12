@@ -42,6 +42,7 @@ from pipeline.trace_evidence import compute_trace_evidence
 from pipeline.log_evidence import compute_log_evidence
 from pipeline.trace_edges import compute_trace_edges
 from pipeline.metric_structure import compute_metric_structure
+from pipeline.interval_strip import compute_interval_strip
 from pipeline.alert_lifecycle import compute_alert_lifecycle
 from pipeline.onset_evidence import compute_onset_evidence
 from pipeline.colocation_evidence import compute_colocation_evidence
@@ -398,6 +399,15 @@ class GraphRAGPipeline:
             stats.update(metric_struct.get("stats") or {})
         stats["use_metric_structure"] = bool(config.USE_METRIC_STRUCTURE)
         stats["metric_structure_chars"] = len(metric_struct["text"])
+        strip = {"text": "", "rows": 0}
+        if config.USE_INTERVAL_STRIP:
+            t_st = time.time()
+            strip = compute_interval_strip(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
+            stats["interval_strip_time_s"] = round(time.time() - t_st, 3)
+            stats["interval_strip_error"] = strip.get("error")
+            stats.update(strip.get("stats") or {})
+        stats["use_interval_strip"] = bool(config.USE_INTERVAL_STRIP)
+        stats["interval_strip_chars"] = len(strip["text"])
         trace_edges = {"text": "", "rows": 0}
         if config.USE_TRACE_EDGES:
             t_te = time.time()
@@ -715,6 +725,7 @@ class GraphRAGPipeline:
             "log_evidence_text": log_ev["text"] or None,
             "trace_edges_text": trace_edges["text"] or None,
             "metric_structure_text": metric_struct["text"] or None,
+            "interval_strip_text": strip["text"] or None,
             "onset_text": onset_ev["text"] or None,
             "alert_lifecycle_text": alert_lc["text"] or None,
         }
