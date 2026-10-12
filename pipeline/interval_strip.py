@@ -180,6 +180,7 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
         if g.empty:
             continue
         lines = [f"- {nm}" + (" (alert service)" if e == svc0 else "")]
+        absv: Dict[str, Optional[Tuple[float, float]]] = {}
         for key, label in _SERIES:
             s = g[g["metric"] == key]
             if s.empty:
@@ -210,6 +211,8 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
                 vals = cell
                 txt = " ".join("·" if v != v else _num(v) for v in vals)
                 basetxt = "0/none (absolute values)"
+            ab = [c for c in cell if c == c]
+            absv[key] = (float(np.sum(ab)), float(np.max(ab))) if ab else None
             fin = [(i, v) for i, v in enumerate(vals) if v == v]
             ext = ""
             if len(fin) > 1:
@@ -217,6 +220,15 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
                 imax = max(fin, key=lambda x: x[1])[0]
                 ext = f" [min {labels[imin]}, max {labels[imax]}]"
             lines.append(f"  {label} (base {basetxt}): {txt}{ext}")
+        parts_abs = []
+        if absv.get("workload"):
+            parts_abs.append(f"request_count={absv['workload'][0]:.0f}")
+        if absv.get("error"):
+            parts_abs.append(f"error_count={absv['error'][0]:.0f}")
+        if absv.get("latency"):
+            parts_abs.append(f"max_latency_s={absv['latency'][1]:.3g}")
+        if parts_abs:
+            lines.append("  window totals (absolute, sum of the 30 s bins): " + " ".join(parts_abs))
         # span error share per covered bin
         ts = trw[trw["serviceName"] == nm]
         if len(ts) and tr_iv:
