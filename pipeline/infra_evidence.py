@@ -400,14 +400,14 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
             metrics = [m for m, _ in by_entity[ename]]
             parts = [t.split(" " + m + ": ", 1)[1] for m, t in by_entity[ename]]
             label = by_entity[ename][0][1].split(" " + metrics[0] + ":")[0]
-            if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep"):
+            if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep", "jvm"):
                 parts = [_compact_stats(t) for t in parts]      # coverage arm: shorter rows, but every entity stays
             body.append("- " + label + " | " + "; ".join(f"{m} {p}" for m, p in zip(metrics, parts)))
         _budget = (CHAR_BUDGET_DIRECTION if getattr(config, "USE_DIRECTION_EVIDENCE", False) else CHAR_BUDGET)[k]
-        if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep"):
+        if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep", "jvm"):
             _budget = 10 ** 9                                   # no entity is dropped (uniform rule: all nodes, all deployments)
         rows.extend(emit(titles[k] + (" [compact rows: med, rank and n omitted; every entity listed]"
-                                      if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep") else ""),
+                                      if getattr(config, "INFRA_ALL_ENTITIES", False) and k in ("node", "dep", "jvm") else ""),
                          body, _budget))
     if ev_lines and getattr(config, "USE_EVENT_DIGEST", False):
         _dl = event_digest_lines(ev, w0)

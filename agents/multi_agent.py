@@ -365,8 +365,8 @@ _FLEX_TASK = (" The chain has 3 steps (cause, propagation, impact); add one more
 # One uniform instruction, same for every case; derived from the public paper, not from any label of ours.
 _ABS_TASK = (" Cite signals as absolute values in their own units, as the tables show them: request count, average request latency in seconds, "
              "error count and rate, cpu and memory usage, replicas, event reasons and counts. Do not write change factors or ratios as if they "
-             "were values (not 'x670', not p95_latency_ratio). Name each step's target at the finest level the tables show: a service, or "
-             "service::operation.")
+             "were values (not 'x670', not p95_latency_ratio). Name each step's target at the finest level the tables show: a service, "
+             "service::operation, node, pod or deployment (whichever the evidence points to).")
 _SYMPTOM_TASK = (
     " Before the fault type, fill 'symptoms' for the cause target only from the tables above: the direction against its own baseline and "
     "the value, or 'no data'. Then choose predicted_fault_type from those symptoms: a type whose defining observable is not among the "

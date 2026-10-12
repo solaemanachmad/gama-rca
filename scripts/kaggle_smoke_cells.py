@@ -111,6 +111,7 @@ ARMS = {                                                                # name -
     "A1rT_fixed_KP": {"USE_KNOWLEDGE_POS": "1"},                        # knowledge block paraphrased from the public PoS catalog (MIT)
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},
     "A1rT_fixed_ABS_KP_ALL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1"},   # + every node and deployment listed (compact rows)
+    "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},   # coverage: every node/deployment/JVM row + event digest (no group omitted)
     "A1rT_fixed_C": {"VERIFY_FAULT_TYPE": "1"},                         # short definition check of the chosen type (+ re-choice if rejected)
     "A1rT_fixed_P1": {"GROUNDED_FAULT": "1"},
 }
