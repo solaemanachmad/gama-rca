@@ -92,7 +92,7 @@ NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDEN
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
 FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
-         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "SYMPTOM_FIRST", "CHAIN_STEPS_FLEX", "CHAIN_ABSOLUTE_SIGNALS", "GROUNDED_FAULT", "VERIFY_FAULT_TYPE", "TOPOLOGY_NAMES", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT", "USE_KNOWLEDGE_POS",
+         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "SYMPTOM_FIRST", "CHAIN_STEPS_FLEX", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_ALL_ENTITIES", "GROUNDED_FAULT", "VERIFY_FAULT_TYPE", "TOPOLOGY_NAMES", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT", "USE_KNOWLEDGE_POS",
          "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
 
 def run_arm(name, extra):
@@ -110,6 +110,7 @@ ARMS = {                                                                # name -
     "A1rT_fixed_ABS": {"CHAIN_ABSOLUTE_SIGNALS": "1"},                  # absolute request count / avg latency (s) / error count, finest-level targets
     "A1rT_fixed_KP": {"USE_KNOWLEDGE_POS": "1"},                        # knowledge block paraphrased from the public PoS catalog (MIT)
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},
+    "A1rT_fixed_ABS_KP_ALL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1"},   # + every node and deployment listed (compact rows)
     "A1rT_fixed_C": {"VERIFY_FAULT_TYPE": "1"},                         # short definition check of the chosen type (+ re-choice if rejected)
     "A1rT_fixed_P1": {"GROUNDED_FAULT": "1"},
 }
