@@ -509,6 +509,9 @@ USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
 # of service workload/error/latency (multiples of own baseline), span error share (covered bins only), alert stream and K8s events
 # on neighbourhood pods, with export coverage stated (pipeline/interval_strip.py). Coordinator prompt only, after the infra tables.
 USE_INTERVAL_STRIP = os.environ.get("USE_INTERVAL_STRIP", "0") == "1"
+# SYMPTOM_FIRST=1 (arm S): the chain-first JSON asks for a per-signal-family symptom reading of the cause target before predicted_fault_type
+# (agents/multi_agent.py CHAIN_FIRST_SCHEMA_HINT_S). Default off = prompt unchanged.
+SYMPTOM_FIRST = os.environ.get("SYMPTOM_FIRST", "0") == "1"
 # STRICT_MODALITY_ROUTING=1 (audit 2026-10-12, claude/audit-agent-flow-2026-10-12.md, F2): the metrics/logs/trace specialists pick
 # their bullets by SUBSTRING ("metric"/"log"/"span") on the bullet text. That leaked the call-graph table (it contains "spans="
 # and e.g. "product-catalog") into the logs specialist, the twist summary and OpenTelemetry log lines (span_id=...) into the

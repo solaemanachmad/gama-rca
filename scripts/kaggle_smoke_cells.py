@@ -87,7 +87,7 @@ NEW = dict(ALERT_T0_MODE="window", USE_ALERT_LIFECYCLE="1", USE_DIRECTION_EVIDEN
            USE_LOG_EVIDENCE="1", USE_TRACE_EDGES="1", USE_METRIC_STRUCTURE="1")
 
 FLAGS = ("ALERT_T0_MODE", "USE_ALERT_LIFECYCLE", "USE_DIRECTION_EVIDENCE", "USE_EVENT_DIGEST", "USE_LOG_EVIDENCE", "USE_TRACE_EDGES",
-         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
+         "USE_METRIC_STRUCTURE", "USE_INTERVAL_STRIP", "SYMPTOM_FIRST", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_COLOCATION_EVIDENCE", "LAYER_AGENT", "USE_KNOWLEDGE_PROMPT",
          "VERIFY_CHAIN", "USE_ONSET_EVIDENCE", "USE_DOSSIER_FT", "USE_LLM_SPECIALIST_AGENTS")
 
 def run_arm(name, extra):
@@ -103,11 +103,14 @@ csv_a = run_arm("A1rT", {})                                         # reference:
 FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # A1rT-fixed = base for the registered arms (U1 + U4)
 csv_s = run_arm("A1rT_fixed", FIXED)                                  # reference + routing fix + English specialists
 csv_x = run_arm("A1rT_fixed_X", {"ALERT_T0_MODE": "window", "USE_INTERVAL_STRIP": "1", **FIXED})   # arm X alone on the fixed base (window T0)
+csv_k = run_arm("A1rT_fixed_K", {"USE_KNOWLEDGE_PROMPT": "1", **FIXED})          # arm K alone (type-discrimination knowledge block, code existed)
+csv_sy = run_arm("A1rT_fixed_S", {"SYMPTOM_FIRST": "1", **FIXED})                 # arm S alone (symptom-first JSON)
+csv_ks = run_arm("A1rT_fixed_KS", {"USE_KNOWLEDGE_PROMPT": "1", "SYMPTOM_FIRST": "1", **FIXED})
 csv_b = run_arm("A1rT_fixed_all_new", {**NEW, **FIXED})   # every new flag on at once (smoke only; real arms are added one group at a time)
 
 # %% Cell 5 -- health check (NOT a comparison of scores)
 import pandas as pd
-for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_X", csv_x), ("A1rT_fixed_all_new", csv_b)):
+for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_X", csv_x), ("A1rT_fixed_K", csv_k), ("A1rT_fixed_S", csv_sy), ("A1rT_fixed_KS", csv_ks), ("A1rT_fixed_all_new", csv_b)):
     d = pd.read_csv(p)
     cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries",
                         "chunked_fallbacks", "total_calls", "use_alert_lifecycle", "use_event_digest", "use_log_evidence",
@@ -121,7 +124,7 @@ for name, p in (("A1rT", csv_a), ("A1rT_fixed", csv_s), ("A1rT_fixed_X", csv_x),
 
 # specialist prompt sizes per arm (metrics, logs, trace, topology) and the Coordinator prompt, from the dumps
 import json
-for name in ("A1rT", "A1rT_fixed", "A1rT_fixed_X", "A1rT_fixed_all_new"):
+for name in ("A1rT", "A1rT_fixed", "A1rT_fixed_X", "A1rT_fixed_K", "A1rT_fixed_S", "A1rT_fixed_KS", "A1rT_fixed_all_new"):
     for cid in SMOKE:
         d = json.load(open(f"/kaggle/working/dump_{name}/{cid}.json"))
         print(f"{name:14s} {cid}", [len(t["prompt"]) for t in d["trace"]])

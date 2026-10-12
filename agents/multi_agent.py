@@ -299,6 +299,27 @@ CHAIN_FIRST_SCHEMA_HINT = (
     '"confidence": <float 0-1>}'
 )
 
+# SYMPTOM_FIRST=1 (arm S, claude/design-arm-P-grounded-fault-choice-2026-10-12.md): the 7B model quotes numbers correctly but maps them to a
+# familiar fault name (cpu x670 -> "memoryPressure"; error words -> httpError5xx). The JSON asks for a per-signal-family symptom reading of
+# the cause target (direction + value, from the tables) BEFORE predicted_fault_type, so the type is derived from the model's own symptom list.
+# Nothing is filtered; same keys for every case; no ground truth.
+CHAIN_FIRST_SCHEMA_HINT_S = (
+    '{"reasoning_chain": ["cause: <target> <signal>=<value> ...", '
+    '"propagation: <target> <signal>=<value> ...", "impact: <target> <signal>=<value> ..."], '
+    '"predicted_entity_ids": ["<target of the cause step>"], '
+    '"symptoms": {"cpu": "<up|down|normal|no data> <value>", "memory": "<up|down|normal|no data> <value>", '
+    '"request_count": "<up|down|normal|no data> <value>", "error_count": "<up|down|normal|no data> <value>", '
+    '"latency": "<up|down|normal|no data> <value>", "pods_replicas_restarts_events": "<what the tables show or no data>", '
+    '"logs_traces": "<what the tables show or no data>"}, '
+    '"predicted_fault_type": "<one taxonomy slug whose defining observable appears in symptoms>", '
+    '"confidence": <float 0-1>}'
+)
+_SYMPTOM_TASK = (
+    " Before the fault type, fill 'symptoms' for the cause target only from the tables above: the direction against its own baseline and "
+    "the value, or 'no data'. Then choose predicted_fault_type from those symptoms: a type whose defining observable is not among the "
+    "symptoms must not be chosen."
+)
+
 LAYER_SCHEMA_HINT = (
     '{"evidence": ["<name> <signal>=<value> ..."], '
     '"level": "<service | runtime | dependency | pod_deployment | node | cloud_resource>", '
@@ -604,8 +625,9 @@ def coordinator_node(llm: LLMClient):
                 f"not merely the entity that raised the alert. Then set predicted_entity_ids to the "
                 f"target of the cause step, and predicted_fault_type to the single taxonomy type "
                 f"that best explains the cause step's evidence (node/pod/deployment faults are "
-                f"visible in the node, deployment and event tables).\n"
-                f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT}"
+                f"visible in the node, deployment and event tables)."
+                f"{_SYMPTOM_TASK if config.SYMPTOM_FIRST else ''}\n"
+                f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_S if config.SYMPTOM_FIRST else CHAIN_FIRST_SCHEMA_HINT}"
             )
             state["coordinator_prompt_chars"] = len(prompt)
             state["final_result"] = llm.generate_json(prompt, system=COORDINATOR_SYSTEM_PROMPT)
