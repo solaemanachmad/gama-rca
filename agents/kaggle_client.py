@@ -165,9 +165,23 @@ class KaggleTransformersClient:
 
         gen_kwargs = dict(
             max_new_tokens=self.max_tokens,
-            temperature=max(self.temperature, 1e-4),  # 0 breaks some sampling configs
             do_sample=self.temperature > 0,
         )
+        if self.temperature > 0:
+            gen_kwargs["temperature"] = self.temperature
+        else:
+            # Greedy: drop the sampling knobs a model's generation_config may carry.
+            gen_kwargs["temperature"] = None
+            gen_kwargs["top_p"] = None
+            gen_kwargs["top_k"] = None
+        # Seed before every call. Greedy ignores it. When sampling (a deliberate study, e.g.
+        # self-consistency) the call counter is added so repeated samples differ yet the whole
+        # run stays reproducible.
+        import torch as _torch
+        _seed = config.LLM_SEED + (getattr(self, "total_calls", 0) if self.temperature > 0 else 0)
+        _torch.manual_seed(_seed)
+        if _torch.cuda.is_available():
+            _torch.cuda.manual_seed_all(_seed)
         outputs = None
         chunk = int(os.environ.get("PREFILL_CHUNK", "1024"))
         if (os.environ.get("CHUNKED_PREFILL", "0") == "1" and self.tokenizer is not None

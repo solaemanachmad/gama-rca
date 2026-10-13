@@ -385,7 +385,12 @@ KAGGLE_DTYPE = os.environ.get("KAGGLE_DTYPE", "bfloat16")   # bfloat16 | float16
                                       # transformers/gemma-4-12b-it/2") -- skips
                                       # kagglehub.model_download()'s network call entirely,
                                       # which is far more reliable than repeated downloads.
-LLM_TEMPERATURE = 0.1
+# Decoding. Default is deterministic (greedy). Until 2026-10-13 this was 0.1, which
+# made the Kaggle client SAMPLE (do_sample = temperature > 0) with no seed, so the
+# specialists and the Coordinator varied from run to run; only the Anchor call was
+# forced to 0. Override with env LLM_TEMPERATURE only for a deliberate sampling study.
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.0"))
+LLM_SEED = int(os.environ.get("LLM_SEED", "0"))   # torch seed set before every generate() call
 LLM_MAX_TOKENS = 1024
 
 # ---------------------------------------------------------------------------
