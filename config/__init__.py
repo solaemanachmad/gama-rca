@@ -409,3 +409,8 @@ INFRA_ALL_ENTITIES = os.environ.get("INFRA_ALL_ENTITIES", "0") == "1"
 # SPEC_CHAIN_SEGMENTS=1 (2026-10-13, arm SEG): specialists write chain segments of their own modality instead of one suspect entity; the Coordinator
 # merges them (system prompt without "weigh agreement heavily"). Same LLM call count. See claude/audit-fault-choice-and-design-seg-2026-10-13.md.
 SPEC_CHAIN_SEGMENTS = os.environ.get("SPEC_CHAIN_SEGMENTS", "0") == "1"
+
+# GROUNDED_FAULT=1 (arm P1, claude/design-arm-P-grounded-fault-choice-2026-10-12.md): the chain-first Task gets one uniform rule (the fault type must
+# follow from the cause step; copy the signal=value that the chosen type's definition requires) and the JSON a 'fault_evidence' field BEFORE
+# predicted_fault_type. No LLM call added, no type filtered, same rule for every case. Default off.
+GROUNDED_FAULT = os.environ.get("GROUNDED_FAULT", "0") == "1"

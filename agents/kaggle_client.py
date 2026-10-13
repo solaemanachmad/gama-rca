@@ -164,15 +164,9 @@ class KaggleTransformersClient:
 
         gen_kwargs = dict(
             max_new_tokens=self.max_tokens,
-            do_sample=self.temperature > 0,
+            temperature=max(self.temperature, 1e-4),  # 0 breaks some sampling configs; ignored when do_sample is False
+            do_sample=self.temperature > 0,           # same form the temperature-0 Anchor call has always used
         )
-        if self.temperature > 0:
-            gen_kwargs["temperature"] = self.temperature
-        else:
-            # Greedy: drop the sampling knobs a model's generation_config may carry.
-            gen_kwargs["temperature"] = None
-            gen_kwargs["top_p"] = None
-            gen_kwargs["top_k"] = None
         # Seed before every call. Greedy ignores it. When sampling (a deliberate study, e.g.
         # self-consistency) the call counter is added so repeated samples differ yet the whole
         # run stays reproducible.

@@ -75,12 +75,13 @@ def make_state():
 
 
 # Overrides applied on top of a neutral base; every other flag keeps its config default.
-NEUTRAL = dict(CHAIN_FIRST=True, USE_KNOWLEDGE_POS=False, CHAIN_ABSOLUTE_SIGNALS=False,
+NEUTRAL = dict(GROUNDED_FAULT=False, CHAIN_FIRST=True, USE_KNOWLEDGE_POS=False, CHAIN_ABSOLUTE_SIGNALS=False,
                STRICT_MODALITY_ROUTING=False, SPECIALIST_ENGLISH=False, SPEC_CHAIN_SEGMENTS=False,
                USE_KEYWORD_HINT=False, TOPOLOGY_NAMES=False)
 CONFIGS = {
     "frozen_ABS_KP": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "frozen_ABS_KP_SEG": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, SPEC_CHAIN_SEGMENTS=True),
+    "frozen_ABS_KP_P1": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, GROUNDED_FAULT=True),
     "base_A1rT_fixed": dict(STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "chain_first_off_baseline_path": dict(CHAIN_FIRST=False),
 }
@@ -117,8 +118,9 @@ def main():
         print("written", path, {k: len(v) - 1 for k, v in snap.items()}, "prompts")
         return
     old = json.load(open(path))
-    bad = [k for k in CONFIGS if old.get(k) != snap[k]]
-    print("IDENTICAL for all configs" if not bad else f"DIFFERENT: {bad}")
+    bad = [k for k in CONFIGS if k in old and old[k] != snap[k]]
+    new = [k for k in CONFIGS if k not in old]
+    print("IDENTICAL for all configs in the snapshot" if not bad else f"DIFFERENT: {bad}", ("| not in snapshot: %s" % new) if new else "")
     sys.exit(1 if bad else 0)
 
 

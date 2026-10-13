@@ -327,6 +327,27 @@ CHAIN_FIRST_SCHEMA_HINT = (
     '"confidence": <float 0-1>}'
 )
 
+# GROUNDED_FAULT=1 (arm P1, claude/design-arm-P-grounded-fault-choice-2026-10-12.md): one uniform rule + a 'fault_evidence' field BEFORE
+# predicted_fault_type: the type must follow from the CHAIN (2026-10-12 audit: chain said cpu=670, label said httpError5xx); fault_evidence copies the
+# signal=value from the cause step that the chosen type's definition requires. Probe 2026-10-12:
+# Qwen2.5-7B/14B both know 403 is 4xx and reject it against a 5xx definition when asked directly; the long Coordinator prompt never asks that
+# question. No call added, nothing filtered, same rule for every case, no ground truth.
+CHAIN_FIRST_SCHEMA_HINT_P = (
+    '{"reasoning_chain": ["cause: <target> <signal>=<value> ...", '
+    '"propagation: <target> <signal>=<value> ...", "impact: <target> <signal>=<value> ..."], '
+    '"predicted_entity_ids": ["<target of the cause step>"], '
+    '"fault_evidence": "<signal=value copied from your cause step that the chosen type\'s definition requires>", '
+    '"predicted_fault_type": "<one taxonomy slug whose definition is satisfied by fault_evidence>", '
+    '"confidence": <float 0-1>}'
+)
+_GROUNDED_TASK = (
+    " The fault type must follow from the chain: the cause step must contain the signals that identify the kind of fault (for example the "
+    "status-code class or error message, which resource is saturated and its value, replica/restart/event reasons), not only an error rate. "
+    "In fault_evidence copy the signal=value from your own cause step that the definition of the chosen type requires. A definition is "
+    "satisfied only by what that signal shows: a different status-code class, a different resource or an absent signal does not satisfy it. "
+    "If the cause step does not contain the observable a type requires, do not choose that type; choose the type whose definition matches "
+    "the signals in the cause step."
+)
 # CHAIN_ABSOLUTE_SIGNALS=1: RCA100 checkpoints are numeric constraints on request count (204 of 661), average request latency in seconds (178) and
 # error count (97) (paper, section 5.3), compared with >= against absolute values, and the GT example names operations as service::operation.
 # One uniform instruction, same for every case; derived from the public paper, not from any label of ours.
@@ -403,9 +424,10 @@ def coordinator_node(llm: LLMClient):
                 f"target of the cause step, and predicted_fault_type to the single taxonomy type "
                 f"that best explains the cause step's evidence (node/pod/deployment faults are "
                 f"visible in the node, deployment and event tables)."
+                f"{_GROUNDED_TASK if config.GROUNDED_FAULT else ''}"
                 f"{_ABS_TASK if config.CHAIN_ABSOLUTE_SIGNALS else ''}"
                 f"{_SEG_TASK if config.SPEC_CHAIN_SEGMENTS else ''}\n"
-                f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT}"
+                f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_P if config.GROUNDED_FAULT else CHAIN_FIRST_SCHEMA_HINT}"
             )
             state["coordinator_prompt_chars"] = len(prompt)
             state["final_result"] = llm.generate_json(prompt, system=(COORDINATOR_SYSTEM_PROMPT_SEG if config.SPEC_CHAIN_SEGMENTS else COORDINATOR_SYSTEM_PROMPT))
