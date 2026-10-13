@@ -426,3 +426,7 @@ SPEC_EVIDENCE_ONLY = os.environ.get("SPEC_EVIDENCE_ONLY", "0") == "1"
 # COORD_LEAN=1 (arm TYPELEAN, needs ENTITY_TYPING=1): the chain-first Coordinator no longer sees the taxonomy, the KP block or a fault-type field; it writes only
 #   the chain and the origin entity. The fault type is chosen afterwards by the typing call (entity-scoped evidence + taxonomy + KP). A failed typing call leaves 'unknown'.
 COORD_LEAN = os.environ.get("COORD_LEAN", "0") == "1"
+# INFRA_EVENTS_SCOPED=1 (arm EVSC): the K8s event section lists only event groups whose object NAME refers to a service of the alert neighbourhood (as the
+#   tables already define it) or to a node that hosts one of those services; groups on other objects are not listed, only counted in one line. Selection by name,
+#   never by significance; same rule for every case. Default (off): all groups, Warning first, alphabetical, cut at the character budget.
+INFRA_EVENTS_SCOPED = os.environ.get("INFRA_EVENTS_SCOPED", "0") == "1"

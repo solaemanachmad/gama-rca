@@ -101,6 +101,20 @@ def event_digest_lines(ev: dict, w0) -> List[str]:
     return lines
 
 
+def _scope_events(ev: dict, svc_names, node_names):
+    """Arm EVSC: keep event groups whose object name is a neighbourhood service (or a workload of it: name == s or s-...) or a hosting node.
+    Returns (kept dict, number of groups not kept). Name match only."""
+    kept, out = {}, 0
+    svcs = [s for s in svc_names if s]
+    for (obj, reason), g in ev.items():
+        _kind, _, name = obj.partition("/")
+        if name in node_names or any(name == s or name.startswith(s + "-") for s in svcs):
+            kept[(obj, reason)] = g
+        else:
+            out += 1
+    return kept, out
+
+
 CHAR_BUDGET = {"svc": 2600, "op": 1300, "jvm": 1200, "node": 2800, "dep": 1200, "event": 2200}
 
 
@@ -322,6 +336,9 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
         g["msg"] = g["msg"] or (e.get("message") or "")[:120]
         g["type"] = g["type"] or e.get("type", "")
     ev_lines = []
+    n_ev_out = 0
+    if getattr(config, "INFRA_EVENTS_SCOPED", False):
+        ev, n_ev_out = _scope_events(ev, svc_names, set(node_services))
     for (obj, reason), g in sorted(ev.items(), key=lambda kv: (kv[1]["type"] != "Warning", kv[0])):
         ev_lines.append(f"event {obj} reason={reason} type={g['type']} count={g['count']} "
                         f"first={g['first']} last={g['last']} msg={g['msg'][:60]}")
@@ -379,7 +396,10 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
         lines.append("\nK8s events, condensed (no group omitted):")
         lines.extend("- " + t for t in _dl)
         rows.extend(_dl)
-    elif ev_lines:
-        rows.extend(emit("K8s events grouped by object and reason (last may be later than the incident)",
-                         ["- " + t for t in ev_lines], CHAR_BUDGET["event"]))
+    elif ev_lines or n_ev_out:
+        _title = "K8s events grouped by object and reason (last may be later than the incident)"
+        if getattr(config, "INFRA_EVENTS_SCOPED", False):
+            _title = ("K8s events of the alert neighbourhood: objects named after its services, and the nodes that host them (last may be later than the incident); "
+                      f"{n_ev_out} event groups on other objects are not listed")
+        rows.extend(emit(_title, ["- " + t for t in ev_lines], CHAR_BUDGET["event"]))
     return {"rows": rows, "text": "\n".join(lines), "observations": obs_out}
