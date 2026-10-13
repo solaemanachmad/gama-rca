@@ -29,6 +29,8 @@ class StubLLM:
         self.calls = []
 
     def _canned(self, system):
+        if system and "fault-typing" in system:
+            return {"fault_evidence": "cart 500 x12", "predicted_fault_type": "F029-redisUnavailable", "confidence": 0.6}
         if system and "Coordinator" in system:
             return {"reasoning_chain": ["cause: a cpu=1", "propagation: b err=2", "impact: c lat=3"],
                     "predicted_entity_ids": ["a"], "predicted_fault_type": "F014-httpError5xx", "confidence": 0.5}
@@ -37,6 +39,8 @@ class StubLLM:
 
     def generate_json(self, prompt, system=None):
         self.calls.append((prompt, system))
+        if "Respond as JSON: {\"observations\"" in prompt:
+            return {"observations": ["cart cpu=0.9"]}
         return self._canned(system)
 
     def generate(self, prompt, system=None, **kw):
@@ -77,11 +81,14 @@ def make_state():
 # Overrides applied on top of a neutral base; every other flag keeps its config default.
 NEUTRAL = dict(GROUNDED_FAULT=False, CHAIN_FIRST=True, USE_KNOWLEDGE_POS=False, CHAIN_ABSOLUTE_SIGNALS=False,
                STRICT_MODALITY_ROUTING=False, SPECIALIST_ENGLISH=False, SPEC_CHAIN_SEGMENTS=False,
-               USE_KEYWORD_HINT=False, TOPOLOGY_NAMES=False)
+               USE_KEYWORD_HINT=False, TOPOLOGY_NAMES=False, ENTITY_TYPING=False, NO_SPECIALISTS=False, SPEC_EVIDENCE_ONLY=False)
 CONFIGS = {
     "frozen_ABS_KP": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "frozen_ABS_KP_SEG": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, SPEC_CHAIN_SEGMENTS=True),
     "frozen_ABS_KP_P1": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, GROUNDED_FAULT=True),
+    "frozen_ABS_KP_TYPE": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, ENTITY_TYPING=True),
+    "frozen_ABS_KP_NOSPEC": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, NO_SPECIALISTS=True),
+    "frozen_ABS_KP_EVOBS": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, SPEC_EVIDENCE_ONLY=True),
     "base_A1rT_fixed": dict(STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "chain_first_off_baseline_path": dict(CHAIN_FIRST=False),
 }
@@ -94,9 +101,10 @@ def run_config(overrides):
             setattr(config, k, v)
         llm = StubLLM()
         state = make_state()
-        for name, filt in (("metrics", "metric"), ("logs", "log"), ("trace", "span")):
-            state = ma._make_agent_node(name, filt, llm)(state)
-        state = ma.topology_agent_node(llm)(state)
+        if not config.NO_SPECIALISTS:
+            for name, filt in (("metrics", "metric"), ("logs", "log"), ("trace", "span")):
+                state = ma._make_agent_node(name, filt, llm)(state)
+            state = ma.topology_agent_node(llm)(state)
         state = ma.coordinator_node(llm)(state)
         out = []
         for prompt, system in llm.calls:

@@ -1,0 +1,222 @@
+{
+ "base_A1rT_fixed": [
+  {
+   "prompt_len": 543,
+   "prompt_md5": "e5fc3b3f87c851d2ba002ffa4753983d",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 500,
+   "prompt_md5": "73331e0529406b28354176b62e132fdc",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 474,
+   "prompt_md5": "053fd82238690a27c8b150498aa8fa3f",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 847,
+   "prompt_md5": "d6362b7f91e5b3907ec70f25eef4f1e0",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 5267,
+   "prompt_md5": "2907ca973286b41d285742785e398b49",
+   "system_md5": "140c359130895c0c067ae0f35a6795c2"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "chain_first_off_baseline_path": [
+  {
+   "prompt_len": 543,
+   "prompt_md5": "e5fc3b3f87c851d2ba002ffa4753983d",
+   "system_md5": "25aa166a47158276cbf32a2db443e10d"
+  },
+  {
+   "prompt_len": 446,
+   "prompt_md5": "6487458041bd11eda7febfbd6780ed0b",
+   "system_md5": "25aa166a47158276cbf32a2db443e10d"
+  },
+  {
+   "prompt_len": 474,
+   "prompt_md5": "053fd82238690a27c8b150498aa8fa3f",
+   "system_md5": "25aa166a47158276cbf32a2db443e10d"
+  },
+  {
+   "prompt_len": 847,
+   "prompt_md5": "d6362b7f91e5b3907ec70f25eef4f1e0",
+   "system_md5": "25aa166a47158276cbf32a2db443e10d"
+  },
+  {
+   "prompt_len": 5265,
+   "prompt_md5": "0a85f55e539d60088b6d44aca8127b25",
+   "system_md5": "140c359130895c0c067ae0f35a6795c2"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP": [
+  {
+   "prompt_len": 543,
+   "prompt_md5": "e5fc3b3f87c851d2ba002ffa4753983d",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 500,
+   "prompt_md5": "73331e0529406b28354176b62e132fdc",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 474,
+   "prompt_md5": "053fd82238690a27c8b150498aa8fa3f",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 847,
+   "prompt_md5": "d6362b7f91e5b3907ec70f25eef4f1e0",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 8462,
+   "prompt_md5": "bc6b87afcb1f0f8b6b23ad519f8f9e66",
+   "system_md5": "140c359130895c0c067ae0f35a6795c2"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP_EVOBS": [
+  {
+   "prompt_len": 782,
+   "prompt_md5": "8bb0b14414a5529325acf022a0ade7ee",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 739,
+   "prompt_md5": "67f2cd3dad82155a4ee684c7049a4141",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 713,
+   "prompt_md5": "ba989866d2c27c285172310146a523b8",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 8030,
+   "prompt_md5": "cc8bee6763e8538d94f9a64d5a58d965",
+   "system_md5": "4d044a840a9ded6827abb08a42c5eb99"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP_NOSPEC": [
+  {
+   "prompt_len": 7748,
+   "prompt_md5": "748f8560dc031f3b48e386d79034c550",
+   "system_md5": "7d21884254be8694189f2d97205cbaa8"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP_P1": [
+  {
+   "prompt_len": 543,
+   "prompt_md5": "e5fc3b3f87c851d2ba002ffa4753983d",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 500,
+   "prompt_md5": "73331e0529406b28354176b62e132fdc",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 474,
+   "prompt_md5": "053fd82238690a27c8b150498aa8fa3f",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 847,
+   "prompt_md5": "d6362b7f91e5b3907ec70f25eef4f1e0",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 9279,
+   "prompt_md5": "606958a4310fac6098200f2b525ffabc",
+   "system_md5": "140c359130895c0c067ae0f35a6795c2"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP_SEG": [
+  {
+   "prompt_len": 892,
+   "prompt_md5": "d9854f68e7acce1b9948da4aeb080cec",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 849,
+   "prompt_md5": "206e1d9090b339c3c7d14a0248bec61d",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 823,
+   "prompt_md5": "67ec7bf01d686a8e4bbfd06633e70354",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 1046,
+   "prompt_md5": "ca9631e72ab1621f5925fbc9a801a7b0",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 8320,
+   "prompt_md5": "922f5c0c9eb8eae873bcbbc71fe1dcb5",
+   "system_md5": "ac4f8e6acfd0408262d14f3dd56aa7a4"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F014-httpError5xx\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"]}"
+  }
+ ],
+ "frozen_ABS_KP_TYPE": [
+  {
+   "prompt_len": 543,
+   "prompt_md5": "e5fc3b3f87c851d2ba002ffa4753983d",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 500,
+   "prompt_md5": "73331e0529406b28354176b62e132fdc",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 474,
+   "prompt_md5": "053fd82238690a27c8b150498aa8fa3f",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 847,
+   "prompt_md5": "d6362b7f91e5b3907ec70f25eef4f1e0",
+   "system_md5": "3e1b1d593be645f588315106289e0206"
+  },
+  {
+   "prompt_len": 8462,
+   "prompt_md5": "bc6b87afcb1f0f8b6b23ad519f8f9e66",
+   "system_md5": "140c359130895c0c067ae0f35a6795c2"
+  },
+  {
+   "prompt_len": 6755,
+   "prompt_md5": "22e9afc1b7291e52a417d805a6bbf153",
+   "system_md5": "fe5f54a26bb3032a8c23694f35d044c9"
+  },
+  {
+   "final": "{\"confidence\": 0.5, \"coordinator_fault_type\": \"F014-httpError5xx\", \"fault_evidence\": \"cart 500 x12\", \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F029-redisUnavailable\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"], \"typing_applied\": true, \"typing_prompt_chars\": 6755, \"typing_scoped_chars\": 0}"
+  }
+ ]
+}

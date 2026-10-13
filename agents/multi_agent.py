@@ -117,6 +117,141 @@ def _seg_block(state) -> str:
     return _findings_json(out)
 
 
+# SPEC_EVIDENCE_ONLY=1 (arm EVOBS): a specialist copies observations of its own modality; it does not name a suspect entity, summary or confidence.
+OBS_SCHEMA_HINT = '{"observations": ["<entity name> <signal>=<value>  or a quoted message", "..."]}'
+_OBS_TASK = (" Copy, from the evidence above only, the observations that show abnormal behaviour or errors: the entity NAME exactly as written (not an id "
+             "hash) with the signal=value or the message text as given. Do not name a cause, a suspect entity or a fault type; the Coordinator decides. "
+             "At most 6 items; an empty list is the right answer when this modality shows nothing abnormal.")
+COORDINATOR_SYSTEM_PROMPT_OBS = (
+    "You are the Coordinator agent for a microservice root-cause-analysis system. You receive observations copied from Metrics, Logs and Trace "
+    "evidence (they are not conclusions) plus numeric tables, and must produce ONE final diagnosis. Respond ONLY with valid JSON."
+)
+COORDINATOR_SYSTEM_PROMPT_NOSPEC = (
+    "You are the Coordinator agent for a microservice root-cause-analysis system. You receive numeric evidence tables and must produce ONE final "
+    "diagnosis. Respond ONLY with valid JSON."
+)
+TYPING_SYSTEM_PROMPT = (
+    "You are a fault-typing agent for a microservice root-cause-analysis system. Given the origin entity, a causal chain and the evidence rows that "
+    "mention that entity, you choose the fault type whose definition the evidence satisfies. Respond ONLY with valid JSON."
+)
+
+
+def _obs_finding(result):
+    """Normalises an observations answer and adds the legacy keys used by AgentFinding."""
+    if not isinstance(result, dict) or result.get("_parse_error"):
+        return result
+    obs = result.get("observations")
+    obs = [str(x) for x in obs] if isinstance(obs, list) else ([str(obs)] if isinstance(obs, str) and obs else [])
+    result["observations"] = obs
+    result["entity_id"] = None
+    result["summary"] = " | ".join(obs)[:300]
+    result["supporting_evidence"] = list(obs)
+    result["confidence"] = 0.0
+    return result
+
+
+def _obs_block(state) -> str:
+    out = {}
+    for key, name in (("metrics_finding", "metrics_agent"), ("logs_finding", "logs_agent"), ("trace_finding", "trace_agent")):
+        f = state.get(key)
+        out[name] = {"observations": f["observations"]} if isinstance(f, dict) and "observations" in f else f
+    return _findings_json(out)
+
+
+_HEX32 = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _origin_name(final):
+    """Name of the origin entity: the target of the Coordinator's cause step, else its predicted entity (when that is a name, not an id hash)."""
+    chain = final.get("reasoning_chain") or []
+    m = re.match(r"\s*cause\s*:\s*(\S+)", str(chain[0])) if chain else None
+    tgt = m.group(1).strip(",;:").split("::")[0] if m else None
+    if tgt and not _HEX32.match(tgt.lower()):
+        return tgt
+    ids = final.get("predicted_entity_ids") or []
+    if ids:
+        e = str(ids[0]).strip().split("::")[0]
+        if e and not _HEX32.match(e.lower()):
+            return e
+    return None
+
+
+def _lines_with(text, pat, cap_lines, cap_chars):
+    out = []
+    for ln in (text or "").split("\n"):
+        s = ln.strip()
+        if s and pat.search(s):
+            out.append(s[:cap_chars])
+            if len(out) >= cap_lines:
+                break
+    return out
+
+
+def _bullets_with(summary, pat, cap_lines, cap_chars):
+    out = []
+    for k, bl in (summary or {}).items():
+        if str(k).startswith("_"):
+            continue
+        for b in bl:
+            if pat.search(b):
+                out.append(b[:cap_chars])
+                if len(out) >= cap_lines:
+                    return out
+    return out
+
+
+def _scoped_evidence(state, name):
+    """Evidence rows that mention the entity NAME (word match, case-insensitive). Selection by name only, never by significance; the caps bound the prompt."""
+    pat = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?!\w)", re.I)
+    parts = []
+    for title, lines in (
+        ("Call-graph rows", _lines_with(state.get("propagation_text"), pat, 6, 600)),
+        ("Numeric tables (APM, nodes, deployments, events)", _lines_with(state.get("infra_text"), pat, 16, 900)),
+        ("Trace rows (HTTP codes, error messages)", _lines_with(state.get("trace_text"), pat, 6, 900)),
+        ("Metric and log observations", _bullets_with(state.get("evidence_summary"), pat, 14, 500)),
+    ):
+        if lines:
+            parts.append(title + ":\n" + "\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def _apply_entity_typing(llm, state, fault_hint):
+    """Arm TYPE: second, short call that chooses the fault type from the chain and the entity-scoped evidence. Keeps the Coordinator's type on any failure."""
+    fr = state.get("final_result")
+    if not isinstance(fr, dict) or fr.get("_parse_error"):
+        return
+    fr["coordinator_fault_type"] = fr.get("predicted_fault_type")
+    name = _origin_name(fr)
+    scoped = _scoped_evidence(state, name) if name else ""
+    chain = "\n".join(f"- {s}" for s in (fr.get("reasoning_chain") or []))
+    knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if config.USE_KNOWLEDGE_POS else ""
+    prompt = (
+        f"Alert: {state['alert_text']}\n\n"
+        f"Origin entity chosen by the Coordinator: {name or '(unknown)'}\n"
+        f"Causal chain written by the Coordinator:\n{chain}\n\n"
+        f"Evidence rows that mention {name or 'the origin entity'} (selected by name only; nothing is filtered by significance):\n"
+        f"{scoped or '(no row mentions this name)'}\n\n"
+        f"{fault_hint}\n\n"
+        f"{knowledge_block}"
+        f"Task: choose the fault type of the origin entity. First copy into fault_evidence the signal=value or the message text from the evidence rows above "
+        f"that identifies the KIND of fault (status-code class or error message, which resource is saturated and its value, replica/restart/event reasons). "
+        f"Then choose the one taxonomy type whose definition is satisfied by fault_evidence. A definition is satisfied only by what that signal shows: a "
+        f"different status-code class, a different resource or an absent signal does not satisfy it.\n"
+        f"Respond as JSON: " + '{"fault_evidence": "<signal=value or message copied from the rows above>", "predicted_fault_type": "<one taxonomy slug whose definition is satisfied by fault_evidence>", "confidence": <float 0-1>}'
+    )
+    res = llm.generate_json(prompt, system=TYPING_SYSTEM_PROMPT)
+    _trace(state, "typing_call", prompt, res)
+    fr["typing_scoped_chars"] = len(scoped)
+    fr["typing_prompt_chars"] = len(prompt)
+    ft = res.get("predicted_fault_type") if isinstance(res, dict) else None
+    if isinstance(ft, str) and re.match(r"^F\d{3}", ft.strip()):
+        fr["predicted_fault_type"] = ft.strip()
+        fr["fault_evidence"] = str(res.get("fault_evidence", ""))[:600]
+        fr["typing_applied"] = True
+    else:
+        fr["typing_applied"] = False
+
+
 def _trace(state, name, prompt, output):
     """Debug only (config.DEBUG_DUMP_DIR): keep the exact prompt and raw output of one LLM call.
     Contains no ground truth -- only what the model saw and said."""
@@ -130,6 +265,17 @@ def _make_agent_node(agent_name: str, modality_filter: Optional[str],
 
     def node(state: AgentState) -> AgentState:
         summary_text = _filter_summary_text(state["evidence_summary"], modality_filter)
+        if config.SPEC_EVIDENCE_ONLY:
+            prompt = (
+                f"Alert: {state['alert_text']}\n\n"
+                f"Evidence relevant to {agent_name} (entity: bullet list):\n{summary_text}\n\n"
+                f"Task: from the {agent_name.replace('_', ' ')} evidence above only.{_OBS_TASK}\n"
+                f"Respond as JSON: {OBS_SCHEMA_HINT}"
+            )
+            result = _obs_finding(llm.generate_json(prompt, system=_agent_system()))
+            _trace(state, f"{agent_name}_agent", prompt, result)
+            state[f"{agent_name}_finding"] = result
+            return state
         if config.SPEC_CHAIN_SEGMENTS:
             prompt = (
                 f"Alert: {state['alert_text']}\n\n"
@@ -265,6 +411,9 @@ def topology_agent_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
         neighbors = state.get("graph_neighbors", {})
         path = state.get("propagation_path")
+        if config.SPEC_EVIDENCE_ONLY:      # structure is already in the call-graph table; no verdict wanted from this specialist
+            state["topology_finding"] = {"observations": [], "entity_id": None, "summary": "", "supporting_evidence": [], "confidence": 0.0}
+            return state
         if config.SPEC_CHAIN_SEGMENTS:
             _up = neighbors.get("upstream", [])
             _down = neighbors.get("downstream", [])
@@ -376,12 +525,23 @@ def _findings_json(findings: dict, raw_cap: int = 300) -> str:
 
 def coordinator_node(llm: LLMClient):
     def node(state: AgentState) -> AgentState:
-        findings_block = _seg_block(state) if config.SPEC_CHAIN_SEGMENTS else _findings_json({
-            "metrics_agent": state.get("metrics_finding"),
-            "logs_agent": state.get("logs_finding"),
-            "trace_agent": state.get("trace_finding"),
-            "topology_agent": state.get("topology_finding"),
-        })
+        if config.SPEC_EVIDENCE_ONLY:
+            findings_block = _obs_block(state)
+        elif config.SPEC_CHAIN_SEGMENTS:
+            findings_block = _seg_block(state)
+        else:
+            findings_block = _findings_json({
+                "metrics_agent": state.get("metrics_finding"),
+                "logs_agent": state.get("logs_finding"),
+                "trace_agent": state.get("trace_finding"),
+                "topology_agent": state.get("topology_finding"),
+            })
+        if config.NO_SPECIALISTS:
+            findings_head = ""
+        elif config.SPEC_EVIDENCE_ONLY:
+            findings_head = f"Observations copied by the specialists (one modality each; they are not conclusions):\n{findings_block}\n"
+        else:
+            findings_head = f"Specialist agent findings:\n{findings_block}\n"
 
         # The full 28-type taxonomy is always shown: nothing is narrowed away before the Coordinator
         # reasons over it. No classifier or shortlist trained on RCA100 labels is used.
@@ -408,7 +568,7 @@ def coordinator_node(llm: LLMClient):
             knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if config.USE_KNOWLEDGE_POS else ""
             prompt = (
                 f"Alert: {state['alert_text']}\n\n"
-                f"Specialist agent findings:\n{findings_block}\n"
+                f"{findings_head}"
                 f"{prop_block}\n"
                 f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
                 f"{('' if not trace_text else chr(10) + trace_text + chr(10))}"
@@ -430,8 +590,12 @@ def coordinator_node(llm: LLMClient):
                 f"Respond as JSON: {CHAIN_FIRST_SCHEMA_HINT_P if config.GROUNDED_FAULT else CHAIN_FIRST_SCHEMA_HINT}"
             )
             state["coordinator_prompt_chars"] = len(prompt)
-            state["final_result"] = llm.generate_json(prompt, system=(COORDINATOR_SYSTEM_PROMPT_SEG if config.SPEC_CHAIN_SEGMENTS else COORDINATOR_SYSTEM_PROMPT))
+            _sys = (COORDINATOR_SYSTEM_PROMPT_NOSPEC if config.NO_SPECIALISTS else COORDINATOR_SYSTEM_PROMPT_OBS if config.SPEC_EVIDENCE_ONLY
+                    else COORDINATOR_SYSTEM_PROMPT_SEG if config.SPEC_CHAIN_SEGMENTS else COORDINATOR_SYSTEM_PROMPT)
+            state["final_result"] = llm.generate_json(prompt, system=_sys)
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
+            if config.ENTITY_TYPING:
+                _apply_entity_typing(llm, state, fault_hint)
             return state
 
         # Single-call path (used by the multi_agent_only baseline): the Stage-0.5 anchor is shown as a prior.
@@ -488,6 +652,11 @@ def build_agent_graph(llm: Optional[LLMClient] = None, coordinator_llm: Optional
     coordinator_llm = coordinator_llm or llm  # falls back to the same client for everything
 
     graph = StateGraph(AgentState)
+    if config.NO_SPECIALISTS:
+        graph.add_node("coordinator", coordinator_node(coordinator_llm))
+        graph.set_entry_point("coordinator")
+        graph.add_edge("coordinator", END)
+        return graph.compile()
     if use_llm_agents:
         graph.add_node("metrics_agent", _make_agent_node("metrics", "metric", llm))
         graph.add_node("logs_agent", _make_agent_node("logs", "log", llm))

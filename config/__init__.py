@@ -414,3 +414,12 @@ SPEC_CHAIN_SEGMENTS = os.environ.get("SPEC_CHAIN_SEGMENTS", "0") == "1"
 # follow from the cause step; copy the signal=value that the chosen type's definition requires) and the JSON a 'fault_evidence' field BEFORE
 # predicted_fault_type. No LLM call added, no type filtered, same rule for every case. Default off.
 GROUNDED_FAULT = os.environ.get("GROUNDED_FAULT", "0") == "1"
+
+# Arms of 2026-10-13 (claude/prereg-arms-TYPE-NOSPEC-EVOBS-2026-10-13.md); all default off, no extra data, no ground truth.
+# ENTITY_TYPING=1 (arm TYPE): after the chain-first Coordinator names the origin entity, ONE extra short LLM call chooses the fault type from the chain plus the
+#   evidence rows that mention that entity's NAME (deterministic selection by name, never by significance) and the taxonomy.
+# NO_SPECIALISTS=1 (arm NOSPEC): the four specialist calls are skipped; the Coordinator sees only the tables (ablation of the specialists).
+# SPEC_EVIDENCE_ONLY=1 (arm EVOBS): specialists copy the observations of their own modality and do not name a suspect, summary or confidence.
+ENTITY_TYPING = os.environ.get("ENTITY_TYPING", "0") == "1"
+NO_SPECIALISTS = os.environ.get("NO_SPECIALISTS", "0") == "1"
+SPEC_EVIDENCE_ONLY = os.environ.get("SPEC_EVIDENCE_ONLY", "0") == "1"

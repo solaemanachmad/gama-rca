@@ -635,6 +635,10 @@ class GraphRAGPipeline:
             except Exception as _e:  # debug output must never break a run
                 stats["debug_dump_error"] = repr(_e)
         stats["coordinator_prompt_chars"] = final_state.get("coordinator_prompt_chars")
+        _fr0 = final_state.get("final_result") or {}
+        for _k in ("coordinator_fault_type", "fault_evidence", "typing_applied", "typing_scoped_chars", "typing_prompt_chars"):
+            if _k in _fr0:
+                stats[_k] = _fr0.get(_k)
         # GT-free diagnostic: does the entity the Coordinator answers equal the target of its own cause step? (chain-first only)
         try:
             _fr = final_state.get("final_result") or {}
