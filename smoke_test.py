@@ -11,8 +11,8 @@ this script, then move to the next stage — don't jump straight to the full
 
 Usage:
     export RCA100_ROOT=/path/to/RCA100         # folder containing cases/, answer-key/, manifest.txt
-    python smoke_test.py                        # stages 1-3, no LLM/Ollama needed
-    python smoke_test.py --with-llm             # also runs stage 4 (needs `ollama serve` running)
+    python smoke_test.py                        # stages 1-3, no LLM needed
+    python smoke_test.py --with-llm             # also runs stage 4 (needs a local model)
 """
 
 import argparse
@@ -71,7 +71,7 @@ def stage_3_retrieval(case: Case):
 
 def stage_4_full_pipeline(case_id: str):
     print(f"\n[Stage 4] full LLM pipeline on {case_id!r} "
-          f"(backend={config.LLM_BACKEND!r}; needs `ollama serve` running if backend='ollama')")
+          f"(backend={config.LLM_BACKEND!r})")
     from agents.factory import get_llm_client
     from pipeline.pipeline import GraphRAGPipeline
 
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--case_id", default=None, help="defaults to the first case in manifest.txt")
-    parser.add_argument("--with-llm", action="store_true", help="also run stage 4 (needs Ollama/Gemini)")
+    parser.add_argument("--with-llm", action="store_true", help="also run stage 4 (needs a local model)")
     parser = build_parser(parser)
     args = parser.parse_args()
     apply_overrides(args)
@@ -108,4 +108,4 @@ if __name__ == "__main__":
         stage_4_full_pipeline(case_id)
     else:
         print("\n[done] Stages 1-3 passed without touching the LLM. "
-              "Run with --with-llm once `ollama serve` + `ollama pull <model>` are ready.")
+              "Run with --with-llm once a local model is available.")

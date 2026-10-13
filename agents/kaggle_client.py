@@ -5,8 +5,7 @@ LLM client backed by a model pulled either from Kaggle Models (kagglehub) or
 directly from the Hugging Face Hub, run via transformers -- no Ollama
 server, no external API. Meant for running INSIDE a Kaggle Notebook with a
 free GPU attached. Same generate()/generate_json()/usage_stats() interface
-as LLMClient and GeminiClient, so agents.py / pipeline.py need zero changes
--- just pick this backend via config.
+as agents.llm_protocol.LLMClient.
 
 Two model families are supported, auto-detected from the handle/path:
   1. Gemma 4's "Unified" architecture (encoder-free multimodal: text/audio/

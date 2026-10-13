@@ -4,7 +4,7 @@ debug_retrieval.py
 Diagnostic for the "retrieval_precision / retrieval_recall keep coming back
 0.0" issue. Runs stages 0-4 of the pipeline (ingestion -> alert parse ->
 graph retrieval -> vector retrieval -> hybrid retrieval) WITHOUT the LLM, so
-it's fast and doesn't need `ollama serve` running.
+it's fast and needs no LLM.
 
 For each case it prints:
   1. Ground-truth target entity IDs (raw, as stored in answer_key)

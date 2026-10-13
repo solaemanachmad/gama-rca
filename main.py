@@ -31,13 +31,9 @@ def _current_model_name() -> str:
     """Resolves the actual model identifier for whichever backend is
     active, so it can be stamped onto every results.csv row (see below) --
     without this, merging chunk files from different backends/sessions
-    (e.g. local Ollama qwen2.5:7b + Kaggle Gemma 4 12B) leaves no way to
+    (e.g. Qwen 7B + Qwen 14B runs) leaves no way to
     tell which row came from which model, purely from the CSV itself."""
-    return {
-        "ollama": config.LLM_MODEL_NAME,
-        "gemini": config.GEMINI_MODEL_NAME,
-        "kaggle": config.KAGGLE_MODEL_HANDLE,
-    }.get(config.LLM_BACKEND, "unknown")
+    return config.KAGGLE_MODEL_HANDLE
 
 
 def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None, save_path=None,

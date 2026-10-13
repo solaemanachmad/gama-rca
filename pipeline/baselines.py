@@ -45,7 +45,7 @@ from retrieval.vector import build_case_index, build_index_from_observations, Ve
 from retrieval.hybrid import fuse_scores, HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, render_summary_text
 from agents.multi_agent import build_agent_graph, build_agent_findings_list, FINAL_SCHEMA_HINT
-from agents.llm_client import LLMClient
+from agents.llm_protocol import LLMClient
 from schema import RCAResult
 from pipeline.pipeline import parse_alert
 from data.taxonomy import taxonomy_prompt_block

@@ -34,7 +34,7 @@ from retrieval.hybrid import HybridRetriever, graph_direct_evidence, merge_evide
 from pipeline.evidence_summarizer import summarize_evidence, compute_metric_trends, compute_baseline_stats, ERROR_PATTERN
 from pipeline.zero_shot_matching import zero_shot_type_match_topk
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
-from agents.llm_client import LLMClient
+from agents.llm_protocol import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence

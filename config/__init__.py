@@ -14,12 +14,12 @@ Adjust DATASET_ROOT to match your machine, or set RCA100_ROOT in .env.
 Everything downstream (data/, retrieval/, agents/, evaluation/) imports
 paths and constants from here, so this + config/args.py are the only places
 you should need to touch when moving between environments or switching
-backends (local Ollama <-> Gemini API, local embeddings <-> HF API, etc).
+backends (local embeddings <-> HF API).
 """
 
 import os
 
-# Load .env (if present) so HF_TOKEN, GEMINI_API_KEY, RCA100_ROOT, etc. don't
+# Load .env (if present) so HF_TOKEN, RCA100_ROOT, etc. don't
 # need to be manually exported every terminal session. Requires:
 #   pip install python-dotenv --break-system-packages
 # Falls back silently to plain os.environ if python-dotenv isn't installed
@@ -328,15 +328,7 @@ COORDINATOR_TWO_STAGE_ANCHOR = os.environ.get("COORDINATOR_TWO_STAGE_ANCHOR", "0
 # ---------------------------------------------------------------------------
 # LLM settings -- swap backend/model without touching any other file.
 # ---------------------------------------------------------------------------
-LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama")   # "ollama" (local), "gemini" (API),
-                                                          # or "kaggle" (Kaggle Models via
-                                                          # kagglehub + transformers, no server).
-                                                          # Also settable via --llm-backend.
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "qwen2.5:7b")   # Ollama model name;
-                                                                   # swap to "deepseek-r1",
-                                                                   # "llama3", "gemma2", etc.
-GEMINI_MODEL_NAME = os.environ.get("GEMINI_MODEL_NAME", "gemini-3.1-flash-lite")
+LLM_BACKEND = "kaggle"   # the only backend: local transformers model, no server, no external API
 KAGGLE_MODEL_HANDLE = os.environ.get("KAGGLE_MODEL_HANDLE",
                                       "Qwen/Qwen2.5-7B-Instruct")
                                       # Plain Hugging Face Hub repo id (not a Kaggle-catalog

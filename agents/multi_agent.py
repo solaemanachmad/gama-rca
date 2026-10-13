@@ -20,7 +20,7 @@ from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block, knowled
 import re
 import config
 from schema import AgentFinding, RCAResult
-from agents.llm_client import LLMClient
+from agents.llm_protocol import LLMClient
 
 
 # ---------------------------------------------------------------------------
@@ -1011,7 +1011,9 @@ def _self_consistency_sample(llm: LLMClient, prompt: str, system: str) -> Tuple[
 # ---------------------------------------------------------------------------
 def build_agent_graph(llm: Optional[LLMClient] = None, coordinator_llm: Optional[LLMClient] = None,
                        use_llm_agents: bool = True) -> StateGraph:
-    llm = llm or LLMClient()
+    if llm is None:
+        from agents.factory import get_llm_client
+        llm = get_llm_client()
     coordinator_llm = coordinator_llm or llm  # falls back to the same client for everything
 
     graph = StateGraph(AgentState)

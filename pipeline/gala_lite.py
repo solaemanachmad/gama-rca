@@ -32,7 +32,7 @@ from collections import defaultdict
 from typing import Dict, List
 
 import config
-from agents.llm_client import LLMClient
+from agents.llm_protocol import LLMClient
 from agents.multi_agent import FINAL_SCHEMA_HINT
 from data.loader import Case, find_service_ancestor, resolve_entity_by_name
 from data.taxonomy import taxonomy_prompt_block

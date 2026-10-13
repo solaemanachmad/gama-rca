@@ -6,7 +6,7 @@ worth switching between runs, without hand-editing config/__init__.py each
 time:
 
     python run_experiment.py --n_cases 20 --embedding-backend hf_api \
-        --llm-backend gemini --hybrid-alpha 0.7 --hybrid-beta 0.3
+        --hybrid-alpha 0.7 --hybrid-beta 0.3
 
 Only entry-point scripts (run_experiment.py, smoke_test.py) call this --
 importing config.args does NOT parse anything by itself, so it's safe to
@@ -35,13 +35,9 @@ def build_parser(parser: argparse.ArgumentParser = None) -> argparse.ArgumentPar
     backend.add_argument("--embedding-backend", choices=["local", "hf_api"], default=None,
                           help="Override config.EMBEDDING_BACKEND (default: config value / "
                                "EMBEDDING_BACKEND env var / 'local').")
-    backend.add_argument("--llm-backend", choices=["ollama", "gemini", "kaggle"], default=None,
+    backend.add_argument("--llm-backend", choices=["kaggle"], default=None,
                           help="Override config.LLM_BACKEND (default: config value / "
-                               "LLM_BACKEND env var / 'ollama').")
-    backend.add_argument("--llm-model", default=None,
-                          help="Override the model name for whichever --llm-backend is "
-                               "active (LLM_MODEL_NAME for ollama, GEMINI_MODEL_NAME for "
-                               "gemini).")
+                               "LLM_BACKEND env var / 'kaggle').")
     backend.add_argument("--no-embedding-cache", dest="embedding_cache_enabled",
                           action="store_false", default=None,
                           help="Disable the persistent disk embedding cache "
@@ -86,11 +82,6 @@ def apply_overrides(args: argparse.Namespace) -> None:
         config.EMBEDDING_BACKEND = args.embedding_backend
     if getattr(args, "llm_backend", None) is not None:
         config.LLM_BACKEND = args.llm_backend
-    if getattr(args, "llm_model", None) is not None:
-        if config.LLM_BACKEND == "gemini":
-            config.GEMINI_MODEL_NAME = args.llm_model
-        else:
-            config.LLM_MODEL_NAME = args.llm_model
     if getattr(args, "embedding_cache_enabled", None) is not None:
         config.EMBEDDING_CACHE_ENABLED = args.embedding_cache_enabled
 
@@ -114,7 +105,7 @@ def apply_overrides(args: argparse.Namespace) -> None:
 
 
 EFFECTIVE_CONFIG_KEYS = [
-    "EMBEDDING_BACKEND", "LLM_BACKEND", "LLM_MODEL_NAME", "GEMINI_MODEL_NAME",
+    "EMBEDDING_BACKEND", "LLM_BACKEND",
     "KAGGLE_MODEL_HANDLE", "KAGGLE_MODEL_LOCAL_PATH", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "HYBRID_ALPHA",
     "HYBRID_BETA", "VECTOR_TOP_K", "DEV_QUICK_TEST", "MAX_OBSERVATIONS_PER_INDEX",
     "MAX_RESOLVED_PER_MODALITY", "TEMPORAL_BOOST_ENABLED",
@@ -143,19 +134,14 @@ def print_effective_config() -> None:
 
     Backend-aware: only shows the model setting for whichever LLM_BACKEND
     is actually active, not all three possible backends' model names at
-    once (confusing -- e.g. showing GEMINI_MODEL_NAME while running on
-    ollama). get_effective_config() (used for W&B logging) stays complete/
+    once. get_effective_config() (used for W&B logging) stays complete/
     unfiltered, since a full record is useful there for reproducibility;
     this is just the human-readable console summary."""
     import config
     cfg = get_effective_config()
     backend = cfg.get("LLM_BACKEND")
-    active_model_key = {"ollama": "LLM_MODEL_NAME", "gemini": "GEMINI_MODEL_NAME",
-                         "kaggle": "KAGGLE_MODEL_HANDLE"}.get(backend)
     print("=== Effective config for this run ===")
     for k, v in cfg.items():
-        if k in ("LLM_MODEL_NAME", "GEMINI_MODEL_NAME", "KAGGLE_MODEL_HANDLE") and k != active_model_key:
-            continue  # skip inactive backends' model settings
         if k in _ALWAYS_HIDDEN:
             continue
         if cfg.get("USE_LOG_TEMPLATES") and k in _HIDE_WHEN_LOG_TEMPLATES:
