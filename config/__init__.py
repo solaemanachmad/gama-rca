@@ -252,78 +252,7 @@ TWIST_TEXT_TOP_N_SERVICES = 15   # cap on how many services get a synthesized
                                   # services, so this is a safety bound, not a
                                   # routinely-hit cap.
 
-# ---------------------------------------------------------------------------
-# Self-Consistency ensemble for the Coordinator's final diagnosis -- see
-# agents/multi_agent.py's _self_consistency_sample() and
-# coordinator_node(). Wang et al., ICLR 2023, "Self-Consistency Improves
-# Chain of Thought Reasoning in Language Models": sample N independent
-# completions, majority-vote predicted_fault_type, keep the
-# highest-confidence sample among those agreeing with the majority.
-# Training-free, no GT dependency -- pure test-time compute, aimed directly
-# at fault_identification + reasoning_process (the Coordinator's own
-# accuracy), unlike Proposals 2/3 which target entity-localization evidence
-# quality instead. Scoped to ONLY the Coordinator call (see that function's
-# docstring for why) -- Graph Anchor and Specialist Agents are NOT re-sampled.
-#
-# NEGATIVE RESULT (2026-10-04, 8-case sample): self_consistency_agreement
-# was 1.0 (all 3 samples identical) in 7/8 cases even at
-# SELF_CONSISTENCY_TEMPERATURE=0.7 -- predicted_fault_type did not change in
-# ANY of the 8 cases vs. the single-shot run before this feature existed.
-# This rules out sampling-variance as the bottleneck: the model is already
-# highly consistent across samples, so voting has nothing to correct. The
-# real driver turned out to be COORDINATOR_ANCHOR_CONFIRM_BIAS below
-# (predicted_fault_type matched graph_anchor_fault_type in 7/8 cases --
-# a prompt-level anchoring effect, not sampling noise). Defaulted OFF to
-# stop paying ~80s/case for zero measured benefit while that's investigated;
-# flip back to "1" to re-test once the anchor-bias ablation below has run,
-# in case reducing the anchor's pull also increases sample-to-sample
-# disagreement (making voting useful again).
-USE_SELF_CONSISTENCY = os.environ.get("USE_SELF_CONSISTENCY", "0") == "1"
-SELF_CONSISTENCY_SAMPLES = 3        # N completions to sample and vote over.
-                                      # Cost is linear in this (3x Coordinator
-                                      # calls only, not the whole 6-call
-                                      # pipeline) -- 3 is the standard
-                                      # small-N starting point in the
-                                      # self-consistency literature.
-SELF_CONSISTENCY_TEMPERATURE = 0.7   # temporarily overrides LLM_TEMPERATURE
-                                      # (default 0.1) for just these N calls --
-                                      # see docstring for why 0.1 is too low
-                                      # for the samples to disagree meaningfully.
-
-# ---------------------------------------------------------------------------
-# Coordinator anchor-bias ablation -- see agents/multi_agent.py's
-# coordinator_node() anchor_block construction. True (default, legacy,
-# unchanged from the original design) tells the Coordinator to CONFIRM the
-# Stage-0.5 Graph Anchor's fault-type guess unless specialist findings
-# clearly contradict it. False swaps in neutral wording that explicitly
-# tells the Coordinator the anchor hasn't seen any evidence and should be
-# weighed on equal footing with the specialist findings, not confirmed by
-# default. Motivated by the 2026-10-04 finding above: predicted_fault_type
-# matched graph_anchor_fault_type in 7/8 cases on the 8-case sample, and the
-# one case the Coordinator DID override the anchor (t077), it was correct.
-# Free to test either way -- this only changes prompt wording, no added
-# LLM calls.
-COORDINATOR_ANCHOR_CONFIRM_BIAS = os.environ.get("COORDINATOR_ANCHOR_CONFIRM_BIAS", "1") == "1"
-
-# ---------------------------------------------------------------------------
-# Two-stage Coordinator (order-of-exposure anchoring-bias mitigation) -- see
-# agents/multi_agent.py's _two_stage_coordinate(). Deeper fix than
-# COORDINATOR_ANCHOR_CONFIRM_BIAS: that toggle only changes wording AFTER
-# the anchor is already in the prompt; this instead elicits an independent,
-# evidence-only diagnosis (specialist findings + keyword hints + zero-shot/
-# taxonomy hint, NO anchor) in a first Coordinator call, then reveals the
-# anchor in a second call and asks for an explicit, cited reconciliation.
-# Standard anchoring-bias mitigation (Tversky & Kahneman): a judgment formed
-# before exposure to an anchor resists it regardless of the anchor's
-# wording. Default False because it costs one extra Coordinator call per
-# case (two total vs. one) -- opt in to test. Takes priority over
-# COORDINATOR_ANCHOR_CONFIRM_BIAS when both apply (the single-call anchor
-# wording question becomes moot once there's no single call with the
-# anchor baked in from the start) and is mutually exclusive with
-# USE_SELF_CONSISTENCY in the current implementation (test one mechanism at
-# a time -- combining them would be 2x the self-consistency sample count in
-# calls, and a confounded experiment).
-COORDINATOR_TWO_STAGE_ANCHOR = os.environ.get("COORDINATOR_TWO_STAGE_ANCHOR", "0") == "1"
+# Removed experiments (self-consistency, two-stage Coordinator, anchor-confirm wording and others): tag pre-cleanup-3ef1e24 keeps the code.
 
 # ---------------------------------------------------------------------------
 # LLM settings -- swap backend/model without touching any other file.
@@ -421,18 +350,7 @@ CHAIN_FIRST = os.environ.get("CHAIN_FIRST", "0") == "1"
 # (USE_INFRA_EVIDENCE) instead of embeddings. Default off = previous behaviour.
 USE_LOG_TEMPLATES = os.environ.get("USE_LOG_TEMPLATES", "0") == "1"
 
-# P4 (operator-style staged analysis; all default off = previous behaviour).
-# USE_COLOCATION_EVIDENCE: per-node table of hosted services' error/latency and node
-#   cpu/mem/disk (pipeline/colocation_evidence.py; evidence only).
-# LAYER_AGENT: one extra LLM call before the Coordinator that decides at which level
-#   (service / runtime / dependency / pod-deployment / node / cloud) the fault
-#   originates, citing the tables; its output is a soft hypothesis for the Coordinator
-#   (the full taxonomy stays visible, nothing is filtered).
-# CHAIN_FIRST_ENTITY: with CHAIN_FIRST, take the final entity from the "coordinator"
-#   chain (R5D behaviour) or from the topology "anchor" (R5D showed anchor EL 0.575 vs
-#   coordinator 0.479 on dev-30; chain still decides the fault type).
-USE_COLOCATION_EVIDENCE = os.environ.get("USE_COLOCATION_EVIDENCE", "0") == "1"
-LAYER_AGENT = os.environ.get("LAYER_AGENT", "0") == "1"
+# CHAIN_FIRST_ENTITY: with CHAIN_FIRST, take the final entity from the "coordinator" chain or from the topology "anchor".
 CHAIN_FIRST_ENTITY = os.environ.get("CHAIN_FIRST_ENTITY", "coordinator")
 # Debug: when set to a directory, pipeline writes one JSON per case with the exact prompts and
 # raw outputs of every LLM call (anchor, agents, layer, coordinator). No ground truth inside.
@@ -445,86 +363,29 @@ DEBUG_DUMP_DIR = os.environ.get("DEBUG_DUMP_DIR", "")
 USE_CHANGE_FACTOR = os.environ.get("USE_CHANGE_FACTOR", "0") == "1"
 
 
-# USE_KEYWORD_HINT=0: do NOT show the coordinator the "KEYWORD-DETECTED FAULT-TYPE CANDIDATES" block
-# nor the zero-shot embedding shortlist (both are deterministic evidence->fault-type suggestions). Research rule: the LLM decides the fault type;
-# deterministic code may only extract evidence. Default "1" keeps legacy (archived R0-R5D) behaviour;
-# all operator-ladder arms (A0-A3) set it to 0. Keyword candidates are still LOGGED as a diagnostic.
-USE_KEYWORD_HINT = os.environ.get("USE_KEYWORD_HINT", "1") == "1"
-
 # USE_CHANGE_STATS=1 (needs USE_CHANGE_FACTOR=1): also append robust z-score (MAD), baseline rank
 # (% of baseline samples below the window max) and baseline sample count n next to the ratio.
 USE_CHANGE_STATS = os.environ.get("USE_CHANGE_STATS", "0") == "1"
 
-# Arm K -- USE_KNOWLEDGE_PROMPT=1: add a block of "how to tell similar fault types apart" (written from
-# standard SRE knowledge + the public taxonomy definitions; no case-specific text, no GT) to the
-# chain-first Coordinator prompt. The LLM still decides; nothing is filtered. See data.taxonomy.knowledge_prompt_block.
-USE_KNOWLEDGE_PROMPT = os.environ.get("USE_KNOWLEDGE_PROMPT", "0") == "1"
 # USE_KNOWLEDGE_POS=1 (arm KP): same slot as arm K, text paraphrased from the public PoS agent catalog/methodology (MIT, cited in
-# data.taxonomy.knowledge_prompt_block_pos). Takes precedence over USE_KNOWLEDGE_PROMPT when both are set.
+# data.taxonomy.knowledge_prompt_block_pos).
 USE_KNOWLEDGE_POS = os.environ.get("USE_KNOWLEDGE_POS", "0") == "1"
 
-# Arm V -- VERIFY_CHAIN=1: after the chain-first Coordinator, one verifier call checks the chain against the
-# evidence tables (verbatim quotes, at most 3 issues, absence of evidence is not contradiction); if it reports
-# issues the Coordinator revises once. A deterministic pre-check only lists cited numbers that appear in no table
-# (grounding aid, decides nothing). Adds 1 call (+1 when revised).
-VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
 
 # USE_TRACE_EVIDENCE=1: per-service table (call-graph neighbourhood of the alert service) of HTTP status-code
 # counts, masked error messages and slowest operations, alert window vs baseline (pipeline/trace_evidence.py;
 # evidence extraction only). Meant to separate fault types that differ in what the failing calls say.
 USE_TRACE_EVIDENCE = os.environ.get("USE_TRACE_EVIDENCE", "0") == "1"
 
-# USE_DIRECTION_EVIDENCE=1 (arm D2): the infra tables also show the LOW side of every row (window minimum with its
-# ratio/z/rank, and the window-median ratio), lead each service/operation line with traffic then errors, and use larger
-# per-section budgets. Needs USE_CHANGE_FACTOR=1. Evidence formatting only. Default off = prompts unchanged.
-USE_DIRECTION_EVIDENCE = os.environ.get("USE_DIRECTION_EVIDENCE", "0") == "1"
-
-# USE_ALERT_LIFECYCLE=1 (arm L): one condensed block of the alert stream (pipeline/alert_lifecycle.py): repeated alert
-# rows are run-length-encoded (same condition values -> one run), T axis = first alert firing, only rows up to the
-# task's alert_window.end are used, final state (still firing / RECOVERED at T+x) is stated. Evidence extraction only.
-# Shown in the chain-first Coordinator prompt (needs CHAIN_FIRST=1). Default off = prompts unchanged.
-USE_ALERT_LIFECYCLE = os.environ.get("USE_ALERT_LIFECYCLE", "0") == "1"
 
 # USE_EVENT_DIGEST=1 (arm E): the k8s events section becomes a time-labelled digest (one line per type/kind/reason,
 # workload names, counts, first/last offset from the window start) instead of per-object rows cut alphabetically at
 # CHAR_BUDGET["event"]. Every group is represented; no significance filter. Evidence extraction only.
 USE_EVENT_DIGEST = os.environ.get("USE_EVENT_DIGEST", "0") == "1"
 
-# USE_LOG_EVIDENCE=1 (arm G): per-burst log composition block in the Coordinator prompt (pipeline/log_evidence.py):
-# container share of each export burst (window vs earlier bursts), error-like share, new/absent message templates
-# for the alert service's call-graph neighbourhood. Raw counts and per-minute rates are not shown (export artefact).
-USE_LOG_EVIDENCE = os.environ.get("USE_LOG_EVIDENCE", "0") == "1"
 
-# USE_TRACE_EDGES=1 (arm H): per call-edge trace evidence per export burst in the Coordinator prompt
-# (pipeline/trace_edges.py): edge share, error fraction, p50/p95 duration (window burst(s) vs earlier bursts), inherited
-# vs leaf errors per service, orphan share. Raw span counts are not shown (export artefact). Independent of
-# USE_TRACE_EVIDENCE (arm T, per-service HTTP codes / error messages), which is kept as is for comparison.
-USE_TRACE_EDGES = os.environ.get("USE_TRACE_EDGES", "0") == "1"
-
-# USE_METRIC_STRUCTURE=1 (arm M): (1) identity-free K8s aggregates (statistics across nodes/deployments at each timestamp;
-# the export carries no node/deployment names) and (2) call-edge flow ratios callee/caller workload (pipeline/metric_structure.py),
-# in the Coordinator prompt after the infra tables. Default off.
-USE_METRIC_STRUCTURE = os.environ.get("USE_METRIC_STRUCTURE", "0") == "1"
-# USE_INTERVAL_STRIP=1 (arm X, claude/design-arm-X-interval-strip-2026-10-12.md): time-aligned strip (30 s bins over the alert window)
-# of service workload/error/latency (multiples of own baseline), span error share (covered bins only), alert stream and K8s events
-# on neighbourhood pods, with export coverage stated (pipeline/interval_strip.py). Coordinator prompt only, after the infra tables.
-USE_INTERVAL_STRIP = os.environ.get("USE_INTERVAL_STRIP", "0") == "1"
-# SYMPTOM_FIRST=1 (arm S): the chain-first JSON asks for a per-signal-family symptom reading of the cause target before predicted_fault_type
-# (agents/multi_agent.py CHAIN_FIRST_SCHEMA_HINT_S). Default off = prompt unchanged.
-SYMPTOM_FIRST = os.environ.get("SYMPTOM_FIRST", "0") == "1"
-# VERIFY_FAULT_TYPE=1 (arm C, agents/type_check.py): after the chain-first Coordinator, one short call asks whether the chosen type's DEFINITION
-# (slug hidden) is satisfied by the evidence rows that mention the chosen entity (selected by name); if not, one re-choice of the fault type only.
-VERIFY_FAULT_TYPE = os.environ.get("VERIFY_FAULT_TYPE", "0") == "1"
 # CHAIN_ABSOLUTE_SIGNALS=1: the chain-first Task asks for absolute request count / average latency (s) / error count and finest-level targets. Default off.
 CHAIN_ABSOLUTE_SIGNALS = os.environ.get("CHAIN_ABSOLUTE_SIGNALS", "0") == "1"
-# GROUNDED_FAULT=1 (arm P1): chain-first Task gets a grounding rule and the JSON a fault_evidence field before predicted_fault_type. Default off.
-GROUNDED_FAULT = os.environ.get("GROUNDED_FAULT", "0") == "1"
-# CHAIN_STEPS_FLEX=1: the chain-first Task text allows a fourth (propagation) step (12 of 103 RCA100 chains have 4 steps). Default off.
-CHAIN_STEPS_FLEX = os.environ.get("CHAIN_STEPS_FLEX", "0") == "1"
-# TOPOLOGY_NAMES=1 (arm T-names, claude/audit-top20-ranking-2026-10-12.md): the topology specialist sees service NAMES, an alphabetical list of
-# the call-graph neighbourhood and the graph path as a neutral fact, instead of a Top-20 list of hex ids ranked by nearness (rank 1 = the
-# alert's service in 103/103) and a path presented as its "primary reasoning basis". Default off = prompt unchanged.
-TOPOLOGY_NAMES = os.environ.get("TOPOLOGY_NAMES", "0") == "1"
 # STRICT_MODALITY_ROUTING=1 (audit 2026-10-12, claude/audit-agent-flow-2026-10-12.md, F2): the metrics/logs/trace specialists pick
 # their bullets by SUBSTRING ("metric"/"log"/"span") on the bullet text. That leaked the call-graph table (it contains "spans="
 # and e.g. "product-catalog") into the logs specialist, the twist summary and OpenTelemetry log lines (span_id=...) into the
@@ -537,17 +398,9 @@ STRICT_MODALITY_ROUTING = os.environ.get("STRICT_MODALITY_ROUTING", "0") == "1"
 # enter the Coordinator prompt. Wording change only; evidence is untouched. Default 0 = legacy prompts.
 SPECIALIST_ENGLISH = os.environ.get("SPECIALIST_ENGLISH", "0") == "1"
 
-# USE_ONSET_EVIDENCE=1: compact per-minute robust-z table (alert-5min..+1min) of error/latency of the alert service's
-# call-graph neighbourhood and cpu/memory of hosting nodes (pipeline/onset_evidence.py; evidence extraction only, ~1.8k chars).
-# Shows WHEN each signal starts to deviate (origin before propagation). No threshold, no filtering.
-USE_ONSET_EVIDENCE = os.environ.get("USE_ONSET_EVIDENCE", "0") == "1"
 # Diagnostic only: log the Coordinator prompt size (chars) per case; PROMPT_CHAR_WARN just flags long prompts in stats.
 PROMPT_CHAR_WARN = int(os.environ.get("PROMPT_CHAR_WARN", "24000"))
 
-# Arm D -- USE_DOSSIER_FT=1: after the entity is chosen, a SEPARATE short call sees only the evidence rows that mention
-# that entity (and its host) and picks the fault type among lettered options by next-token probability (two option
-# orders averaged). Replaces the chain-first Coordinator's fault type; entity and chain are unchanged (agents/dossier.py).
-USE_DOSSIER_FT = os.environ.get("USE_DOSSIER_FT", "0") == "1"
 
 # INFRA_ALL_ENTITIES=1 (2026-10-13): the node and deployment tables list EVERY entity (rows are shortened: med, rank, n dropped) instead of
 # cutting the alphabetical tail at a character budget. Audit: the tables were cut in 30/30 dev cases (7-8 of ~15 nodes, 1-15 deployments missing).

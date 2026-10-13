@@ -27,26 +27,17 @@ import os
 import sys
 import config
 from data.loader import Case, build_service_membership_index, normalize_entity_ids
-from data.taxonomy import taxonomy_prompt_block, detect_fault_keywords
+from data.taxonomy import taxonomy_prompt_block
 from retrieval.graph import GraphRetriever, apply_temporal_boost, compute_propagation_path
 from retrieval.vector import build_index_from_observations
 from retrieval.hybrid import HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, compute_metric_trends, compute_baseline_stats, ERROR_PATTERN
-from pipeline.zero_shot_matching import zero_shot_type_match_topk
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
 from agents.llm_protocol import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
-from pipeline.log_evidence import compute_log_evidence
-from pipeline.trace_edges import compute_trace_edges
-from pipeline.metric_structure import compute_metric_structure
-from pipeline.interval_strip import compute_interval_strip
-from pipeline.topology_view import build_topology_view
-from pipeline.alert_lifecycle import compute_alert_lifecycle
-from pipeline.onset_evidence import compute_onset_evidence
-from pipeline.colocation_evidence import compute_colocation_evidence
 from pipeline.log_templates import compute_log_templates
 
 
@@ -365,15 +356,6 @@ class GraphRAGPipeline:
         stats["infra_evidence_rows"] = len(infra_ev["rows"])
         stats["infra_evidence_chars"] = len(infra_ev["text"])
         stats["chain_first"] = bool(config.CHAIN_FIRST)
-        coloc_ev = {"text": "", "rows": 0, "stats": {}}
-        if config.USE_COLOCATION_EVIDENCE:
-            t_col = time.time()
-            coloc_ev = compute_colocation_evidence(case, case.alert.alert_timestamp)
-            stats["colocation_time_s"] = round(time.time() - t_col, 3)
-            stats["colocation_error"] = coloc_ev.get("error")
-        stats["use_colocation_evidence"] = bool(config.USE_COLOCATION_EVIDENCE)
-        stats["colocation_nodes_shown"] = coloc_ev["rows"]
-        stats["colocation_chars"] = len(coloc_ev["text"])
         trace_ev = {"text": "", "rows": 0}
         if config.USE_TRACE_EVIDENCE:
             t_tr = time.time()
@@ -384,62 +366,6 @@ class GraphRAGPipeline:
         stats["use_trace_evidence"] = bool(config.USE_TRACE_EVIDENCE)
         stats["trace_evidence_rows"] = trace_ev["rows"]
         stats["trace_evidence_chars"] = len(trace_ev["text"])
-        log_ev = {"text": "", "rows": 0}
-        if config.USE_LOG_EVIDENCE:
-            t_lg = time.time()
-            log_ev = compute_log_evidence(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
-            stats["log_evidence_time_s"] = round(time.time() - t_lg, 3)
-            stats["log_evidence_error"] = log_ev.get("error")
-            stats.update({k: v for k, v in (log_ev.get("stats") or {}).items() if k != "chars"})
-        metric_struct = {"text": "", "rows": 0}
-        if config.USE_METRIC_STRUCTURE:
-            t_ms = time.time()
-            metric_struct = compute_metric_structure(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
-            stats["metric_structure_time_s"] = round(time.time() - t_ms, 3)
-            stats["metric_structure_error"] = metric_struct.get("error")
-            stats.update(metric_struct.get("stats") or {})
-        stats["use_metric_structure"] = bool(config.USE_METRIC_STRUCTURE)
-        stats["metric_structure_chars"] = len(metric_struct["text"])
-        strip = {"text": "", "rows": 0}
-        if config.USE_INTERVAL_STRIP:
-            t_st = time.time()
-            strip = compute_interval_strip(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
-            stats["interval_strip_time_s"] = round(time.time() - t_st, 3)
-            stats["interval_strip_error"] = strip.get("error")
-            stats.update(strip.get("stats") or {})
-        stats["use_interval_strip"] = bool(config.USE_INTERVAL_STRIP)
-        stats["interval_strip_chars"] = len(strip["text"])
-        trace_edges = {"text": "", "rows": 0}
-        if config.USE_TRACE_EDGES:
-            t_te = time.time()
-            trace_edges = compute_trace_edges(case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
-            stats["trace_edges_time_s"] = round(time.time() - t_te, 3)
-            stats["trace_edges_error"] = trace_edges.get("error")
-            stats.update(trace_edges.get("stats") or {})
-        stats["use_trace_edges"] = bool(config.USE_TRACE_EDGES)
-        stats["trace_edges_chars"] = len(trace_edges["text"])
-        stats["use_log_evidence"] = bool(config.USE_LOG_EVIDENCE)
-        stats["log_evidence_chars"] = len(log_ev["text"])
-        alert_lc = {"text": "", "runs": 0}
-        if config.USE_ALERT_LIFECYCLE:
-            alert_lc = compute_alert_lifecycle(case)
-            stats["alert_lifecycle_error"] = alert_lc.get("error")
-        stats["use_alert_lifecycle"] = bool(config.USE_ALERT_LIFECYCLE)
-        stats["alert_lifecycle_runs"] = alert_lc.get("runs", 0)
-        stats["alert_lifecycle_rows_used"] = alert_lc.get("rows_used", 0)
-        stats["alert_lifecycle_rows_after_end"] = alert_lc.get("rows_after_end", 0)
-        stats["alert_lifecycle_chars"] = len(alert_lc["text"])
-        onset_ev = {"text": "", "rows": 0}
-        if config.USE_ONSET_EVIDENCE:
-            t_on = time.time()
-            onset_ev = compute_onset_evidence(
-                case, case.alert.alert_timestamp, parsed_alert["entry_entity_id"])
-            stats["onset_time_s"] = round(time.time() - t_on, 3)
-            stats["onset_error"] = onset_ev.get("error")
-        stats["use_onset_evidence"] = bool(config.USE_ONSET_EVIDENCE)
-        stats["onset_rows"] = onset_ev["rows"]
-        stats["onset_chars"] = len(onset_ev["text"])
-        stats["layer_agent"] = bool(config.LAYER_AGENT)
         stats["chain_first_entity"] = config.CHAIN_FIRST_ENTITY
         graph_anchor = _compute_graph_anchor(case, parsed_alert, graph_result, self.llm,
                                               use_llm=config.USE_LLM_GRAPH_ANCHOR,
@@ -664,51 +590,12 @@ class GraphRAGPipeline:
 
         stats["summarization_time_s"] = time.time() - t5
 
-        top_entity_ids = set()
-        for it in sorted(evidence_items, key=lambda x: x.hybrid_score, reverse=True):
-            if it.observation.entity_id:
-                top_entity_ids.add(it.observation.entity_id)
-            if len(top_entity_ids) >= 3:
-                break
-        scoped_evidence_text = " ".join(
-            it.observation.text for it in evidence_items
-            if it.observation.entity_id in top_entity_ids)
-        keyword_fault_candidates = detect_fault_keywords(scoped_evidence_text)[:5]
-        stats["keyword_fault_candidates"] = "|".join(keyword_fault_candidates)
-
-        # Zero-shot semantic matching -- the ONLY structured fault-type
-        # signal reaching the Coordinator now. The two-stage RandomForest
-        # classifier, its CBR fallback, and TWIST-guided narrowing were all
-        # removed: each was trained or hand-tuned on RCA100's OWN
-        # ground-truth labels (even the classifier's leave-one-out
-        # cross-validation only avoids literal same-case leakage, not
-        # overfitting to this specific 103-case benchmark's label
-        # distribution), which the project treats as invalid for evaluating
-        # genuine agentic reasoning. zero_shot_matching.py has no such
-        # dependency -- it only compares evidence text against each fault
-        # type's public taxonomy definition, so it works standalone with no
-        # group hint (searches all 28 types directly) and needs no prior
-        # pipeline run or trained model.
-        zeroshot_topk = zero_shot_type_match_topk(scoped_evidence_text, candidate_group=None, k=3)
-        if zeroshot_topk:
-            stats["zeroshot_suggested_type"] = zeroshot_topk[0][0]
-            stats["zeroshot_similarity"] = zeroshot_topk[0][1]
-            stats["zeroshot_topk"] = "|".join(f"{t}:{s}" for t, s in zeroshot_topk)
-        else:
-            stats["zeroshot_suggested_type"] = None
-            stats["zeroshot_similarity"] = None
-            stats["zeroshot_topk"] = None
-
         # --- Module 6: Multi-Agent + Coordinator --------------------------
         t6 = time.time()
         neighbors = graph_result.get("neighbors", {})
         candidate_entities = [eid for eid, _ in graph_result["ranked_entities"][:20]]
 
-        topology_view = (build_topology_view(case, parsed_alert["entry_entity_id"], neighbors, propagation_path)
-                         if config.TOPOLOGY_NAMES else None)
-        stats["topology_names"] = bool(config.TOPOLOGY_NAMES)
         agent_state = {
-            "topology_view": topology_view,
             "case_id": case_id,
             "alert_text": parsed_alert["alert_text"],
             "evidence_summary": evidence_summary,
@@ -716,23 +603,11 @@ class GraphRAGPipeline:
             "candidate_entities": candidate_entities,
             "graph_anchor": graph_anchor,
             "propagation_path": propagation_path,
-            "keyword_fault_candidates": keyword_fault_candidates,
-            "zeroshot_suggested_type": stats["zeroshot_suggested_type"],
-            "zeroshot_similarity": stats["zeroshot_similarity"],
-            "zeroshot_topk": zeroshot_topk,
-            # TWIST top entity for optional Coordinator re-ranking hint
             "twist_top_entity": stats.get("twist_top_entity"),
             "twist_top_score": stats.get("twist_top_score"),
             "propagation_text": propagation_ev["text"] or None,
             "infra_text": infra_ev["text"] or None,
-            "colocation_text": coloc_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
-            "log_evidence_text": log_ev["text"] or None,
-            "trace_edges_text": trace_edges["text"] or None,
-            "metric_structure_text": metric_struct["text"] or None,
-            "interval_strip_text": strip["text"] or None,
-            "onset_text": onset_ev["text"] or None,
-            "alert_lifecycle_text": alert_lc["text"] or None,
         }
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
@@ -748,7 +623,6 @@ class GraphRAGPipeline:
 
         final = final_state.get("final_result") or {}
         agent_findings = build_agent_findings_list(final_state)
-        layer = final_state.get("layer_result") or {}
         if config.DEBUG_DUMP_DIR:
             try:
                 os.makedirs(config.DEBUG_DUMP_DIR, exist_ok=True)
@@ -760,12 +634,6 @@ class GraphRAGPipeline:
                               _f, ensure_ascii=False, indent=1, default=str)
             except Exception as _e:  # debug output must never break a run
                 stats["debug_dump_error"] = repr(_e)
-        if config.LAYER_AGENT:
-            stats["layer_level"] = layer.get("level")
-            stats["layer_suspect"] = layer.get("suspect")
-            stats["layer_confidence"] = layer.get("confidence")
-            stats["layer_parse_error"] = bool(layer.get("_parse_error"))
-
         stats["coordinator_prompt_chars"] = final_state.get("coordinator_prompt_chars")
         # GT-free diagnostic: does the entity the Coordinator answers equal the target of its own cause step? (chain-first only)
         try:
@@ -787,58 +655,7 @@ class GraphRAGPipeline:
             stats["cause_entity_mismatch"] = None
         stats["coordinator_prompt_long"] = bool(
             (final_state.get("coordinator_prompt_chars") or 0) > config.PROMPT_CHAR_WARN)
-        if config.VERIFY_CHAIN:
-            _vs = final_state.get("verify_stats") or {}
-            stats["verify_issues"] = _vs.get("issues")
-            stats["verify_revised"] = _vs.get("revised")
-            stats["verify_parse_error"] = _vs.get("parse_error")
-            stats["verify_ungrounded_numbers"] = _vs.get("ungrounded")
-        if config.VERIFY_FAULT_TYPE:
-            _tc = final_state.get("type_check_stats") or {}
-            stats["typecheck_checked"] = _tc.get("checked")
-            stats["typecheck_satisfied"] = _tc.get("satisfied")
-            stats["typecheck_quote_grounded"] = _tc.get("grounded")
-            stats["typecheck_revised"] = _tc.get("revised")
-            stats["typecheck_type_before"] = _tc.get("type_before")
-            stats["typecheck_rows_chars"] = _tc.get("rows_chars")
-        stats["verify_fault_type"] = bool(config.VERIFY_FAULT_TYPE)
-        stats["use_knowledge_prompt"] = bool(config.USE_KNOWLEDGE_PROMPT)
         stats["use_knowledge_pos"] = bool(config.USE_KNOWLEDGE_POS)
-        stats["verify_chain"] = bool(config.VERIFY_CHAIN)
-
-        sc_stats = final_state.get("self_consistency_stats") or {}
-        if sc_stats:
-            stats["self_consistency_n_samples"] = sc_stats.get("n_samples")
-            stats["self_consistency_n_valid"] = sc_stats.get("n_valid")
-            stats["self_consistency_agreement"] = sc_stats.get("agreement")
-            stats["self_consistency_votes"] = json.dumps(sc_stats.get("votes", {}))
-
-        ts_stats = final_state.get("two_stage_stats") or {}
-        if ts_stats:
-            s1_type = ts_stats.get("stage1_fault_type")
-            stats["stage1_fault_type"] = s1_type
-            stats["stage1_entity_ids"] = "|".join(
-                str(e) for e in (ts_stats.get("stage1_entity_ids") or []))
-            stats["stage1_confidence"] = ts_stats.get("stage1_confidence")
-            stats["stage1_parse_error"] = ts_stats.get("stage1_parse_error")
-            # Faithfulness probes (no GT involved -- prediction vs prediction):
-            # did exposure to the anchor change the evidence-only answer, and
-            # does the evidence-only answer already equal the anchor's guess.
-            stats["stage1_vs_final_flipped"] = (
-                s1_type != final.get("predicted_fault_type"))
-            stats["stage1_matches_anchor"] = (
-                s1_type == graph_anchor.get("anchor_fault_type"))
-
-        # Record which Coordinator-ablation config actually ran for THIS case,
-        # read straight from config/env at call time. Added 2026-10-04 after a
-        # mix-up where a results.csv was re-sent and assumed to be from the
-        # COORDINATOR_TWO_STAGE_ANCHOR=1 run when it wasn't -- with these
-        # columns saved to results.csv, which config produced a given file is
-        # verifiable from the file itself instead of relying on remembering
-        # which shell command was run.
-        stats["coordinator_two_stage_anchor"] = bool(config.COORDINATOR_TWO_STAGE_ANCHOR)
-        stats["coordinator_anchor_confirm_bias"] = bool(config.COORDINATOR_ANCHOR_CONFIRM_BIAS)
-        stats["self_consistency_enabled"] = bool(config.USE_SELF_CONSISTENCY)
 
         anchor_entities = graph_anchor.get("anchor_entity_ids") or []
         coord_entities = normalize_entity_ids(
@@ -861,63 +678,9 @@ class GraphRAGPipeline:
                 ([parsed_alert["entry_entity_id"]] if parsed_alert["entry_entity_id"] else [])
             used_fallback = not llm_predicted_entities
         predicted_fault_type = final.get("predicted_fault_type", "unknown")
-        stats["use_dossier_ft"] = bool(config.USE_DOSSIER_FT)
         _cu = [self.llm] + ([self.coordinator_llm] if self.coordinator_llm is not None else [])
         for _k in ("truncated_prompts", "oom_retries", "chunked_prefills", "chunked_fallbacks"):
             stats[_k] = sum(getattr(u, _k, 0) for u in _cu)
-        _dossier_dump = None
-        if config.USE_DOSSIER_FT:
-            try:
-                from agents.dossier import build_dossier, decide_fault_type
-                from data.taxonomy import build_fault_taxonomy, FAULT_DEFINITIONS, knowledge_prompt_block
-                from data.loader import find_service_ancestor
-                from pipeline.infra_evidence import CHANGE_LEGEND
-                from pipeline.propagation_evidence import _node_name, _node_type
-                _e = predicted_entity_ids[0] if predicted_entity_ids else None
-                if _e and _e in case.topology:
-                    _t = _node_type(case.topology, _e)
-                    _svc = _e if _t in ("apm.service", "k8s.node") else (find_service_ancestor(_e, case.topology) or _e)
-                    _ename = _node_name(case.topology, _svc)
-                    _texts = {"propagation_text": propagation_ev["text"], "infra_text": infra_ev["text"],
-                              "colocation_text": coloc_ev["text"], "trace_text": trace_ev["text"],
-                              "onset_text": onset_ev["text"]}
-                    _dos = build_dossier([_ename], _texts)
-                    stats["dossier_entity"] = _ename
-                    stats["dossier_chars"] = len(_dos)
-                    _d = decide_fault_type(self.coordinator_llm or self.llm, parsed_alert["alert_text"], _ename, _dos,
-                                           build_fault_taxonomy(), FAULT_DEFINITIONS, knowledge_prompt_block(),
-                                           CHANGE_LEGEND() if config.USE_CHANGE_FACTOR else "")
-                    stats["dossier_prompt_chars"] = _d["chars"]
-                    stats["dossier_mode"] = _d["mode"]
-                    stats["dossier_p1"] = _d["p1"]
-                    stats["dossier_top3"] = _d["top3"]
-                    stats["chain_fault_type"] = predicted_fault_type
-                    if _d["slug"]:
-                        predicted_fault_type = _d["slug"]
-                    stats["dossier_changed"] = predicted_fault_type != stats["chain_fault_type"]
-                    _dossier_dump = {"entity": _ename, "text": _dos, "mode": _d["mode"],
-                                     "p1": _d["p1"], "top3": _d["top3"],
-                                     "chain_fault_type": stats["chain_fault_type"],
-                                     "final_fault_type": predicted_fault_type}
-                    _c = self.llm.usage_stats()
-                    if self.coordinator_llm is not None:
-                        _c2 = self.coordinator_llm.usage_stats()
-                        _c = {"total_calls": _c.get("total_calls", 0) + _c2.get("total_calls", 0),
-                              "total_tokens": _c.get("total_tokens", 0) + _c2.get("total_tokens", 0)}
-                    stats.update(_c)
-                    stats["truncated_prompts"] = sum(getattr(u, "truncated_prompts", 0) for u in _cu)
-            except Exception as _ex:  # diagnostics + optional arm must never break the run
-                stats["dossier_error"] = repr(_ex)
-        if _dossier_dump is not None and config.DEBUG_DUMP_DIR:
-            try:
-                _p = os.path.join(config.DEBUG_DUMP_DIR, f"{case_id}.json")
-                with open(_p, encoding="utf-8") as _f:
-                    _dd = json.load(_f)
-                _dd["dossier"] = _dossier_dump
-                with open(_p, "w", encoding="utf-8") as _f:
-                    json.dump(_dd, _f, ensure_ascii=False, indent=1, default=str)
-            except Exception as _e2:  # debug output must never break a run
-                stats["debug_dump_error"] = repr(_e2)
         stats["fault_type_equals_anchor"] = bool(
             predicted_fault_type and predicted_fault_type == graph_anchor.get("anchor_fault_type"))
         stats["used_entity_fallback"] = used_fallback

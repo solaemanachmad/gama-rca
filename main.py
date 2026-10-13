@@ -146,7 +146,7 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     # removed: it was trained on RCA100's own ground-truth labels, which is
     # invalid for evaluating genuine agentic reasoning even under
     # leave-one-out cross-validation. Fault typing now relies solely on
-    # pipeline/zero_shot_matching.py (public taxonomy definitions only) and
+    # the public taxonomy definitions and
     # the full 28-type taxonomy shown to the Coordinator -- no classifier
     # path check is needed here anymore.
 
