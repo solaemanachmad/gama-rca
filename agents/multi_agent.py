@@ -215,6 +215,25 @@ def _scoped_evidence(state, name):
     return "\n\n".join(parts)
 
 
+_TYPING_TASK = (
+    "Task: choose the fault type of the origin entity. First copy into fault_evidence the signal=value or the message text from the evidence rows above "
+    "that identifies the KIND of fault (status-code class or error message, which resource is saturated and its value, replica/restart/event reasons). "
+    "Then choose the one taxonomy type whose definition is satisfied by fault_evidence. A definition is satisfied only by what that signal shows: a "
+    "different status-code class, a different resource or an absent signal does not satisfy it.\n"
+    "Respond as JSON: " + '{"fault_evidence": "<signal=value or message copied from the rows above>", "predicted_fault_type": "<one taxonomy slug whose definition is satisfied by fault_evidence>", "confidence": <float 0-1>}'
+)
+# Arm TYPECMP (TYPING_COMPARE=1): the model itself proposes up to three candidate types from the taxonomy and, for each, copies the row that supports it and
+# the row that contradicts it (or "none"), then chooses. Nothing is excluded by code; the LLM does the comparison.
+_TYPING_TASK_CMP = (
+    "Task: name up to three taxonomy types whose definition could fit this origin entity. For each candidate copy, from the evidence rows above, the row "
+    "that supports its definition and the row that contradicts it (or write \"none\" when no row does). A definition is supported only by what the row "
+    "shows: a different status-code class, a different resource, or an absent signal does not support it. Then choose the candidate with supporting "
+    "evidence and no contradicting evidence; if two remain, choose the one whose definition names the signal you copied.\n"
+    "Respond as JSON: " + '{"candidates": [{"type": "<taxonomy slug>", "supports": "<row copied or none>", "contradicts": "<row copied or none>"}], '
+    '"fault_evidence": "<row copied for the chosen type>", "predicted_fault_type": "<the chosen slug>", "confidence": <float 0-1>}'
+)
+
+
 def _apply_entity_typing(llm, state, fault_hint):
     """Arm TYPE: second, short call that chooses the fault type from the chain and the entity-scoped evidence. Keeps the Coordinator's type on any failure."""
     fr = state.get("final_result")
@@ -233,11 +252,7 @@ def _apply_entity_typing(llm, state, fault_hint):
         f"{scoped or '(no row mentions this name)'}\n\n"
         f"{fault_hint}\n\n"
         f"{knowledge_block}"
-        f"Task: choose the fault type of the origin entity. First copy into fault_evidence the signal=value or the message text from the evidence rows above "
-        f"that identifies the KIND of fault (status-code class or error message, which resource is saturated and its value, replica/restart/event reasons). "
-        f"Then choose the one taxonomy type whose definition is satisfied by fault_evidence. A definition is satisfied only by what that signal shows: a "
-        f"different status-code class, a different resource or an absent signal does not satisfy it.\n"
-        f"Respond as JSON: " + '{"fault_evidence": "<signal=value or message copied from the rows above>", "predicted_fault_type": "<one taxonomy slug whose definition is satisfied by fault_evidence>", "confidence": <float 0-1>}'
+        f"{_TYPING_TASK_CMP if config.TYPING_COMPARE else _TYPING_TASK}"
     )
     res = llm.generate_json(prompt, system=TYPING_SYSTEM_PROMPT)
     _trace(state, "typing_call", prompt, res)

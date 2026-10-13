@@ -47,7 +47,7 @@ BASE = dict(
 FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # strict routing + English specialist text (the base A1rT_fixed)
 FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_ALL_ENTITIES", "SPEC_CHAIN_SEGMENTS",
          "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_KNOWLEDGE_POS", "USE_LLM_SPECIALIST_AGENTS", "GROUNDED_FAULT",
-         "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED")
+         "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -57,6 +57,9 @@ ARMS = {                                                          # name -> extr
     "A1rT_fixed_ABS_KP_TYPELEAN_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "SPEC_EVIDENCE_ONLY": "1"},
     "A1rT_fixed_ABS_KP_EVSC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_EVENTS_SCOPED": "1"},      # events only for the neighbourhood services and their nodes
     "A1rT_fixed_ABS_KP_TYPELEAN_EVSC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "INFRA_EVENTS_SCOPED": "1"},
+    "A1rT_fixed_ABS_KP_TYPECMP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "TYPING_COMPARE": "1"},   # typing call proposes <=3 candidates with supporting/contradicting rows, then chooses
+    "A1rT_fixed_ABS_KP_TYPELEAN_CMP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "TYPING_COMPARE": "1"},
+    "A1rT_fixed_ABS_KP_NOSTATS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "USE_CHANGE_STATS": "0", "USE_CHANGE_FACTOR": "0"},   # ablation: no change/z/rank/n appended to numeric rows
     "A1rT_fixed_ABS_KP_NOSPEC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "NO_SPECIALISTS": "1"},       # ablation: no specialist calls
     "A1rT_fixed_ABS_KP_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_EVIDENCE_ONLY": "1"},    # specialists copy observations, no verdict
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},

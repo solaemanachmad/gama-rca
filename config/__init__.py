@@ -430,3 +430,7 @@ COORD_LEAN = os.environ.get("COORD_LEAN", "0") == "1"
 #   tables already define it) or to a node that hosts one of those services; groups on other objects are not listed, only counted in one line. Selection by name,
 #   never by significance; same rule for every case. Default (off): all groups, Warning first, alphabetical, cut at the character budget.
 INFRA_EVENTS_SCOPED = os.environ.get("INFRA_EVENTS_SCOPED", "0") == "1"
+
+# TYPING_COMPARE=1 (arm TYPECMP, needs ENTITY_TYPING=1): the typing call first proposes up to three candidate types and copies the supporting and the contradicting
+# row for each, then chooses (one call, same evidence rows, nothing excluded by code). Default off.
+TYPING_COMPARE = os.environ.get("TYPING_COMPARE", "0") == "1"
