@@ -250,6 +250,8 @@ def _apply_entity_typing(llm, state, fault_hint):
         fr["typing_applied"] = True
     else:
         fr["typing_applied"] = False
+        if config.COORD_LEAN:
+            fr["predicted_fault_type"] = "unknown"
 
 
 def _trace(state, name, prompt, output):
@@ -500,6 +502,20 @@ _GROUNDED_TASK = (
 # CHAIN_ABSOLUTE_SIGNALS=1: RCA100 checkpoints are numeric constraints on request count (204 of 661), average request latency in seconds (178) and
 # error count (97) (paper, section 5.3), compared with >= against absolute values, and the GT example names operations as service::operation.
 # One uniform instruction, same for every case; derived from the public paper, not from any label of ours.
+CHAIN_LEAN_SCHEMA_HINT = (
+    '{"reasoning_chain": ["cause: <target> <signal>=<value> ...", '
+    '"propagation: <target> <signal>=<value> ...", "impact: <target> <signal>=<value> ..."], '
+    '"predicted_entity_ids": ["<target of the cause step>"], '
+    '"confidence": <float 0-1>}'
+)
+_LEAN_TASK = (
+    "Task: write the root-cause reasoning chain. Each chain step is 'step_type: target signal=value ...' with step_type in cause / propagation / impact. "
+    "'target' is a service, operation, node, pod or deployment name taken from the evidence; cite the concrete numeric signal values (request count, error "
+    "count, latency, cpu/memory usage, replicas, event reasons and counts) from the tables above. The cause step names the ORIGIN of the fault, not merely "
+    "the entity that raised the alert (node/pod/deployment faults are visible in the node, deployment and event tables). Then set predicted_entity_ids to the "
+    "target of the cause step. The kind of fault is decided in a later step from your chain, so the cause step should contain the signals that identify it "
+    "(the status-code class or error message, which resource is saturated and its value, replica/restart/event reasons), not only an error rate."
+)
 _ABS_TASK = (" Cite signals as absolute values in their own units, as the tables show them: request count, average request latency in seconds, "
              "error count and rate, cpu and memory usage, replicas, event reasons and counts. Do not write change factors or ratios as if they "
              "were values (not 'x670', not p95_latency_ratio). Name each step's target at the finest level the tables show: a service, "
@@ -565,7 +581,26 @@ def coordinator_node(llm: LLMClient):
             # copying the anchor.
             infra_text = state.get("infra_text") or ""
             trace_text = state.get("trace_text") or ""
-            knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if config.USE_KNOWLEDGE_POS else ""
+            knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if (config.USE_KNOWLEDGE_POS and not config.COORD_LEAN) else ""
+            if config.COORD_LEAN:      # arm TYPELEAN: taxonomy, KP and the type field move to the typing call
+                prompt = (
+                    f"Alert: {state['alert_text']}\n\n"
+                    f"{findings_head}"
+                    f"{prop_block}\n"
+                    f"{('' if not infra_text else chr(10) + infra_text + chr(10))}"
+                    f"{('' if not trace_text else chr(10) + trace_text + chr(10))}\n"
+                    f"{_LEAN_TASK}"
+                    f"{_ABS_TASK if config.CHAIN_ABSOLUTE_SIGNALS else ''}\n"
+                    f"Respond as JSON: {CHAIN_LEAN_SCHEMA_HINT}"
+                )
+                state["coordinator_prompt_chars"] = len(prompt)
+                _sys = (COORDINATOR_SYSTEM_PROMPT_NOSPEC if config.NO_SPECIALISTS else COORDINATOR_SYSTEM_PROMPT_OBS if config.SPEC_EVIDENCE_ONLY
+                        else COORDINATOR_SYSTEM_PROMPT)
+                state["final_result"] = llm.generate_json(prompt, system=_sys)
+                _trace(state, "coordinator_chain_first", prompt, state["final_result"])
+                if config.ENTITY_TYPING:
+                    _apply_entity_typing(llm, state, fault_hint)
+                return state
             prompt = (
                 f"Alert: {state['alert_text']}\n\n"
                 f"{findings_head}"

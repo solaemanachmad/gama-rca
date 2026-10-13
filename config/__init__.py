@@ -423,3 +423,6 @@ GROUNDED_FAULT = os.environ.get("GROUNDED_FAULT", "0") == "1"
 ENTITY_TYPING = os.environ.get("ENTITY_TYPING", "0") == "1"
 NO_SPECIALISTS = os.environ.get("NO_SPECIALISTS", "0") == "1"
 SPEC_EVIDENCE_ONLY = os.environ.get("SPEC_EVIDENCE_ONLY", "0") == "1"
+# COORD_LEAN=1 (arm TYPELEAN, needs ENTITY_TYPING=1): the chain-first Coordinator no longer sees the taxonomy, the KP block or a fault-type field; it writes only
+#   the chain and the origin entity. The fault type is chosen afterwards by the typing call (entity-scoped evidence + taxonomy + KP). A failed typing call leaves 'unknown'.
+COORD_LEAN = os.environ.get("COORD_LEAN", "0") == "1"
