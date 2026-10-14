@@ -194,11 +194,9 @@ def load_topology(case_dir: str) -> nx.DiGraph:
         )
 
     edges_raw = None
-    used_key = None
     for key in TOPOLOGY_EDGE_KEY_CANDIDATES:
         if key in raw and isinstance(raw[key], list):
             edges_raw = raw[key]
-            used_key = key
             break
 
     if edges_raw is None:

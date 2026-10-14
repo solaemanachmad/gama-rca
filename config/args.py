@@ -5,10 +5,10 @@ Centralized CLI argument parser for every config toggle that's realistically
 worth switching between runs, without hand-editing config/__init__.py each
 time:
 
-    python run_experiment.py --n_cases 20 --embedding-backend hf_api \
+    python main.py --n_cases 20 --embedding-backend hf_api \
         --hybrid-alpha 0.7 --hybrid-beta 0.3
 
-Only entry-point scripts (run_experiment.py, smoke_test.py) call this --
+Only entry-point scripts (main.py, smoke_test.py) call this --
 importing config.args does NOT parse anything by itself, so it's safe to
 import from anywhere without side effects.
 
@@ -27,7 +27,7 @@ import argparse
 def build_parser(parser: argparse.ArgumentParser = None) -> argparse.ArgumentParser:
     """Adds every config-overriding flag to `parser` (creating one if not
     given) and returns it. Safe to call on a parser that already has its
-    own script-specific flags (e.g. run_experiment.py's --n_cases)."""
+    own script-specific flags (e.g. main.py's --n_cases)."""
     if parser is None:
         parser = argparse.ArgumentParser()
 
@@ -129,7 +129,7 @@ def get_effective_config() -> dict:
 
 def print_effective_config() -> None:
     """Prints the config values that actually matter for reproducing a run
-    -- handy to log at the start of run_experiment.py so results.csv runs
+    -- handy to log at the start of main.py so results.csv runs
     are traceable back to the settings that produced them.
 
     Backend-aware: only shows the model setting for whichever LLM_BACKEND
@@ -137,9 +137,7 @@ def print_effective_config() -> None:
     once. get_effective_config() (used for W&B logging) stays complete/
     unfiltered, since a full record is useful there for reproducibility;
     this is just the human-readable console summary."""
-    import config
     cfg = get_effective_config()
-    backend = cfg.get("LLM_BACKEND")
     print("=== Effective config for this run ===")
     for k, v in cfg.items():
         if k in _ALWAYS_HIDDEN:

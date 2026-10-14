@@ -7,15 +7,15 @@ nothing useful. This checks entity_name/service directly for domain=="k8s"
 vs domain=="apm" rows, to confirm why k8s-domain rows fail to resolve.
 
 Usage:
-    python check_k8s_domain.py t003
+    python scripts/diagnostics/check_k8s_domain.py t003
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import sys
 import pandas as pd
-from data.loader import Case, build_name_index
+from data.loader import Case
 
 case_id = sys.argv[1] if len(sys.argv) > 1 else "t003"
 case = Case(case_id)

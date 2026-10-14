@@ -22,8 +22,7 @@ from typing import Dict, Optional
 
 import networkx as nx
 
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds, _calls_graph,
-                                           _node_name, _node_type, _p95)
+from pipeline.propagation_evidence import window_bounds, _calls_graph, _node_name, _node_type, _p95
 
 CHAR_BUDGET = 3800
 LINE_CAP = 500

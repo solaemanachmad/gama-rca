@@ -19,7 +19,7 @@ import random
 import re
 import time
 from collections import Counter
-from typing import Dict, List, Optional
+from typing import Dict, List
 from pipeline.twist_scoring import (compute_twist_scores, twist_scores_to_summary,
                                      twist_top_entity, twist_scores_to_observations)
 
@@ -33,7 +33,6 @@ from retrieval.vector import build_index_from_observations
 from retrieval.hybrid import HybridRetriever, graph_direct_evidence, merge_evidence
 from pipeline.evidence_summarizer import summarize_evidence, compute_metric_trends, compute_baseline_stats, ERROR_PATTERN
 from agents.multi_agent import build_agent_graph, build_agent_findings_list
-from agents.llm_protocol import LLMClient
 from schema import EvidenceItem, RCAResult
 from pipeline.propagation_evidence import compute_propagation_evidence
 from pipeline.infra_evidence import compute_infra_evidence
@@ -655,7 +654,7 @@ class GraphRAGPipeline:
                 _eid = _e0 if _e0 in case.topology else resolve_entity_by_name(_e0.split("::")[0].lower(), case.name_index)
             stats["cause_target"] = _tgt
             stats["cause_entity_mismatch"] = (None if (_tid is None or _eid is None) else (_tid != _eid))
-        except Exception as _ex:
+        except Exception:
             stats["cause_entity_mismatch"] = None
         stats["coordinator_prompt_long"] = bool(
             (final_state.get("coordinator_prompt_chars") or 0) > config.PROMPT_CHAR_WARN)

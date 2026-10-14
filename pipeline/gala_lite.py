@@ -22,7 +22,6 @@ No ground truth is read. Fault type is chosen by the LLM from the full taxonomy.
 """
 from __future__ import annotations
 
-import datetime as dt
 import os
 import random
 import re
@@ -34,11 +33,10 @@ from typing import Dict, List
 import config
 from agents.llm_protocol import LLMClient
 from agents.multi_agent import FINAL_SCHEMA_HINT
-from data.loader import Case, find_service_ancestor, resolve_entity_by_name
+from data.loader import Case, find_service_ancestor
 from data.taxonomy import taxonomy_prompt_block
 from pipeline.evidence_summarizer import ERROR_PATTERN
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
-                                           _calls_graph, _node_name, _node_type)
+from pipeline.propagation_evidence import window_bounds, _calls_graph, _node_name, _node_type
 from pipeline.twist_scoring import compute_twist_scores
 from schema import RCAResult
 

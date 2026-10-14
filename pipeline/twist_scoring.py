@@ -119,7 +119,6 @@ def compute_twist_scores(
         trace_to_services[s["traceId"]].add(s["serviceName"])
 
     anomalous_traces = {tid for tid, anom in trace_has_anomaly.items() if anom}
-    all_traces = set(trace_to_services.keys())
 
     # --- Step 3: Build trace DAG for blast radius -------------------------
     # Parent-child: spanId -> list of child spanIds within same trace

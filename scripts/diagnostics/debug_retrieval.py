@@ -24,12 +24,12 @@ For each case it prints:
 
 Usage:
     export RCA100_ROOT=/path/to/RCA100
-    python debug_retrieval.py                          # default case list below
-    python debug_retrieval.py t003 t005 t007 t008       # specific cases
+    python scripts/diagnostics/debug_retrieval.py                          # default case list below
+    python scripts/diagnostics/debug_retrieval.py t003 t005 t007 t008       # specific cases
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 import sys

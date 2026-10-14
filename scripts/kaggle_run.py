@@ -32,7 +32,7 @@ for m in ("drain3", "faiss", "sentence_transformers", "networkx", "langgraph", "
         print("MISSING", m, "->", e)
 
 # %% Cell 3 -- definitions only (BASE, FLAGS, ARMS, run helpers); runs NO model
-import json, time, glob
+import time, glob
 # Model source. Local copy attached via Add Input > Models (qwen-lm / qwen2.5 / transformers / 7b-instruct / 1); None = download the HF default.
 LOCAL_MODEL = "/kaggle/input/models/qwen-lm/qwen2.5/transformers/7b-instruct/1"
 BASE = dict(

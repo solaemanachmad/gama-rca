@@ -242,7 +242,6 @@ def _compute(case, alert_ts, entry_entity_id, max_hops):
 
     # neighbourhood service names (alert service, callees <= max_hops, callers)
     svc_names = set()
-    node_names_by_svc = defaultdict(set)
     if entry_entity_id and entry_entity_id in topo:
         svc0 = find_service_ancestor(entry_entity_id, topo) or entry_entity_id
         calls = _calls_graph(topo)

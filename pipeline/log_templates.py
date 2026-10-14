@@ -20,10 +20,9 @@ from __future__ import annotations
 import datetime as dt
 import os
 import re
-from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-from pipeline.propagation_evidence import WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds
+from pipeline.propagation_evidence import window_bounds
 
 _KEEP_KEYS = ("level", "severity", "msg", "message", "error", "err", "reason", "status",
               "statuscode", "code", "event", "method", "path", "route", "type", "name")

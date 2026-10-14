@@ -46,7 +46,6 @@ USAGE (config.py / .env):
     KAGGLE_MODEL_HANDLE=Qwen/Qwen2.5-7B-Instruct   # default -- see config/__init__.py
 """
 
-import json
 import os
 from typing import Optional
 

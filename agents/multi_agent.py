@@ -19,7 +19,7 @@ from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block_pos
 
 import re
 import config
-from schema import AgentFinding, RCAResult
+from schema import AgentFinding
 from agents.llm_protocol import LLMClient
 
 

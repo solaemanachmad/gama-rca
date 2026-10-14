@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the manuscript below (draft, not yet peer reviewed)."
+title: "GAMA-RCA: A Graph-Augmented Multi-Agent Framework for Root Cause Analysis on RCA100"
+type: software
+authors:
+  - family-names: Solaeman
+    given-names: Achmad
+    email: achmad.solaeman@mail.ugm.ac.id
+    affiliation: "Department of Electrical Engineering and Informatics"
+  - family-names: Rosyid
+    given-names: Nur Rohman
+  - family-names: Wicaksono
+    given-names: Ardhi
+  - family-names: Sejati
+    given-names: Prima Asmara
+  - name: "Hamzah"
+repository-code: "https://github.com/solaemanachmad/gama-rca"
+keywords:
+  - root cause analysis
+  - AIOps
+  - multi-agent systems
+  - retrieval-augmented generation

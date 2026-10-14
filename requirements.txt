@@ -1,15 +1,20 @@
+# Core
 pandas
 pyarrow
 networkx
 faiss-cpu
-sentence-transformers
-langgraph
-requests
+sentence-transformers      # BGE-M3 embeddings
+langgraph                  # agent graph (specialists -> Coordinator)
+drain3                     # log template mining (LOG_TEMPLATE_ENGINE=drain3)
+jieba                      # Chinese word segmentation for alert text (RCA100 alert titles are largely Chinese)
+numpy
+tqdm
+# LLM (local Qwen2.5-7B-Instruct via transformers)
+torch
+transformers
+accelerate
+# Optional
+wandb                      # --wandb run logging
 python-dotenv
-wandb
-jieba              # Chinese word segmentation for alert_text keyword extraction
-                   # (RCA100's alert_title/subject fields are predominantly Chinese)
-tqdm               # case-level progress bar in main.py's run_all() -- already a
-                   # transitive dep of transformers/sentence-transformers (that's
-                   # what's drawing the "Loading weights: 100%|..." bars you've
-                   # already seen), pinned explicitly here so it's not implicit
+requests
+matplotlib                 # scripts/diagnostics/export_topology.py only

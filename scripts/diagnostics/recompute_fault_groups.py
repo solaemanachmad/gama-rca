@@ -8,10 +8,10 @@ data/taxonomy.py, so results here will match what future runs produce
 in the fault_group_identification column directly.
 
 Usage:
-    python scripts/recompute_fault_groups.py path/to/results.csv
+    python scripts/diagnostics/recompute_fault_groups.py path/to/results.csv
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import pandas as pd
 from data.taxonomy import fault_group

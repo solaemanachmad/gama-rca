@@ -8,11 +8,11 @@ paper), with the alert entity and ground-truth root-cause entity
 highlighted.
 
 Usage:
-    python scripts/export_topology.py t001 t002 t003
-    python scripts/export_topology.py t001 --max-nodes 40   # trim large graphs for readability
+    python scripts/diagnostics/export_topology.py t001 t002 t003
+    python scripts/diagnostics/export_topology.py t001 --max-nodes 40   # trim large graphs for readability
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import argparse
 import json

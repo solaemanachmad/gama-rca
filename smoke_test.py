@@ -1,7 +1,7 @@
 """
 smoke_test.py
 ===============
-Run this FIRST, locally, before touching run_experiment.py.
+Run this FIRST, locally, before touching main.py.
 
 It exercises each module one stage at a time and stops with a clear error
 at whichever stage breaks (usually: wrong dataset path, or a field-name
