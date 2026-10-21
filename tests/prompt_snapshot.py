@@ -78,10 +78,25 @@ def make_state():
     }
 
 
+def fp_db_fixture():
+    """Synthetic signal database for the FP arms: cart (the stub Coordinator's cause target is 'a', so the snapshot also covers an
+    origin that is not in the database -> no typing call) -- kept tiny and deterministic."""
+    from collections import Counter, defaultdict
+    from pipeline.fault_fingerprint import _new_profile
+    import datetime as dt
+    prof = _new_profile()
+    prof["trace"]["http_w"] = Counter({"429": 9})
+    prof["trace"]["win_err"], prof["trace"]["win_n"], prof["trace"]["base_n"] = 9, 20, 200
+    t = dt.datetime(2026, 1, 1)
+    return {"services": {"a": prof, "cart": _new_profile()}, "nodes": {}, "hosts": defaultdict(list), "w0": t, "w1": t + dt.timedelta(minutes=6),
+            "window_s": 360.0, "base_s": 3600.0}
+
+
 # Overrides applied on top of a neutral base; every other flag keeps its config default.
 NEUTRAL = dict(GROUNDED_FAULT=False, CHAIN_FIRST=True, USE_KNOWLEDGE_POS=False, CHAIN_ABSOLUTE_SIGNALS=False,
                STRICT_MODALITY_ROUTING=False, SPECIALIST_ENGLISH=False, SPEC_CHAIN_SEGMENTS=False,
-               USE_KEYWORD_HINT=False, TOPOLOGY_NAMES=False, ENTITY_TYPING=False, COORD_LEAN=False, NO_SPECIALISTS=False, SPEC_EVIDENCE_ONLY=False)
+               USE_KEYWORD_HINT=False, TOPOLOGY_NAMES=False, ENTITY_TYPING=False, COORD_LEAN=False, NO_SPECIALISTS=False, SPEC_EVIDENCE_ONLY=False,
+               FAULT_FINGERPRINT="", VERIFY_CHAIN=False)
 CONFIGS = {
     "frozen_ABS_KP": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "frozen_ABS_KP_SEG": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, SPEC_CHAIN_SEGMENTS=True),
@@ -91,6 +106,9 @@ CONFIGS = {
     "frozen_ABS_KP_TYPELEAN": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, ENTITY_TYPING=True, COORD_LEAN=True),
     "frozen_ABS_KP_NOSPEC": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, NO_SPECIALISTS=True),
     "frozen_ABS_KP_EVOBS": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, SPEC_EVIDENCE_ONLY=True),
+    "frozen_ABS_KP_FPSL": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, FAULT_FINGERPRINT="shortlist"),
+    "frozen_ABS_KP_FPSHOW": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, FAULT_FINGERPRINT="show"),
+    "frozen_ABS_KP_VER": dict(USE_KNOWLEDGE_POS=True, CHAIN_ABSOLUTE_SIGNALS=True, STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True, VERIFY_CHAIN=True),
     "base_A1rT_fixed": dict(STRICT_MODALITY_ROUTING=True, SPECIALIST_ENGLISH=True),
     "chain_first_off_baseline_path": dict(CHAIN_FIRST=False),
 }
@@ -103,6 +121,8 @@ def run_config(overrides):
             setattr(config, k, v)
         llm = StubLLM()
         state = make_state()
+        if config.FAULT_FINGERPRINT:
+            state["fp_db"] = fp_db_fixture()
         if not config.NO_SPECIALISTS:
             for name, filt in (("metrics", "metric"), ("logs", "log"), ("trace", "span")):
                 state = ma._make_agent_node(name, filt, llm)(state)

@@ -24,7 +24,8 @@ os.environ["PYTHONHASHSEED"] = "0"
 
 # %% Cell 2 -- dependencies (skip what the notebook image already has)
 import sys, importlib
-subprocess.run([sys.executable, "-m", "pip", "-q", "install", "sentence-transformers", "networkx", "drain3", "faiss-cpu", "langgraph"])
+subprocess.run([sys.executable, "-m", "pip", "-q", "install", "sentence-transformers", "networkx", "drain3", "faiss-cpu", "langgraph",
+                "bitsandbytes"])                     # bitsandbytes: only the 4-bit model presets (14B/32B) need it
 for m in ("drain3", "faiss", "sentence_transformers", "networkx", "langgraph", "torch", "transformers"):
     try:
         importlib.import_module(m); print("ok  ", m)
@@ -45,9 +46,23 @@ BASE = dict(
     PYTHONHASHSEED="0", RCA100_ROOT=DATA,
     **({"KAGGLE_MODEL_LOCAL_PATH": LOCAL_MODEL} if LOCAL_MODEL else {}))
 FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # strict routing + English specialist text (the base A1rT_fixed)
+# Backbone presets (MODEL in Cell 4). Each is a set of env variables on top of BASE; "" clears the local path so the HF handle is used.
+# Prefer attaching the model via Add Input > Models and putting its mounted folder in KAGGLE_MODEL_LOCAL_PATH (no download). T4 has no native
+# bf16, so the 4-bit presets compute in float16. Qwen3-32B in 4-bit needs ~20 GB of GPU memory (2xT4) and ~65 GB of disk for the bf16 download:
+# attach a pre-quantised copy rather than downloading.
+MODELS = {
+    "qwen25_7b": {},                                                                                 # the main configuration so far (BASE)
+    "qwen3_8b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-8B"},
+    "qwen3_8b_think": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-8B", "ENABLE_THINKING": "1", "LLM_MAX_TOKENS": "4096"},
+    "qwen25_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen2.5-14B-Instruct", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
+    "qwen3_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-14B", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
+    "qwen3_32b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-32B", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
+}
 FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_ALL_ENTITIES", "SPEC_CHAIN_SEGMENTS",
          "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_KNOWLEDGE_POS", "USE_LLM_SPECIALIST_AGENTS", "GROUNDED_FAULT",
-         "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR")
+         "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
+         "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
+         "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -62,6 +77,13 @@ ARMS = {                                                          # name -> extr
     "A1rT_fixed_ABS_KP_NOSTATS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "USE_CHANGE_STATS": "0", "USE_CHANGE_FACTOR": "0"},   # ablation: no change/z/rank/n appended to numeric rows
     "A1rT_fixed_ABS_KP_NOSPEC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "NO_SPECIALISTS": "1"},       # ablation: no specialist calls
     "A1rT_fixed_ABS_KP_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_EVIDENCE_ONLY": "1"},    # specialists copy observations, no verdict
+    # Fault fingerprints (pipeline/fault_fingerprint.py) and the chain verifier; all on the main configuration
+    "A1rT_fixed_ABS_KP_FPSHOW": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "show"},        # profile + candidates shown, any type allowed
+    "A1rT_fixed_ABS_KP_FPSL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist"},     # typing call constrained to the top-3 candidates
+    "A1rT_fixed_ABS_KP_FPRULE": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule"},        # ablation: top candidate, no typing LLM call
+    "A1rT_fixed_ABS_KP_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "VERIFY_CHAIN": "1"},                   # verifier only
+    "A1rT_fixed_ABS_KP_FPSL_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1"},   # candidate main configuration
+    "A1rT_fixed_ABS_KP_FPSL_VER_LVL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1", "FP_LEVEL_SWITCH": "1"},
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},
     "A1rT_fixed_ABS_KP_COV_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1", "SPEC_CHAIN_SEGMENTS": "1"},
@@ -75,17 +97,22 @@ HELDOUT = [c for c in ALL_IDS if c not in DEV30]
 # %% Cell 4 -- settings
 import torch
 ARM = "A1rT_fixed_ABS_KP"
+MODEL = "qwen25_7b"           # a key of MODELS (Cell 3)
 CASES = DEV30                 # DEV30 | SUBSET8 | HELDOUT | ALL_IDS
 SHARD = None                  # None, or (k, n): run every n-th case starting at k (0-based), e.g. (0, 3) for notebook 1 of 3
-TAG = "7B"
+TAG = {"qwen25_7b": "7B"}.get(MODEL, MODEL)   # "7B" keeps the file names of earlier runs
 if SHARD:
     CASES = [c for i, c in enumerate(CASES) if i % SHARD[1] == SHARD[0]]
 print(f"{ARM}: {len(CASES)} cases | GPUs free GB:", [round(torch.cuda.mem_get_info(i)[0] / 1e9, 1) for i in range(torch.cuda.device_count())])
 
 # %% Cell 5 -- run (background process, log to file; re-run the cell to resume)
-name = f"{ARM}_{TAG}" + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
+import sys
+MODEL = globals().get("MODEL", "qwen25_7b")    # notebooks written before the MODEL setting keep the 7B base
+if MODELS[MODEL].get("KAGGLE_USE_4BIT") == "1":
+    subprocess.run([sys.executable, "-m", "pip", "-q", "install", "bitsandbytes"])
+name = f"{ARM}_{TAG}" + ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
 clean = {k: v for k, v in os.environ.items() if k not in FLAGS}
-env = {**clean, **BASE, **ARMS[ARM], **FIXED, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}"}
+env = {**clean, **BASE, **MODELS[MODEL], **ARMS[ARM], **FIXED, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}"}
 out = f"/kaggle/working/{name}.csv"
 open(f"/kaggle/working/{name}.commit.txt", "w").write(COMMIT + "\n")
 cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", "proposed_hybrid", "--save_path", out]   # resume ON
@@ -103,8 +130,10 @@ import pandas as pd
 d = pd.read_csv(out)
 cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries", "total_calls", "entity_localization",
                     "predicted_fault_type", "gt_fault_type", "fault_identification_exact", "fault_group_identification", "final_score",
-                    "cause_entity_mismatch", "total_pipeline_time_s") if c in d.columns]
+                    "cause_entity_mismatch", "fp_candidates", "fp_choice_in_shortlist", "verify_grounded_before", "verify_repaired",
+                    "total_pipeline_time_s") if c in d.columns]
 print(d[cols].to_string(index=False))
 print(d[[c for c in ("entity_localization", "fault_identification_exact", "fault_group_identification", "reasoning_process", "final_score",
-                     "cause_entity_mismatch", "total_pipeline_time_s") if c in d.columns]].mean(numeric_only=True))
+                     "cause_entity_mismatch", "fp_candidates", "fp_choice_in_shortlist", "verify_grounded_before", "verify_repaired",
+                    "total_pipeline_time_s") if c in d.columns]].mean(numeric_only=True))
 print(d.predicted_fault_type.value_counts().to_string())

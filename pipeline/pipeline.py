@@ -608,6 +608,12 @@ class GraphRAGPipeline:
             "infra_text": infra_ev["text"] or None,
             "trace_text": trace_ev["text"] or None,
         }
+        if config.FAULT_FINGERPRINT:
+            from pipeline.fault_fingerprint import compute_signal_db
+            t_fp = time.time()
+            agent_state["fp_db"] = compute_signal_db(case, case.alert.alert_timestamp)
+            stats["fp_db_time_s"] = round(time.time() - t_fp, 3)
+            stats["fp_db_error"] = (agent_state["fp_db"] or {}).get("error")
         final_state = self.agent_graph.invoke(agent_state)
         stats["multi_agent_time_s"] = time.time() - t6
         combined_usage = self.llm.usage_stats()
@@ -635,7 +641,9 @@ class GraphRAGPipeline:
                 stats["debug_dump_error"] = repr(_e)
         stats["coordinator_prompt_chars"] = final_state.get("coordinator_prompt_chars")
         _fr0 = final_state.get("final_result") or {}
-        for _k in ("coordinator_fault_type", "fault_evidence", "typing_applied", "typing_scoped_chars", "typing_prompt_chars"):
+        for _k in ("coordinator_fault_type", "fault_evidence", "typing_applied", "typing_scoped_chars", "typing_prompt_chars",
+                   "fp_mode", "fp_origin", "fp_origin_kind", "fp_signals", "fp_candidates", "fp_choice_in_shortlist", "fp_entity_switched_from",
+                   "verify_grounded_before", "verify_grounded_after", "verify_numbers", "verify_repaired", "verify_entity_from"):
             if _k in _fr0:
                 stats[_k] = _fr0.get(_k)
         # GT-free diagnostic: does the entity the Coordinator answers equal the target of its own cause step? (chain-first only)

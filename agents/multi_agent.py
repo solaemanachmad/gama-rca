@@ -15,7 +15,7 @@ import json
 
 from langgraph.graph import StateGraph, END
 
-from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block_pos
+from data.taxonomy import taxonomy_prompt_block, knowledge_prompt_block_pos, FAULT_DEFINITIONS, fault_group
 
 import re
 import config
@@ -48,6 +48,7 @@ class AgentState(TypedDict, total=False):
     trace_finding: Optional[dict]
     topology_finding: Optional[dict]
     final_result: Optional[dict]
+    fp_db: Optional[dict]                        # arm FP: per-service/node signal database (pipeline/fault_fingerprint.py)
 
 
 AGENT_SYSTEM_PROMPT = (
@@ -234,12 +235,208 @@ _TYPING_TASK_CMP = (
 )
 
 
-def _apply_entity_typing(llm, state, fault_hint):
+# Arm FP (FAULT_FINGERPRINT=show|shortlist|rule): the typing step sees a code-checked signal profile of the origin entity and the fault types whose key
+# signal is present (pipeline/fault_fingerprint.py). shortlist constrains the answer to those candidates; rule takes the top one without an LLM call.
+FP_TYPING_SYSTEM_PROMPT = (
+    "You are a fault-typing agent for a microservice root-cause-analysis system. Given the origin entity, a causal chain, the evidence rows that "
+    "mention that entity and a code-checked signal profile, you choose the fault type whose definition the evidence satisfies. Respond ONLY with valid JSON."
+)
+_FP_SHORTLIST_TASK = (
+    "Task: choose the fault type of the origin entity from the numbered candidates above (a code shortlist: only types whose key signal is present "
+    "are listed). First copy into fault_evidence the signal=value or the message text from the rows above that identifies the KIND of fault, then "
+    "choose the candidate whose definition that evidence satisfies. When two candidates fit, prefer the one with supporting and without "
+    "contradicting signals.\n"
+    "Respond as JSON: " + '{"fault_evidence": "<signal=value or message copied from the rows above>", "predicted_fault_type": "<one candidate slug, verbatim>", "confidence": <float 0-1>}'
+)
+_FP_SHOW_NOTE = ("The signal profile and the candidate list above were computed by code with fixed thresholds; treat them as evidence, not as the "
+                 "answer: a candidate is only a type whose key signal is present.\n")
+
+
+def _fp_origin(state, fr):
+    name = _origin_name(fr)
+    if name:
+        return name
+    ids = fr.get("predicted_entity_ids") or []
+    return str(ids[0]).split("::")[0] if ids else None
+
+
+def _apply_fingerprint_typing(llm, state, fault_hint):
+    """Arm FP. Records fp_* diagnostics on final_result; keeps the Coordinator's type on any failure."""
+    from pipeline.fault_fingerprint import origin_signals, rank_candidates, profile_text, NODE_TYPES
+    fr = state["final_result"]
+    fr["coordinator_fault_type"] = fr.get("predicted_fault_type")
+    mode = config.FAULT_FINGERPRINT
+    name = _fp_origin(state, fr)
+    osig = origin_signals(state.get("fp_db") or {}, name)
+    cands = rank_candidates(osig, top_k=config.FP_TOP_K)
+    fr["fp_mode"] = mode
+    fr["fp_origin"] = name
+    fr["fp_origin_kind"] = osig.get("kind")
+    fr["fp_signals"] = "|".join(sorted(osig.get("signals", {})))
+    fr["fp_candidates"] = "|".join(c["type"] for c in cands)
+    fr["typing_applied"] = False
+    chosen = None
+    if mode == "rule":
+        chosen = cands[0]["type"] if cands else None
+    elif osig.get("kind") != "unknown" and (cands or mode == "show"):
+        scoped = _scoped_evidence(state, name) if name else ""
+        chain = "\n".join(f"- {s}" for s in (fr.get("reasoning_chain") or []))
+        knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if config.USE_KNOWLEDGE_POS else ""
+        if mode == "shortlist":
+            defs = "\n".join(f"- {c['type']} [{fault_group(c['type'])}]: {FAULT_DEFINITIONS.get(c['type'], '')}" for c in cands)
+            label_block, task = f"Definitions of the candidate types:\n{defs}", _FP_SHORTLIST_TASK
+        else:
+            label_block, task = fault_hint, _FP_SHOW_NOTE + _TYPING_TASK
+        prompt = (
+            f"Alert: {state['alert_text']}\n\n"
+            f"Origin entity chosen by the Coordinator: {name}\n"
+            f"Causal chain written by the Coordinator:\n{chain}\n\n"
+            f"Evidence rows that mention {name} (selected by name only; nothing is filtered by significance):\n"
+            f"{scoped or '(no row mentions this name)'}\n\n"
+            f"{profile_text(name, osig, cands)}\n\n"
+            f"{label_block}\n\n"
+            f"{knowledge_block}"
+            f"{task}"
+        )
+        res = llm.generate_json(prompt, system=FP_TYPING_SYSTEM_PROMPT)
+        _trace(state, "fp_typing_call", prompt, res)
+        fr["typing_prompt_chars"] = len(prompt)
+        ft = res.get("predicted_fault_type") if isinstance(res, dict) else None
+        ft = ft.strip() if isinstance(ft, str) else ""
+        code = ft[:4]
+        if mode == "shortlist":
+            match = [c["type"] for c in cands if c["type"] == ft or (re.match(r"^F\d{3}$", code) and c["type"].startswith(code))]
+            fr["fp_choice_in_shortlist"] = bool(match)
+            chosen = match[0] if match else cands[0]["type"]
+        elif re.match(r"^F\d{3}", ft):
+            chosen = ft
+        if isinstance(res, dict) and res.get("fault_evidence"):
+            fr["fault_evidence"] = str(res.get("fault_evidence"))[:600]
+    if chosen:
+        fr["predicted_fault_type"] = chosen
+        fr["typing_applied"] = True
+        if (config.FP_LEVEL_SWITCH and chosen in NODE_TYPES and osig.get("kind") == "service"):
+            for c in cands:
+                if c["type"] == chosen:
+                    node = next((osig.get("signal_node", {}).get(k) for k in c["key"] if osig.get("signal_node", {}).get(k)), None)
+                    if node:
+                        fr["fp_entity_switched_from"] = name
+                        fr["predicted_entity_ids"] = [node]
+                    break
+    elif config.ENTITY_TYPING and mode != "rule":
+        _apply_entity_typing(llm, state, fault_hint, _from_fp=True)
+    elif config.COORD_LEAN and not fr.get("predicted_fault_type"):
+        fr["predicted_fault_type"] = "unknown"
+
+
+# Arm VER (VERIFY_CHAIN=1): deterministic soundness check of the chain-first answer, then at most ONE repair call.
+#   (1) the answered entity must be the target of the cause step (otherwise the answer is set to that target: the chain is the reasoning);
+#   (2) every number quoted as signal=value in the chain must occur in the evidence text the Coordinator saw (1% tolerance, s/ms and
+#       fraction/percent conversions). Below VERIFY_MIN_GROUNDED, one call rewrites the chain with values copied from the rows; the rewrite
+#       is kept only if it is better grounded. No ground truth, no threshold tuned on RCA100.
+VERIFY_SYSTEM_PROMPT = (
+    "You are the verifier of a microservice root-cause-analysis system. You correct a causal chain so that every quoted value is copied from the "
+    "evidence rows. Respond ONLY with valid JSON."
+)
+_QUOTED_NUM = re.compile(r"=\s*[-+]?(\d+(?:\.\d+)?(?:e[-+]?\d+)?)", re.I)
+_ANY_NUM = re.compile(r"(?<![\w.])[-+]?(\d+(?:\.\d+)?(?:e[-+]?\d+)?)", re.I)
+
+
+def _evidence_pool(state):
+    texts = [state.get("propagation_text") or "", state.get("infra_text") or "", state.get("trace_text") or ""]
+    for bl in (state.get("evidence_summary") or {}).values():
+        texts.extend(str(b) for b in bl)
+    pool = set()
+    for t in texts:
+        for m in _ANY_NUM.finditer(t):
+            try:
+                pool.add(float(m.group(1)))
+            except ValueError:
+                pass
+    return sorted(pool), "\n".join(texts)
+
+
+def _is_grounded(x, pool):
+    import bisect
+    for v in (x, x / 1000.0, x * 1000.0, x / 100.0, x * 100.0):
+        tol = max(1e-9, 0.01 * abs(v))
+        i = bisect.bisect_left(pool, v - tol)
+        if i < len(pool) and pool[i] <= v + tol:
+            return True
+    return False
+
+
+def _grounding(chain, pool):
+    nums, bad = 0, []
+    for step in chain or []:
+        for m in _QUOTED_NUM.finditer(str(step)):
+            try:
+                x = float(m.group(1))
+            except ValueError:
+                continue
+            nums += 1
+            if not _is_grounded(x, pool):
+                bad.append(m.group(0).lstrip("= "))
+    return (1.0 if nums == 0 else (nums - len(bad)) / nums), nums, bad
+
+
+def _cause_target(fr):
+    chain = fr.get("reasoning_chain") or []
+    m = re.match(r"\s*cause\s*:\s*(\S+)", str(chain[0])) if chain else None
+    return m.group(1).strip(",;:") if m else None
+
+
+def _verify_chain(llm, state):
+    fr = state.get("final_result")
+    if not isinstance(fr, dict) or fr.get("_parse_error") or not fr.get("reasoning_chain"):
+        return
+    pool, _ = _evidence_pool(state)
+    g0, n0, bad = _grounding(fr.get("reasoning_chain"), pool)
+    fr["verify_grounded_before"] = round(g0, 3)
+    fr["verify_numbers"] = n0
+    fr["verify_repaired"] = False
+    if n0 and g0 < config.VERIFY_MIN_GROUNDED:
+        chain = "\n".join(f"- {s}" for s in fr.get("reasoning_chain") or [])
+        infra_text, trace_text, prop_text = state.get("infra_text") or "", state.get("trace_text") or "", state.get("propagation_text") or ""
+        prompt = (
+            f"Alert: {state['alert_text']}\n\n"
+            f"{prop_text}\n\n{infra_text}\n\n{trace_text}\n\n"
+            f"Causal chain to correct:\n{chain}\n\n"
+            f"These quoted values do not occur in the evidence rows above: {', '.join(bad[:12])}.\n"
+            "Task: rewrite the chain with the same step types (cause / propagation / impact) and the same targets, unless a row above shows that a "
+            "target is wrong. Each step is 'step_type: target signal=value ...'; copy every value exactly as a row above shows it, and drop a "
+            "signal that no row shows.\n"
+            'Respond as JSON: {"reasoning_chain": ["cause: <target> <signal>=<value> ...", "propagation: ...", "impact: ..."]}'
+        )
+        res = llm.generate_json(prompt, system=VERIFY_SYSTEM_PROMPT)
+        _trace(state, "verify_repair", prompt, res)
+        new_chain = res.get("reasoning_chain") if isinstance(res, dict) else None
+        if isinstance(new_chain, list) and new_chain and re.match(r"\s*cause\s*:", str(new_chain[0])):
+            g1, n1, _ = _grounding(new_chain, pool)
+            if g1 > g0:
+                fr["verify_chain_before"] = list(fr.get("reasoning_chain") or [])
+                fr["reasoning_chain"] = [str(x) for x in new_chain]
+                fr["verify_repaired"] = True
+                g0 = g1
+    fr["verify_grounded_after"] = round(g0, 3)
+    # (1) the answer follows the chain
+    tgt = _cause_target(fr)
+    ids = fr.get("predicted_entity_ids") or []
+    cur = str(ids[0]).split("::")[0].lower() if ids else ""
+    if tgt and not _HEX32.match(tgt.lower()) and tgt.split("::")[0].lower() != cur:
+        fr["verify_entity_from"] = ids[0] if ids else None
+        fr["predicted_entity_ids"] = [tgt.split("::")[0]]
+
+
+def _apply_entity_typing(llm, state, fault_hint, _from_fp=False):
     """Arm TYPE: second, short call that chooses the fault type from the chain and the entity-scoped evidence. Keeps the Coordinator's type on any failure."""
     fr = state.get("final_result")
     if not isinstance(fr, dict) or fr.get("_parse_error"):
         return
-    fr["coordinator_fault_type"] = fr.get("predicted_fault_type")
+    if config.FAULT_FINGERPRINT and not _from_fp:
+        return _apply_fingerprint_typing(llm, state, fault_hint)
+    if not _from_fp:
+        fr["coordinator_fault_type"] = fr.get("predicted_fault_type")
     name = _origin_name(fr)
     scoped = _scoped_evidence(state, name) if name else ""
     chain = "\n".join(f"- {s}" for s in (fr.get("reasoning_chain") or []))
@@ -613,7 +810,9 @@ def coordinator_node(llm: LLMClient):
                         else COORDINATOR_SYSTEM_PROMPT)
                 state["final_result"] = llm.generate_json(prompt, system=_sys)
                 _trace(state, "coordinator_chain_first", prompt, state["final_result"])
-                if config.ENTITY_TYPING:
+                if config.VERIFY_CHAIN:
+                    _verify_chain(llm, state)
+                if config.ENTITY_TYPING or config.FAULT_FINGERPRINT:
                     _apply_entity_typing(llm, state, fault_hint)
                 return state
             prompt = (
@@ -644,7 +843,9 @@ def coordinator_node(llm: LLMClient):
                     else COORDINATOR_SYSTEM_PROMPT_SEG if config.SPEC_CHAIN_SEGMENTS else COORDINATOR_SYSTEM_PROMPT)
             state["final_result"] = llm.generate_json(prompt, system=_sys)
             _trace(state, "coordinator_chain_first", prompt, state["final_result"])
-            if config.ENTITY_TYPING:
+            if config.VERIFY_CHAIN:
+                _verify_chain(llm, state)
+            if config.ENTITY_TYPING or config.FAULT_FINGERPRINT:
                 _apply_entity_typing(llm, state, fault_hint)
             return state
 

@@ -11,7 +11,8 @@ def get_llm_client():
     from agents.kaggle_client import KaggleTransformersClient
     return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE,
                                      local_path=config.KAGGLE_MODEL_LOCAL_PATH,
-                                     use_4bit=config.KAGGLE_USE_4BIT)
+                                     use_4bit=config.KAGGLE_USE_4BIT,
+                                     enable_thinking=config.ENABLE_THINKING)
 
 
 def get_coordinator_llm_client():
@@ -24,4 +25,5 @@ def get_coordinator_llm_client():
         model_handle=config.COORDINATOR_MODEL_HANDLE,
         local_path=config.COORDINATOR_MODEL_LOCAL_PATH,
         use_4bit=config.COORDINATOR_USE_4BIT,
+        enable_thinking=config.ENABLE_THINKING,
     )

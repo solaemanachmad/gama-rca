@@ -312,7 +312,10 @@ KAGGLE_DTYPE = os.environ.get("KAGGLE_DTYPE", "bfloat16")   # bfloat16 | float16
 # forced to 0. Override with env LLM_TEMPERATURE only for a deliberate sampling study.
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.0"))
 LLM_SEED = int(os.environ.get("LLM_SEED", "0"))   # torch seed set before every generate() call
-LLM_MAX_TOKENS = 1024
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))   # raise (e.g. 4096) when ENABLE_THINKING=1: the reasoning trace counts against it
+# ENABLE_THINKING=1: pass enable_thinking=True to the chat template (Qwen3 / reasoning models). The <think>...</think> block is stripped
+# before JSON parsing. Default off reproduces all earlier runs (Qwen2.5 templates ignore the flag).
+ENABLE_THINKING = os.environ.get("ENABLE_THINKING", "0") == "1"
 
 # ---------------------------------------------------------------------------
 # Evaluation weights (RCA100 official protocol, Section 5.4 of the paper)
@@ -434,3 +437,17 @@ INFRA_EVENTS_SCOPED = os.environ.get("INFRA_EVENTS_SCOPED", "0") == "1"
 # TYPING_COMPARE=1 (arm TYPECMP, needs ENTITY_TYPING=1): the typing call first proposes up to three candidate types and copies the supporting and the contradicting
 # row for each, then chooses (one call, same evidence rows, nothing excluded by code). Default off.
 TYPING_COMPARE = os.environ.get("TYPING_COMPARE", "0") == "1"
+
+# FAULT_FINGERPRINT (arm FP; pipeline/fault_fingerprint.py): code checks a fixed list of discriminating signals for the origin entity and maps them
+# to the fault types whose key signal is present (thresholds fixed in advance, never tuned on RCA100). '' = off (default, reproduces earlier runs);
+# show = profile + candidates shown to the typing call, any type allowed; shortlist = the typing call must pick one of the top FP_TOP_K
+# candidates; rule = top candidate, no LLM call. Replaces the ENTITY_TYPING call when set (it runs after the chain-first Coordinator).
+FAULT_FINGERPRINT = os.environ.get("FAULT_FINGERPRINT", "").strip().lower()
+FP_TOP_K = int(os.environ.get("FP_TOP_K", "3"))
+# FP_LEVEL_SWITCH=1: when the chosen type is node-level (nodeCpuHigh, nodeMemoryOOM, nodeDown, diskIOHigh) but the origin is a service, answer the
+# hosting node that carries the signal as the root-cause entity (the type's level decides the entity level). Default off.
+FP_LEVEL_SWITCH = os.environ.get("FP_LEVEL_SWITCH", "0") == "1"
+# VERIFY_CHAIN=1 (arm VER): deterministic soundness check of the final answer (cause target == answered entity; every number quoted in the chain
+# occurs in the evidence text the Coordinator saw). On failure, ONE repair call rewrites the chain with only values present in the rows.
+VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
+VERIFY_MIN_GROUNDED = float(os.environ.get("VERIFY_MIN_GROUNDED", "0.5"))   # repair when fewer than this share of quoted numbers is grounded

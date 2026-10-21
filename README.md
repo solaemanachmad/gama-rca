@@ -98,6 +98,27 @@ All arms are defined in `scripts/kaggle_run.py` (`ARMS`) on a fixed base; every 
 | `..._NOSPEC`, `..._EVOBS` | ablations: no specialist calls / specialists copy observations only |
 | `..._NOSTATS` | ablation: no change/z/rank/n appended to numeric rows |
 | `..._COV`, `..._SEG`, `..._COV_SEG` | evidence-coverage and chain-segment candidates, not shown to help |
+| `..._FPSHOW` | fault fingerprints: code-checked signal profile of the origin + candidate types shown to a typing call; any type allowed |
+| `..._FPSL` | fault fingerprints, **shortlist**: the typing call must choose among the top-3 candidates (types whose key signal is present) |
+| `..._FPRULE` | ablation: top fingerprint candidate, no typing LLM call |
+| `..._VER` | chain verifier: answered entity = cause target; quoted numbers must occur in the evidence, else one repair call |
+| `..._FPSL_VER`, `..._FPSL_VER_LVL` | shortlist + verifier (candidate main configuration); `LVL`: a node-level type moves the answer to the hosting node |
+
+Backbones are a separate setting (`MODEL` in Cell 4, `MODELS` in `scripts/kaggle_run.py`): `qwen25_7b` (default), `qwen3_8b`,
+`qwen3_8b_think` (`ENABLE_THINKING=1`, `<think>` block stripped before JSON parsing), `qwen25_14b_4bit`, `qwen3_14b_4bit`, `qwen3_32b_4bit`.
+
+### Fault fingerprints (`pipeline/fault_fingerprint.py`)
+
+The dev-30 bottleneck is the evidence-to-label step, so the fault type gets its own layer: for every service and node, code checks a fixed
+list of discriminating signals (node CPU/memory/disk/ready, service CPU/memory/GC/thread/request/latency, replica drops, K8s event reasons
+such as OOMKilled/BackOff/FailedScheduling/ScalingReplicaSet, HTTP 5xx/429/403/503 span codes, error-message and log keywords, slow or failing
+database/Redis/Kafka spans). Each of the 28 types has a fingerprint (key / supporting / contradicting signals) written from the type
+definitions. Candidates are the types whose key signal is present, ranked hierarchically (node origin -> node-level types only).
+Thresholds are domain conventions fixed in advance (rise = window max >= 2x baseline median and >= 3 robust SDs; text = >= 3 lines in the
+window at >= 2x the baseline rate) and are **never tuned on RCA100**. `python tests/test_fingerprint.py` runs synthetic scenarios (no data).
+
+`scripts/diagnostics/fp_oracle_coverage.py` (evaluation only, reads `answer_key/`) reports how often the true type is among the candidates
+when the true entity is given: the FI ceiling of the shortlist arm. Freeze the fingerprint table before running it on held-out cases.
 
 ## Metrics
 
@@ -120,12 +141,19 @@ differ from official scores. The run CSV also has strict binary `ft_binary`, `rc
 The entity is exactly correct in 13 of 30 cases, but the fault type in only 3 of those 13: the main bottleneck is the mapping from evidence to
 fault label. These are development results; held-out evaluation and comparison with external baselines remain to be done.
 
+## Evaluation protocol for the next round
+
+1. Develop and debug on dev-30 only (`fp_oracle_coverage.py` on dev-30 is allowed while developing).
+2. Freeze code, arms, prompts and thresholds (git tag), then run the chosen arms ONCE on the 73 held-out cases (`CASES = HELDOUT`).
+3. Report paired bootstrap intervals (`summarize_arms.py`) plus a paired test on the binary FI column, per semantic group and per level
+   (node vs service), and the confusion matrix of fault types. On 30 cases one case is 3.3 FI points: dev-30 differences are not evidence.
+
 ## Reproducibility notes
 
 - Decoding is deterministic (`LLM_TEMPERATURE=0`, `LLM_SEED=0`, `PYTHONHASHSEED=0`); both are written to the run manifest together with every flag.
   Runs from before commit `3ef1e24` sampled at temperature 0.1 without a seed and are not comparable with later runs.
 - Compare arms only within one data version (RCA100 v1.1) and one commit.
-- `python tests/prompt_snapshot.py compare tests/snapshots/prompts_v5_cmp.json` checks that the agent prompts of all retained arms are byte-identical
+- `python tests/prompt_snapshot.py compare tests/snapshots/prompts_v6_fp.json` checks that the agent prompts of all retained arms are byte-identical (v6 adds the FP and VER arms)
   to the snapshot; run it after any refactoring. Removed experiments live in git tag `pre-cleanup-3ef1e24`.
 - API keys and tokens belong only in Kaggle Secrets or the environment, never in the repository.
 

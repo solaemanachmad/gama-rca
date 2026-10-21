@@ -206,6 +206,11 @@ class KaggleTransformersClient:
             response = self.processor.decode(new_tokens, skip_special_tokens=True)
         else:
             response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        if "</think>" in response:                 # ENABLE_THINKING=1 (Qwen3): keep only the answer after the reasoning block
+            self.thinking_chars = getattr(self, "thinking_chars", 0) + len(response.split("</think>", 1)[0])
+            response = response.split("</think>", 1)[1]
+        elif response.lstrip().startswith("<think>"):  # reasoning ran out of max_new_tokens: no answer
+            self.thinking_truncated = getattr(self, "thinking_truncated", 0) + 1
         return response.strip()
 
     def _generate_chunked(self, inputs, gen_kwargs, chunk: int):
@@ -267,7 +272,9 @@ class KaggleTransformersClient:
                 "truncated_prompts": getattr(self, "truncated_prompts", 0),
                 "oom_retries": getattr(self, "oom_retries", 0),
                 "chunked_prefills": getattr(self, "chunked_prefills", 0),
-                "chunked_fallbacks": getattr(self, "chunked_fallbacks", 0)}
+                "chunked_fallbacks": getattr(self, "chunked_fallbacks", 0),
+                "thinking_chars": getattr(self, "thinking_chars", 0),
+                "thinking_truncated": getattr(self, "thinking_truncated", 0)}
 
     def reset_usage(self) -> None:
         self.total_calls = 0
@@ -276,3 +283,5 @@ class KaggleTransformersClient:
         self.oom_retries = 0
         self.chunked_prefills = 0
         self.chunked_fallbacks = 0
+        self.thinking_chars = 0
+        self.thinking_truncated = 0
