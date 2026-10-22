@@ -125,21 +125,25 @@ def _series_stat(series, w0, w1):
     if not win:
         return None
     bmed = statistics.median(base) if base else None
+    bmax = max(base) if base else None
     wmax, wmin = max(win), min(win)
     z = None
     if base:
         mad = statistics.median([abs(v - bmed) for v in base])
         sig = 1.4826 * mad
         z = (float("inf") if wmax > bmed else 0.0) if sig == 0 else (wmax - bmed) / sig
-    return {"base": bmed, "max": wmax, "min": wmin, "z": z}
+    return {"base": bmed, "base_max": bmax, "max": wmax, "min": wmin, "z": z}
 
 
 def _classify(metric: str, st: dict) -> dict:
     b, mx, mn, z = st["base"], st["max"], st["min"], st["z"]
     ratio = (mx / b) if (b not in (None, 0)) else None
-    rise = bool(b is not None and ((b == 0 and mx > 0) or (ratio is not None and ratio >= RISE_RATIO and (z is None or z >= RISE_Z))))
-    strong = bool(b is not None and ((b == 0 and mx > 0) or (ratio is not None and ratio >= STRONG_RATIO and (z is None or z >= RISE_Z))))
-    high = bool(_RATE_NAME.search(metric) and mx is not None and ((mx <= 1.0 and mx >= HIGH_RATE) or (mx > 1.0 and mx >= HIGH_RATE * 100 and mx <= 100)))
+    above = st.get("base_max") is None or mx > st["base_max"]          # a window value must exceed everything seen in the baseline
+    rise = bool(above and b is not None and ((b == 0 and mx > 0) or (ratio is not None and ratio >= RISE_RATIO and (z is None or z >= RISE_Z))))
+    strong = bool(above and b is not None and ((b == 0 and mx > 0) or (ratio is not None and ratio >= STRONG_RATIO and (z is None or z >= RISE_Z))))
+    scale = 1.0 if (mx is not None and mx <= 1.0) else 100.0
+    high = bool(_RATE_NAME.search(metric) and mx is not None and mx <= scale and mx >= HIGH_RATE * scale
+                and (b is None or b < HIGH_RATE * scale) and above)          # high now, not high in the baseline
     drop = bool(b not in (None, 0) and mn is not None and mn / b <= DROP_RATIO)
     return {"rise": rise, "strong": strong, "high": high, "drop": drop,
             "txt": f"{metric} base={_fmt(b)} max={_fmt(mx)} min={_fmt(mn)}" + (f" (x{ratio:.3g})" if ratio else (" (new)" if b == 0 and mx > 0 else ""))}
@@ -432,6 +436,11 @@ def origin_signals(db: Dict, origin: str) -> Dict:
 # 3. fingerprint table (written from the type definitions; key = needed, sup = supporting, con = contradicting)
 # ------------------------------------------------------------------------------------------------------------------------------
 NODE_TYPES = {"F026-nodeCpuHigh", "F031-nodeMemoryOOM", "F001-nodeDown", "F025-diskIOHigh"}
+# Explicit signals name the mechanism (an event reason, a status code, a specific error message); metric rises are often consequences of the
+# fault (GC, threads and latency rise under load). Key weights: explicit 3, metric 2, generic fallback types 1, node-level type on a service
+# origin 1 (the type's level does not match the entity's level).
+EXPLICIT = {"ev_oom", "ev_crashloop", "ev_unhealthy", "ev_unschedulable", "ev_scale_down", "ev_restart", "ev_evicted", "node_oom_event",
+            "node_ready_drop", "http429", "http403", "txt_npe", "txt_ratelimit", "txt_dns", "redis_fail"}
 FALLBACK_TYPES = {"F014-httpError5xx", "F011-codeDefect"}     # generic: key signal counts 1 instead of 2
 FINGERPRINTS = {   # order = specificity, used only to break ties
     "F001-nodeDown":                 dict(key=["node_ready_drop"], sup=["txt_refused", "ev_unhealthy"], con=[]),
@@ -441,10 +450,10 @@ FINGERPRINTS = {   # order = specificity, used only to break ties
     "F051-podPendingUnschedulable":  dict(key=["ev_unschedulable"], sup=["replica_drop"], con=[]),
     "F050-podCrashLoop":             dict(key=["ev_crashloop"], sup=["ev_restart"], con=[]),
     "F039-resourceLimitMisconfig":   dict(key=["ev_oom", "svc_throttle"], sup=["ev_restart", "ev_crashloop", "svc_mem_rise"], con=["node_oom_event"]),
-    "F052-podRestartFlapping":       dict(key=["ev_unhealthy", "ev_restart"], sup=[], con=["ev_crashloop", "ev_oom"]),
+    "F052-podRestartFlapping":       dict(key=["ev_unhealthy", "ev_restart"], sup=[], con=["ev_crashloop", "ev_oom", "ev_scale_down", "ev_unschedulable"]),
     "F036-replicaScaleDown":         dict(key=["ev_scale_down", "replica_drop"], sup=["txt_refused", "http5xx", "http503"], con=["ev_crashloop", "ev_unschedulable"]),
     "F023-nullPointerException":     dict(key=["txt_npe"], sup=["http5xx", "err_spans_rise"], con=[]),
-    "F016-rateLimiting":             dict(key=["http429", "txt_ratelimit"], sup=["http403"], con=[]),
+    "F016-rateLimiting":             dict(key=["http429", "txt_ratelimit", "http403"], sup=[], con=[]),
     "F057-dnsResolutionFailure":     dict(key=["txt_dns"], sup=["err_spans_rise"], con=[]),
     "F029-redisUnavailable":         dict(key=["redis_fail"], sup=["txt_refused", "txt_timeout"], con=[]),
     "F009-cacheBreakdown":           dict(key=["txt_cache", "redis_slow"], sup=["db_slow", "svc_request_rise"], con=["redis_fail"]),
@@ -467,7 +476,7 @@ _ORDER = {t: i for i, t in enumerate(FINGERPRINTS)}
 
 
 def rank_candidates(osig: Dict, top_k: int = TOP_K) -> List[Dict]:
-    """Types whose key signal is present, ranked by 2*key (1 for the generic fallbacks) + supporting - 2*contradicting.
+    """Types whose key signal is present, ranked by key weight (explicit 3, metric 2, fallback / level-mismatch 1) + supporting - 2*contradicting.
     Level: a node origin keeps only node-level types; a service origin keeps node-level types only through its hosting nodes' signals."""
     sig, kind = osig.get("signals", {}), osig.get("kind")
     out = []
@@ -479,7 +488,11 @@ def rank_candidates(osig: Dict, top_k: int = TOP_K) -> List[Dict]:
             continue
         sups = [k for k in fp["sup"] if sig.get(k)]
         cons = [k for k in fp["con"] if sig.get(k)]
-        score = (1 if t in FALLBACK_TYPES else 2) * len(keys) + len(sups) - 2 * len(cons)
+        if t in FALLBACK_TYPES or (t in NODE_TYPES and kind == "service"):
+            kw = len(keys)
+        else:
+            kw = sum(3 if k in EXPLICIT else 2 for k in keys)
+        score = kw + len(sups) - 2 * len(cons)
         out.append({"type": t, "score": score, "key": keys, "sup": sups, "con": cons})
     out.sort(key=lambda c: (-c["score"], _ORDER[c["type"]]))
     return out[:top_k] if top_k else out
