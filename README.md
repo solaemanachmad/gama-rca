@@ -10,6 +10,13 @@ Code for the paper **"GAMA-RCA: A Graph-Augmented Multi-Agent Framework for Root
 **Design principle: code extracts evidence, the LLM decides.** Deterministic code builds evidence tables (rows are selected by entity *name*,
 never by significance). No component is trained or tuned on RCA100 ground truth, and `answer_key/` is read only by `evaluation/scoring.py`.
 
+## v2: hypothesis-constrained RCA (in progress)
+
+`pipeline/hypothesis_rca.py` (systems `hypothesis_rca`, `hypothesis_rule`; arms `V2*` in `scripts/kaggle_run.py`). Calibrated evidence for
+every service and node, (entity, type) hypotheses admitted by fault fingerprints, topology consistency with the alert and the root rule,
+then the LLM chooses one of the top-3 hypotheses and writes the chain (verifier on quoted numbers). v1 below is the baseline.
+Design: `claude/GAMA-RCA_v2_research_design.md` (project). Tests: `python tests/test_hypothesis_rca.py`.
+
 ## What it does
 
 Given an alert, GAMA-RCA diagnoses one incident in these stages (see Figure 1 and Algorithm 1 in the paper):

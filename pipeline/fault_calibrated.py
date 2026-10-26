@@ -297,7 +297,8 @@ def entity_signals(db: Dict, ent: str) -> Dict:
     sig = {}
     for name, r in cal.get(ent, {}).items():
         ev = r.get("ev") or f"rank-test score={r['raw']:.3g} over {r['n_series']} series"
-        sig[name] = {"kind": "cont", "p": r["p"], "ev": f"{ev} (calibrated p={r['p']:.3g} against {r['n_null']} pseudo-window scores)"}
+        sig[name] = {"kind": "cont", "p": r["p"], "raw": r["raw"],
+                     "ev": f"{ev} (calibrated p={r['p']:.3g} against {r['n_null']} pseudo-window scores)"}
     if ent in db["nodes"]:
         pr = db["nodes"][ent]
         for f, name in (("node_notready", "ev_node_notready"), ("oom", "ev_node_oom"), ("evicted", "ev_evicted")):

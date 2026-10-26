@@ -460,3 +460,9 @@ VERIFY_MIN_GROUNDED = float(os.environ.get("VERIFY_MIN_GROUNDED", "0.5"))   # re
 # (alert text, evidence summary, call-graph / infra / trace tables, the Coordinator's final_result) as JSON. scripts/retype.py re-runs only
 # the typing step of the FP arms on this state, so the shared Coordinator stage is not recomputed for every arm (GPU budget).
 SAVE_TYPING_STATE_DIR = os.environ.get("SAVE_TYPING_STATE_DIR", "")
+
+# v2 hypothesis-constrained RCA (pipeline/hypothesis_rca.py; systems hypothesis_rca / hypothesis_rule). Ablation flags, all default off.
+V2_NO_TOPO = os.environ.get("V2_NO_TOPO", "0") == "1"            # no topology consistency / root rule
+V2_NO_EXCLUDE = os.environ.get("V2_NO_EXCLUDE", "0") == "1"      # ignore the excluding signals of the fingerprints
+V2_UNCALIBRATED = os.environ.get("V2_UNCALIBRATED", "0") == "1"  # raw rank-test scores instead of calibrated p-values
+V2_NO_VERIFY = os.environ.get("V2_NO_VERIFY", "0") == "1"        # no verifier / repair call

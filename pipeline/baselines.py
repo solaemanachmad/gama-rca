@@ -321,5 +321,9 @@ BASELINE_REGISTRY = {
     "sea_rca": sea_rca,
     "gala_lite": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
         "pipeline.gala_lite", fromlist=["gala_lite"]).gala_lite(case_id, llm, cases_dir),
+    "hypothesis_rca": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
+        "pipeline.hypothesis_rca", fromlist=["hypothesis_rca"]).hypothesis_rca(case_id, llm, cases_dir),
+    "hypothesis_rule": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
+        "pipeline.hypothesis_rca", fromlist=["hypothesis_rule"]).hypothesis_rule(case_id, llm, cases_dir),
     # "proposed_hybrid" is run via pipeline.GraphRAGPipeline, not this registry
 }

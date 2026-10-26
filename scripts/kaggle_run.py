@@ -62,7 +62,8 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_KNOWLEDGE_POS", "USE_LLM_SPECIALIST_AGENTS", "GROUNDED_FAULT",
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
-         "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE")
+         "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
+         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -87,6 +88,16 @@ ARMS = {                                                          # name -> extr
     "A1rT_fixed_ABS_KP_FPRULE_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule", "FP_SCORING": "fixed"},   # ablation: fixed thresholds, no calibration
     "A1rT_fixed_ABS_KP_FPSL_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "FP_SCORING": "fixed"},
     "A1rT_fixed_ABS_KP_FPSL_VER_LVL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1", "FP_LEVEL_SWITCH": "1"},
+    # v2 hypothesis-constrained RCA (pipeline/hypothesis_rca.py). "_SYSTEM" picks the system in main.py (not an env variable).
+    # ALERT_T0_MODE=window: the benchmark's own alert_window (task.json) defines window and baseline.
+    "V2": {"_SYSTEM": "hypothesis_rca", "ALERT_T0_MODE": "window", "USE_KNOWLEDGE_POS": "1"},              # main v2 (GPU, 1-2 calls/case)
+    "V2_NOVERIFY": {"_SYSTEM": "hypothesis_rca", "ALERT_T0_MODE": "window", "USE_KNOWLEDGE_POS": "1", "V2_NO_VERIFY": "1"},
+    "V2_RULE": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window"},                                   # Stages 1-3 only (CPU)
+    "V2_RULE_NOTOPO": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_TOPO": "1"},         # ablations (CPU)
+    "V2_RULE_NOEXCL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_EXCLUDE": "1"},
+    "V2_RULE_UNCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_UNCALIBRATED": "1"},
+    "V2_RULE_LEGACYWIN": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "legacy"},                         # window definition of v1
+    "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},
     "A1rT_fixed_ABS_KP_COV_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1", "SPEC_CHAIN_SEGMENTS": "1"},
@@ -115,11 +126,13 @@ if MODELS[MODEL].get("KAGGLE_USE_4BIT") == "1":
     subprocess.run([sys.executable, "-m", "pip", "-q", "install", "bitsandbytes"])
 name = f"{ARM}_{TAG}" + ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
 clean = {k: v for k, v in os.environ.items() if k not in FLAGS}
-env = {**clean, **BASE, **MODELS[MODEL], **ARMS[ARM], **FIXED, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}",
+SYSTEM = ARMS[ARM].get("_SYSTEM", "proposed_hybrid")
+env = {**clean, **BASE, **MODELS[MODEL], **{k: v for k, v in ARMS[ARM].items() if not k.startswith("_")}, **FIXED,
+       "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}",
        "SAVE_TYPING_STATE_DIR": f"/kaggle/working/state_{name}"}   # inputs of the typing step, for scripts/retype.py (no effect on results)
 out = f"/kaggle/working/{name}.csv"
 open(f"/kaggle/working/{name}.commit.txt", "w").write(COMMIT + "\n")
-cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", "proposed_hybrid", "--save_path", out]   # resume ON
+cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", SYSTEM, "--save_path", out]   # resume ON
 log = open(f"/kaggle/working/{name}.log", "a")
 p = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
 t0 = time.time()
