@@ -101,45 +101,31 @@ All arms are defined in `scripts/kaggle_run.py` (`ARMS`) on a fixed base; every 
 | `..._FPSHOW` | fault fingerprints: code-checked signal profile of the origin + candidate types shown to a typing call; any type allowed |
 | `..._FPSL` | fault fingerprints, **shortlist**: the typing call must choose among the top-3 candidates (types whose key signal is present) |
 | `..._FPRULE` | ablation: top fingerprint candidate, no typing LLM call |
+| `..._FPRULE_FIX`, `..._FPSL_FIX` | ablation: fixed a-priori thresholds instead of the calibrated tests |
 | `..._VER` | chain verifier: answered entity = cause target; quoted numbers must occur in the evidence, else one repair call |
 | `..._FPSL_VER`, `..._FPSL_VER_LVL` | shortlist + verifier (candidate main configuration); `LVL`: a node-level type moves the answer to the hosting node |
 
 Backbones are a separate setting (`MODEL` in Cell 4, `MODELS` in `scripts/kaggle_run.py`): `qwen25_7b` (default), `qwen3_8b`,
 `qwen3_8b_think` (`ENABLE_THINKING=1`, `<think>` block stripped before JSON parsing), `qwen25_14b_4bit`, `qwen3_14b_4bit`, `qwen3_32b_4bit`.
 
-### Fault fingerprints (`pipeline/fault_fingerprint.py`)
+### Fault fingerprints (`pipeline/fault_calibrated.py`; fixed-threshold ablation in `pipeline/fault_fingerprint.py`)
 
-The dev-30 bottleneck is the evidence-to-label step, so the fault type gets its own layer: for every service and node, code checks a fixed
-list of discriminating signals (node CPU/memory/disk/ready, service CPU/memory/GC/thread/request/latency, replica drops, K8s event reasons
-such as OOMKilled/BackOff/FailedScheduling/ScalingReplicaSet, HTTP 5xx/429/403/503 span codes, error-message and log keywords, slow or failing
-database/Redis/Kafka spans). Each of the 28 types has a fingerprint (key / supporting / contradicting signals) written from the type
-definitions. Candidates are the types whose key signal is present, ranked hierarchically (node origin -> node-level types only).
-Thresholds are domain conventions fixed in advance (rise = window max >= 2x baseline median and >= 3 robust SDs; text = >= 3 lines in the
-window at >= 2x the baseline rate) and are **never tuned on RCA100**. `python tests/test_fingerprint.py` runs synthetic scenarios (no data).
+The dev-30 bottleneck is the evidence-to-label step, so the fault type gets its own, label-free evidence layer:
 
-`scripts/diagnostics/fp_oracle_coverage.py` (evaluation only, reads `answer_key/`) reports how often the true type is among the candidates
-when the true entity is given: the FI ceiling of the shortlist arm. Freeze the fingerprint table before running it on held-out cases.
+1. **Evidence.** Continuous signals (metric series, log-keyword rates) are tested against the entity's *own* baseline with a one-sided
+   Mann-Whitney U test (p <= `FP_ALPHA` = 0.05; several series of one family combined by Bonferroni). Categorical observations that name a
+   mechanism (K8s event reasons, HTTP 429/403/503/5xx, error-message patterns, failing DB/Redis/Kafka spans) are taken from the alert window.
+   RCA100 exports traces only inside the window and ~15 min of logs before it (`check_baseline_length.py`), so trace evidence is categorical
+   or compared within the window.
+2. **Hypotheses (entity, type).** For the Coordinator's origin and its hosting nodes, a type is admitted when one of its key signals holds,
+   its level matches the entity, and no excluding signal holds. Ranking: number of categorical observations, then Fisher's -2 sum ln p.
+   Residual types (httpError5xx, codeDefect) only when nothing specific is admitted.
+3. **Typing.** `show` / `shortlist` (LLM chooses among the top-3 hypotheses) / `rule` (top hypothesis, no LLM).
 
-## Metrics
-
-`Final = 0.4·EL + 0.3·FI + 0.3·RP` (×100 in the paper). **EL** Entity Localization (topology-distance partial credit), **FI** Fault Identification
-(exact over 28 classes), **RP** Reasoning Process. RP here is a **local approximation** of the official scorer, so absolute RP and Final values can
-differ from official scores. The run CSV also has strict binary `ft_binary`, `rcl_strict`, `joint_strict` columns.
-
-## Results so far (30 development cases, scale 0–100)
-
-| Configuration | EL | FI | RP | Final |
-|---|---|---|---|---|
-| Anchor only † | 45.7 | 3.3 | 27.8 | 27.6 |
-| + call-graph table † | 54.0 | 10.0 | 27.7 | 32.9 |
-| Full pipeline † | 54.6 | 13.3 | 34.3 | 36.1 |
-| + scoped events | 53.5 | 16.7 | 35.3 | 37.0 |
-| + typing call + events | 56.7 | 13.3 | 34.6 | 37.0 |
-| + typing call + candidates (best of several on dev) | 54.4 | 20.0 | 34.8 | 38.2 |
-
-† sampled decoding (before commit `3ef1e24`); the other rows are deterministic. All paired differences against the full pipeline include zero.
-The entity is exactly correct in 13 of 30 cases, but the fault type in only 3 of those 13: the main bottleneck is the mapping from evidence to
-fault label. These are development results; held-out evaluation and comparison with external baselines remain to be done.
+No threshold is chosen by looking at labels; the fingerprint table is written from the type definitions and frozen before evaluation.
+`tests/test_calibrated.py` runs synthetic scenarios. `scripts/diagnostics/fp_oracle_coverage.py` (evaluation only, reads `answer_key/`)
+reports the FI ceiling with the true entity and the label-free false-alarm rate of the rank tests. Commit e14ddff (rules adjusted after
+looking at dev-30) was reverted in 1d3a84b and is not part of the method.
 
 ## Evaluation protocol for the next round
 

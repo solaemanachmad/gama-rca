@@ -444,6 +444,10 @@ TYPING_COMPARE = os.environ.get("TYPING_COMPARE", "0") == "1"
 # candidates; rule = top candidate, no LLM call. Replaces the ENTITY_TYPING call when set (it runs after the chain-first Coordinator).
 FAULT_FINGERPRINT = os.environ.get("FAULT_FINGERPRINT", "").strip().lower()
 FP_TOP_K = int(os.environ.get("FP_TOP_K", "3"))
+# FP_SCORING: calibrated (default; pipeline/fault_calibrated.py: rank tests against each entity's own baseline, categorical observations,
+# hypotheses (entity, type)) | fixed (pipeline/fault_fingerprint.py: the first version with a-priori fixed thresholds; ablation only).
+FP_SCORING = os.environ.get("FP_SCORING", "calibrated").strip().lower()
+FP_ALPHA = float(os.environ.get("FP_ALPHA", "0.05"))
 # FP_LEVEL_SWITCH=1: when the chosen type is node-level (nodeCpuHigh, nodeMemoryOOM, nodeDown, diskIOHigh) but the origin is a service, answer the
 # hosting node that carries the signal as the root-cause entity (the type's level decides the entity level). Default off.
 FP_LEVEL_SWITCH = os.environ.get("FP_LEVEL_SWITCH", "0") == "1"

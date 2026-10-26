@@ -61,7 +61,7 @@ MODELS = {
 FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_ALL_ENTITIES", "SPEC_CHAIN_SEGMENTS",
          "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_KNOWLEDGE_POS", "USE_LLM_SPECIALIST_AGENTS", "GROUNDED_FAULT",
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
-         "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
+         "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
@@ -77,12 +77,15 @@ ARMS = {                                                          # name -> extr
     "A1rT_fixed_ABS_KP_NOSTATS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "USE_CHANGE_STATS": "0", "USE_CHANGE_FACTOR": "0"},   # ablation: no change/z/rank/n appended to numeric rows
     "A1rT_fixed_ABS_KP_NOSPEC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "NO_SPECIALISTS": "1"},       # ablation: no specialist calls
     "A1rT_fixed_ABS_KP_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_EVIDENCE_ONLY": "1"},    # specialists copy observations, no verdict
-    # Fault fingerprints (pipeline/fault_fingerprint.py) and the chain verifier; all on the main configuration
+    # Fault fingerprints (default scoring: pipeline/fault_calibrated.py; _FIX = pipeline/fault_fingerprint.py fixed thresholds) and the
+    # chain verifier; all on the main configuration
     "A1rT_fixed_ABS_KP_FPSHOW": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "show"},        # profile + candidates shown, any type allowed
     "A1rT_fixed_ABS_KP_FPSL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist"},     # typing call constrained to the top-3 candidates
     "A1rT_fixed_ABS_KP_FPRULE": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule"},        # ablation: top candidate, no typing LLM call
     "A1rT_fixed_ABS_KP_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "VERIFY_CHAIN": "1"},                   # verifier only
     "A1rT_fixed_ABS_KP_FPSL_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1"},   # candidate main configuration
+    "A1rT_fixed_ABS_KP_FPRULE_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule", "FP_SCORING": "fixed"},   # ablation: fixed thresholds, no calibration
+    "A1rT_fixed_ABS_KP_FPSL_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "FP_SCORING": "fixed"},
     "A1rT_fixed_ABS_KP_FPSL_VER_LVL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1", "FP_LEVEL_SWITCH": "1"},
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},

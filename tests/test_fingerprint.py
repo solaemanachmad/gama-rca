@@ -214,7 +214,8 @@ def typing_shortlist_with_stub_llm():
             self.prompts.append(prompt)
             return {"fault_evidence": "http 429", "predicted_fault_type": self.answer, "confidence": 0.7}
 
-    saved = (config.FAULT_FINGERPRINT, config.ENTITY_TYPING)
+    saved = (config.FAULT_FINGERPRINT, config.ENTITY_TYPING, config.FP_SCORING)
+    config.FP_SCORING = "fixed"
     try:
         for mode, answer, expect in (("shortlist", "F014-httpError5xx", "F016-rateLimiting"),      # outside the shortlist -> top candidate
                                      ("shortlist", "F016", "F016-rateLimiting"),
@@ -231,7 +232,7 @@ def typing_shortlist_with_stub_llm():
             assert (len(llm.prompts) == 0) == (mode == "rule")
             assert fr["fp_candidates"].startswith("F016-rateLimiting")
     finally:
-        config.FAULT_FINGERPRINT, config.ENTITY_TYPING = saved
+        config.FAULT_FINGERPRINT, config.ENTITY_TYPING, config.FP_SCORING = saved
 
 
 if __name__ == "__main__":

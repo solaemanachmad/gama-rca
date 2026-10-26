@@ -262,14 +262,21 @@ def _fp_origin(state, fr):
 
 def _apply_fingerprint_typing(llm, state, fault_hint):
     """Arm FP. Records fp_* diagnostics on final_result; keeps the Coordinator's type on any failure."""
-    from pipeline.fault_fingerprint import origin_signals, rank_candidates, profile_text, NODE_TYPES
+    if config.FP_SCORING == "fixed":
+        from pipeline.fault_fingerprint import origin_signals, rank_candidates, profile_text, NODE_TYPES
+        rank = lambda o: rank_candidates(o, top_k=config.FP_TOP_K)
+    else:
+        from pipeline.fault_calibrated import origin_signals, rank_candidates, profile_text
+        NODE_TYPES = set()
+        rank = lambda o: rank_candidates(o, top_k=config.FP_TOP_K, alpha=config.FP_ALPHA)
     fr = state["final_result"]
     fr["coordinator_fault_type"] = fr.get("predicted_fault_type")
     mode = config.FAULT_FINGERPRINT
     name = _fp_origin(state, fr)
     osig = origin_signals(state.get("fp_db") or {}, name)
-    cands = rank_candidates(osig, top_k=config.FP_TOP_K)
+    cands = rank(osig)
     fr["fp_mode"] = mode
+    fr["fp_scoring"] = config.FP_SCORING
     fr["fp_origin"] = name
     fr["fp_origin_kind"] = osig.get("kind")
     fr["fp_signals"] = "|".join(sorted(osig.get("signals", {})))
@@ -283,7 +290,8 @@ def _apply_fingerprint_typing(llm, state, fault_hint):
         chain = "\n".join(f"- {s}" for s in (fr.get("reasoning_chain") or []))
         knowledge_block = (knowledge_prompt_block_pos() + "\n\n") if config.USE_KNOWLEDGE_POS else ""
         if mode == "shortlist":
-            defs = "\n".join(f"- {c['type']} [{fault_group(c['type'])}]: {FAULT_DEFINITIONS.get(c['type'], '')}" for c in cands)
+            defs = "\n".join(f"- {c['type']} [{fault_group(c['type'])}]" + (f" on {c['entity']}" if c.get("entity") else "")
+                              + f": {FAULT_DEFINITIONS.get(c['type'], '')}" for c in cands)
             label_block, task = f"Definitions of the candidate types:\n{defs}", _FP_SHORTLIST_TASK
         else:
             label_block, task = fault_hint, _FP_SHOW_NOTE + _TYPING_TASK
@@ -315,7 +323,11 @@ def _apply_fingerprint_typing(llm, state, fault_hint):
     if chosen:
         fr["predicted_fault_type"] = chosen
         fr["typing_applied"] = True
-        if (config.FP_LEVEL_SWITCH and chosen in NODE_TYPES and osig.get("kind") == "service"):
+        hyp = next((c for c in cands if c["type"] == chosen), None)
+        if config.FP_LEVEL_SWITCH and hyp and hyp.get("entity") and hyp["entity"] != osig.get("origin", name):
+            fr["fp_entity_switched_from"] = name                      # calibrated: the hypothesis (entity, type) names its own entity
+            fr["predicted_entity_ids"] = [hyp["entity"]]
+        elif (config.FP_LEVEL_SWITCH and chosen in NODE_TYPES and osig.get("kind") == "service"):
             for c in cands:
                 if c["type"] == chosen:
                     node = next((osig.get("signal_node", {}).get(k) for k in c["key"] if osig.get("signal_node", {}).get(k)), None)
