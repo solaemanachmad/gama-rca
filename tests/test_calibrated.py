@@ -159,6 +159,16 @@ def residual_only_when_nothing_specific():
 
 
 @test
+def disjunctive_key_with_absent_atom():
+    """Crash in the smoke run (t100, KeyError 'msg_timeout'): key 'msg_timeout|msg_refused' holds through msg_refused alone."""
+    c = make_case()
+    for i in range(6):
+        wspan(c, "checkout", i, err=True, code="503", msg="connection refused")
+    h, _, _ = types(c, "checkout")
+    assert any(t == "F056-networkPolicyIsolation" for t, _ in h), h
+
+
+@test
 def drifting_metric_is_not_an_anomaly():
     """A series that grows steadily (e.g. disk usage) beats its own history in EVERY window: the raw rank test fires,
     the calibrated test does not (its pseudo-windows show the same drift). This is the f2e2bf4 false-alarm problem."""

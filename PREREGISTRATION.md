@@ -39,3 +39,8 @@ Secondary (if GPU time allows, same protocol): `A1rT_fixed_ABS_KP_FPSL_VER`; bac
 - Reported for every arm: EL, FI exact, FI group, RP (local approximation), Final; per semantic group and per level (node / service);
   confusion matrix of fault types; share of cases with no admitted hypothesis; oracle-entity coverage on held-out; false-alarm rate.
 - Secondary comparisons are exploratory and labelled as such. Dev-30 numbers are reported separately as development results.
+
+## Changes after the freeze (crash fixes only)
+| Commit | Reason | Effect on results |
+|---|---|---|
+| (this commit) | Smoke run on SUBSET8 crashed on t100 with KeyError 'msg_timeout': a disjunctive key (`msg_timeout|msg_refused`) that held through one atom made the scorer read the absent atom. Fix: count only atoms that hold. | None for cases that did not crash (the absent atom contributed nothing). |

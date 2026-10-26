@@ -432,7 +432,7 @@ def rank_candidates(osig: Dict, top_k: int = TOP_K, alpha: float = ALPHA) -> Lis
             if not keys or any(_holds_expr(c, sig, alpha) for c in fp["con"]):
                 continue
             sups = [k for k in fp["sup"] if _holds_expr(k, sig, alpha)]
-            atoms = {a for k in keys + sups for a in _atoms(k)}
+            atoms = {a for k in keys + sups for a in _atoms(k) if holds(sig.get(a), alpha)}   # only atoms that hold ("a|b": one may be absent)
             n_cat = sum(1 for a in atoms if sig[a]["kind"] == "cat")
             fisher = sum(-2.0 * math.log(max(sig[a]["p"], 1e-300)) for a in atoms if sig[a]["kind"] == "cont")
             out.append({"type": t, "entity": ent, "key": keys, "sup": sups, "con": [], "n_cat": n_cat, "fisher": round(fisher, 2),
