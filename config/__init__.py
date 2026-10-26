@@ -455,3 +455,8 @@ FP_LEVEL_SWITCH = os.environ.get("FP_LEVEL_SWITCH", "0") == "1"
 # occurs in the evidence text the Coordinator saw). On failure, ONE repair call rewrites the chain with only values present in the rows.
 VERIFY_CHAIN = os.environ.get("VERIFY_CHAIN", "0") == "1"
 VERIFY_MIN_GROUNDED = float(os.environ.get("VERIFY_MIN_GROUNDED", "0.5"))   # repair when fewer than this share of quoted numbers is grounded
+
+# SAVE_TYPING_STATE_DIR (infrastructure, no effect on predictions): after the agent graph, write per case the inputs of the typing step
+# (alert text, evidence summary, call-graph / infra / trace tables, the Coordinator's final_result) as JSON. scripts/retype.py re-runs only
+# the typing step of the FP arms on this state, so the shared Coordinator stage is not recomputed for every arm (GPU budget).
+SAVE_TYPING_STATE_DIR = os.environ.get("SAVE_TYPING_STATE_DIR", "")

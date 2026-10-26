@@ -631,6 +631,15 @@ class GraphRAGPipeline:
 
         final = final_state.get("final_result") or {}
         agent_findings = build_agent_findings_list(final_state)
+        if config.SAVE_TYPING_STATE_DIR:
+            try:
+                os.makedirs(config.SAVE_TYPING_STATE_DIR, exist_ok=True)
+                with open(os.path.join(config.SAVE_TYPING_STATE_DIR, f"{case_id}.json"), "w", encoding="utf-8") as _f:
+                    json.dump({k: final_state.get(k) for k in ("case_id", "alert_text", "evidence_summary", "propagation_text",
+                                                               "infra_text", "trace_text", "final_result")},
+                              _f, ensure_ascii=False, default=str)
+            except Exception as _e:  # infrastructure must never break a run
+                stats["save_typing_state_error"] = repr(_e)
         if config.DEBUG_DUMP_DIR:
             try:
                 os.makedirs(config.DEBUG_DUMP_DIR, exist_ok=True)

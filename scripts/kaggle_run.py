@@ -115,7 +115,8 @@ if MODELS[MODEL].get("KAGGLE_USE_4BIT") == "1":
     subprocess.run([sys.executable, "-m", "pip", "-q", "install", "bitsandbytes"])
 name = f"{ARM}_{TAG}" + ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
 clean = {k: v for k, v in os.environ.items() if k not in FLAGS}
-env = {**clean, **BASE, **MODELS[MODEL], **ARMS[ARM], **FIXED, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}"}
+env = {**clean, **BASE, **MODELS[MODEL], **ARMS[ARM], **FIXED, "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}",
+       "SAVE_TYPING_STATE_DIR": f"/kaggle/working/state_{name}"}   # inputs of the typing step, for scripts/retype.py (no effect on results)
 out = f"/kaggle/working/{name}.csv"
 open(f"/kaggle/working/{name}.commit.txt", "w").write(COMMIT + "\n")
 cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", "proposed_hybrid", "--save_path", out]   # resume ON
@@ -140,3 +141,31 @@ print(d[[c for c in ("entity_localization", "fault_identification_exact", "fault
                      "cause_entity_mismatch", "fp_candidates", "fp_choice_in_shortlist", "verify_grounded_before", "verify_repaired",
                     "total_pipeline_time_s") if c in d.columns]].mean(numeric_only=True))
 print(d.predicted_fault_type.value_counts().to_string())
+
+# %% Cell 7 -- retype: FP arms from the saved state of the reference arm (no Coordinator re-run; see scripts/retype.py)
+# Does nothing unless RETYPE_STEP is set in the notebook ("prepare" | "run"), so notebooks that exec "Cell 6 to the end" are unaffected.
+# Run the reference arm A1rT_fixed_ABS_KP first (Cells 4-6). Then, with CASES / TAG / SHARD / MODEL of THAT run in Cell 4:
+#   RETYPE_STEP = "prepare" (CPU is enough: signal databases, no model), then RETYPE_STEP = "run" for the arms in RETYPE_ARMS
+#   (rule arms need no GPU; show / shortlist arms load the model once and make one call per case).
+RETYPE_STEP = globals().get("RETYPE_STEP")
+RETYPE_ARMS = globals().get("RETYPE_ARMS") or ["A1rT_fixed_ABS_KP_FPRULE", "A1rT_fixed_ABS_KP_FPRULE_FIX",
+                                                "A1rT_fixed_ABS_KP_FPSL", "A1rT_fixed_ABS_KP_FPSHOW"]
+if RETYPE_STEP:
+    import sys
+    MODEL = globals().get("MODEL", "qwen25_7b")
+    sfx = ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
+    ref_name = f"A1rT_fixed_ABS_KP_{TAG}{sfx}"
+    REF, STATE = f"/kaggle/working/{ref_name}.csv", f"/kaggle/working/state_{ref_name}"
+    renv = {**{k: v for k, v in os.environ.items() if k not in FLAGS}, **BASE, **MODELS[MODEL], **FIXED}
+    if RETYPE_STEP == "prepare":
+        r = subprocess.run(["python", "scripts/retype.py", "prepare", "--ref", REF, "--state", STATE], env=renv, capture_output=True, text=True)
+        print("prepare rc =", r.returncode, (r.stdout or "")[-1500:], (r.stderr or "")[-1500:])
+    else:
+        for a in RETYPE_ARMS:
+            out = f"/kaggle/working/{a}_{TAG}_retyped{sfx}.csv"
+            if os.path.exists(out):
+                print("exists, skipped:", out)
+                continue
+            r = subprocess.run(["python", "scripts/retype.py", "run", "--ref", REF, "--state", STATE, "--arm", a, "--out", out],
+                               env=renv, capture_output=True, text=True)
+            print(a, "rc =", r.returncode, (r.stdout or "")[-600:], (r.stderr or "")[-1500:])
