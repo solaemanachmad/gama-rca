@@ -63,7 +63,7 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
-         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY")
+         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -96,6 +96,7 @@ ARMS = {                                                          # name -> extr
     "V2_RULE_NOTOPO": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_TOPO": "1"},         # ablations (CPU)
     "V2_RULE_NOEXCL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_EXCLUDE": "1"},
     "V2_RULE_UNCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_UNCALIBRATED": "1"},
+    "V2_RULE_NOLOCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_LOCALITY": "1"},
     "V2_RULE_LEGACYWIN": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "legacy"},                         # window definition of v1
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},

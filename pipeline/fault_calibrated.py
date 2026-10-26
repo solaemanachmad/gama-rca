@@ -216,7 +216,9 @@ K_PSEUDO = 5            # pseudo-windows per series: as many as the ~55 min metr
 LOG_B_SPAN, LOG_K = 1, 1  # logs have ~15 min of baseline (2.5 windows): 1 window of history, 1 pseudo-window
 
 NODE_SIGNALS = [("node_cpu_rise", ("cpu",), "up"), ("node_mem_rise", ("mem",), "up"), ("node_disk_rise", ("disk",), "up"),
-                ("node_ready_drop", ("ready", "pods"), "down")]
+                ("node_ready_drop", ("ready",), "down"), ("node_pods_drop", ("pods",), "down")]
+# v2 dev round 1: a drop of running pods on a node also follows a scale-down or rescheduling, so only the ready status (or a
+# NotReady event) is a KEY signal of nodeDown; the pod count only supports it.
 SVC_SIGNALS = [("svc_cpu_rise", ("cpu",), "up"), ("svc_mem_rise", ("mem",), "up"), ("svc_gc_rise", ("gc",), "up"),
                ("svc_thread_rise", ("thread",), "up"), ("svc_disk_rise", ("disk",), "up"), ("svc_throttle_rise", ("throttle",), "up"),
                ("svc_request_rise", ("request",), "up"), ("svc_latency_rise", ("latency",), "up"), ("svc_error_rise", ("error",), "up"),
@@ -348,7 +350,7 @@ FINGERPRINTS = {
     # Cloud resource (node level)
     "F026-nodeCpuHigh":             dict(key=["node_cpu_rise"], sup=[], con=[]),
     "F031-nodeMemoryOOM":           dict(key=["ev_node_oom", "node_mem_rise&ev_evicted"], sup=["node_mem_rise", "ev_evicted"], con=[]),
-    "F001-nodeDown":                dict(key=["ev_node_notready", "node_ready_drop"], sup=[], con=[]),
+    "F001-nodeDown":                dict(key=["ev_node_notready", "node_ready_drop"], sup=["node_pods_drop"], con=["ev_scale_down"]),
     "F025-diskIOHigh":              dict(key=["node_disk_rise", "svc_disk_rise"], sup=["svc_latency_rise"], con=[]),
     # K8s lifecycle
     "F051-podPendingUnschedulable": dict(key=["ev_unschedulable"], sup=["replica_drop"], con=[]),

@@ -466,3 +466,4 @@ V2_NO_TOPO = os.environ.get("V2_NO_TOPO", "0") == "1"            # no topology c
 V2_NO_EXCLUDE = os.environ.get("V2_NO_EXCLUDE", "0") == "1"      # ignore the excluding signals of the fingerprints
 V2_UNCALIBRATED = os.environ.get("V2_UNCALIBRATED", "0") == "1"  # raw rank-test scores instead of calibrated p-values
 V2_NO_VERIFY = os.environ.get("V2_NO_VERIFY", "0") == "1"        # no verifier / repair call
+V2_NO_LOCALITY = os.environ.get("V2_NO_LOCALITY", "0") == "1"    # no node-locality rule (dev round 1)

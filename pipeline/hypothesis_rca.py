@@ -108,7 +108,17 @@ def hypotheses(case, db, alert_svc: Optional[str]) -> Dict:
                 if s["kind"] == "cont" and "raw" in s:
                     s["p"] = s["raw"]
         H.extend(admitted(sigs[ent], ent, level, alpha))
-    specific = {h["entity"] for h in H if not h["residual"]}
+    # v2 dev round 1, node locality: a node-level fault concerns ONE node (definitions of nodeCpuHigh / nodeMemoryOOM / nodeDown /
+    # diskIOHigh). When the same node-level type is admitted on two or more nodes at once, the rise is shared (typically load from
+    # the services they host), so those node hypotheses are marked diffuse: they stay listed but neither rank as specific nor make
+    # their hosted services non-root.
+    per_type = defaultdict(int)
+    for h in H:
+        if h["level"] == "node":
+            per_type[h["type"]] += 1
+    for h in H:
+        h["diffuse"] = h["level"] == "node" and per_type[h["type"]] >= 2 and not config.V2_NO_LOCALITY
+    specific = {h["entity"] for h in H if not h["residual"] and not h["diffuse"]}
     for h in H:
         e = h["entity"]
         if h["level"] == "node":
@@ -123,7 +133,7 @@ def hypotheses(case, db, alert_svc: Optional[str]) -> Dict:
         h["root"] = not (deps & specific)
         if config.V2_NO_TOPO:
             h["consistent"], h["root"] = True, True
-    H.sort(key=lambda h: (not h["consistent"], h["residual"], not h["root"], -h["n_cat"], -h["fisher"],
+    H.sort(key=lambda h: (not h["consistent"], h["residual"] or h["diffuse"], not h["root"], -h["n_cat"], -h["fisher"],
                           -(h["depth"] if h["depth"] < 99 else -1), _ORDER[h["type"]]))
     return {"H": H, "signals": sigs, "ids": {**svc_ids, **node_ids}, "down": down}
 
@@ -136,7 +146,8 @@ def _hyp_block(H):
     for i, h in enumerate(H, 1):
         pos = "root: no dependency carries a specific hypothesis" if h["root"] else "a dependency also carries a hypothesis"
         lines.append(f"H{i}. entity={h['entity']} ({h['level']}) type={h['type']} [{fault_group(h['type'])}]"
-                     + (" (residual type)" if h["residual"] else "") + f" | {pos}; hops from the alerted service: "
+                     + (" (residual type)" if h["residual"] else "") + (" (same node signal on several nodes)" if h.get("diffuse") else "")
+                     + f" | {pos}; hops from the alerted service: "
                      + (str(h["depth"]) if h["depth"] < 99 else "n/a"))
         lines.append(f"    definition: {FAULT_DEFINITIONS.get(h['type'], '')}")
         for k, v in h["signals"].items():
@@ -188,7 +199,8 @@ def diagnose(case, llm, use_llm: bool = True, t0: Optional[float] = None) -> RCA
     hy = hypotheses(case, db, alert_svc)
     H = hy["H"]
     stats.update(v2_evidence_time_s=round(time.time() - t1, 1), v2_n_hypotheses=len(H),
-                 v2_n_consistent=sum(h["consistent"] for h in H), v2_n_specific=sum(not h["residual"] for h in H))
+                 v2_n_consistent=sum(h["consistent"] for h in H), v2_n_specific=sum(not h["residual"] for h in H),
+                 v2_n_diffuse=sum(h.get("diffuse", False) for h in H))
     prop = _safe(compute_propagation_evidence, case, at, entry)
     infra = _safe(compute_infra_evidence, case, at, entry)
     trace = _safe(compute_trace_evidence, case, at, entry)

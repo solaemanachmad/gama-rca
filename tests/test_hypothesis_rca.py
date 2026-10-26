@@ -61,6 +61,19 @@ def node_fault_is_answered_at_node_level():
 
 
 @test
+def shared_node_rise_is_not_a_node_fault():
+    """Both nodes hosting the services rise together (load), and checkout shows 429s: the service hypothesis must win."""
+    c = case()
+    metric(c, "k8s.node", "node-a", "node_cpu_usage_rate", 0.30, 0.95)
+    metric(c, "k8s.node", "node-b", "node_cpu_usage_rate", 0.30, 0.95, seed=7)
+    for i in range(6):
+        wspan(c, "checkout", i, err=True, code="429", msg="Too Many Requests")
+    r = diagnose(c, None, use_llm=False)
+    assert (r.retrieval_stats["v2_entity"], r.predicted_fault_type) == ("checkout", "F016-rateLimiting"), r.retrieval_stats
+    assert r.retrieval_stats["v2_n_diffuse"] == 2
+
+
+@test
 def downstream_categorical_root_wins():
     c = case()
     metric(c, "apm.service.legacy", "frontend", "rt", 0.1, 0.5)               # symptom at the alerted service

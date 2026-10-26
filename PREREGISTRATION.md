@@ -1,3 +1,5 @@
+> **Superseded (2026-10-27):** this pre-registration was not executed; the project moved to the v2 design (see DEVLOG_V2.md).
+
 # Pre-registration: evidence-to-label layer, held-out evaluation
 
 Written and committed BEFORE any run on the 73 held-out cases. Tag `fp-freeze-v1` marks the frozen code. After this tag, no rule,
