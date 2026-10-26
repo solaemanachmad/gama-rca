@@ -146,7 +146,7 @@
    "system_md5": "c7cc1befcd8fba0422ef6fc191339094"
   },
   {
-   "final": "{\"confidence\": 0.5, \"coordinator_fault_type\": \"F014-httpError5xx\", \"fault_evidence\": \"cart 500 x12\", \"fp_candidates\": \"F016-rateLimiting|F011-codeDefect\", \"fp_mode\": \"show\", \"fp_origin\": \"a\", \"fp_origin_kind\": \"service\", \"fp_signals\": \"err_spans_rise|http429\", \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F029-redisUnavailable\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"], \"typing_applied\": true, \"typing_prompt_chars\": 7556}"
+   "final": "{\"confidence\": 0.5, \"coordinator_fault_type\": \"F014-httpError5xx\", \"fault_evidence\": \"cart 500 x12\", \"fp_candidates\": \"F016-rateLimiting|F011-codeDefect\", \"fp_mode\": \"show\", \"fp_origin\": \"a\", \"fp_origin_kind\": \"service\", \"fp_scoring\": \"fixed\", \"fp_signals\": \"err_spans_rise|http429\", \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F029-redisUnavailable\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"], \"typing_applied\": true, \"typing_prompt_chars\": 7556}"
   }
  ],
  "frozen_ABS_KP_FPSL": [
@@ -181,7 +181,7 @@
    "system_md5": "c7cc1befcd8fba0422ef6fc191339094"
   },
   {
-   "final": "{\"confidence\": 0.5, \"coordinator_fault_type\": \"F014-httpError5xx\", \"fault_evidence\": \"cart 500 x12\", \"fp_candidates\": \"F016-rateLimiting|F011-codeDefect\", \"fp_choice_in_shortlist\": false, \"fp_mode\": \"shortlist\", \"fp_origin\": \"a\", \"fp_origin_kind\": \"service\", \"fp_signals\": \"err_spans_rise|http429\", \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F016-rateLimiting\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"], \"typing_applied\": true, \"typing_prompt_chars\": 4552}"
+   "final": "{\"confidence\": 0.5, \"coordinator_fault_type\": \"F014-httpError5xx\", \"fault_evidence\": \"cart 500 x12\", \"fp_candidates\": \"F016-rateLimiting|F011-codeDefect\", \"fp_choice_in_shortlist\": false, \"fp_mode\": \"shortlist\", \"fp_origin\": \"a\", \"fp_origin_kind\": \"service\", \"fp_scoring\": \"fixed\", \"fp_signals\": \"err_spans_rise|http429\", \"predicted_entity_ids\": [\"a\"], \"predicted_fault_type\": \"F016-rateLimiting\", \"reasoning_chain\": [\"cause: a cpu=1\", \"propagation: b err=2\", \"impact: c lat=3\"], \"typing_applied\": true, \"typing_prompt_chars\": 4552}"
   }
  ],
  "frozen_ABS_KP_NOSPEC": [

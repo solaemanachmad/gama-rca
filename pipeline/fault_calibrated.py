@@ -2,9 +2,11 @@
 
 Method (paper, Section "Evidence-to-label layer"; Algorithms 1-3):
   Evidence model. Two kinds of evidence about an entity e in the alert window W = [w0, w1]:
-    * continuous signals (metric series, log-keyword rates): tested against e's OWN baseline before w0 with a one-sided Mann-Whitney U
-      test (rank-based, distribution-free); p <= ALPHA means the signal is anomalous. Several series of one signal family (e.g. all GC
-      metrics of e) are combined with a Bonferroni minimum (p_family = min(1, m * min p)).
+    * continuous signals (metric families, log-keyword rates). Score = one-sided Mann-Whitney U p-value of the window against the
+      history right before it (minimum over the entity's series of that family). Because series drift and are autocorrelated, this score
+      is NOT used as a probability: it is calibrated against an empirical null of the same score computed on pseudo-windows cut from the
+      case's own baseline, pooled over the entities of the same kind in the case (Efron 2004; conformal calibration, Vovk et al. 2005).
+      The signal holds when the calibrated p <= ALPHA. See _calibrate().
     * categorical observations that name a mechanism and need no baseline: K8s event reasons in W, HTTP status classes and
       error-message patterns of error spans in W, failing database/Redis/Kafka spans in W. RCA100 exports traces only inside the window
       (no trace baseline; scripts/diagnostics/check_baseline_length.py), so trace evidence can only be categorical, or compared within
@@ -34,7 +36,6 @@ from pipeline.fault_fingerprint import (_owner, _family, _naive, _fmt, _TEXT_FAM
 ALPHA = 0.05
 TOP_K = 3
 LOG_BIN_S = 30          # log-keyword counts per 30 s bin (= the metric sampling step)
-MIN_BASE_BINS = 10      # a log-rate test needs >= 10 baseline bins; otherwise the signal is reported as untestable
 MIN_SAMPLES = 3
 
 
@@ -67,11 +68,6 @@ def mwu_greater(x: List[float], y: List[float]) -> Optional[float]:
         return 1.0
     z = (u1 - n1 * n2 / 2.0 - 0.5) / math.sqrt(var)
     return 0.5 * math.erfc(z / math.sqrt(2.0))
-
-
-def _bonferroni(ps: List[float]) -> Optional[float]:
-    ps = [p for p in ps if p is not None]
-    return min(1.0, len(ps) * min(ps)) if ps else None
 
 
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -208,73 +204,107 @@ def _compute(case, alert_ts):
 # ------------------------------------------------------------------------------------------------------------------------------
 # tests per entity -> signals {name: {"kind": "cont"|"cat", "p": float|None, "ev": text}}
 # ------------------------------------------------------------------------------------------------------------------------------
-def _series_tests(series_map, w0, w1, name_of=lambda k: k):
-    """{family: [(p_up, p_down, label)]} with one-sided MWU per series (window samples vs baseline samples of the same series)."""
-    out = defaultdict(list)
-    for key, pts in series_map.items():
-        f = _family(name_of(key))
-        if not f:
-            continue
-        base = [v for t, v in pts if t < w0]
-        win = [v for t, v in pts if w0 <= t <= w1]
-        pu, pd = mwu_greater(win, base), mwu_greater(base, win)
-        if pu is None:
-            continue
-        med_b = sorted(base)[len(base) // 2]
-        out[f].append((pu, pd, f"{key.split(':')[-1] if isinstance(key, str) else key[1]} baseline median={_fmt(med_b)} window max={_fmt(max(win))} min={_fmt(min(win))}"))
-    return out
+# Calibration (fixes the label-free check of f2e2bf4: plain rank-test p-values gave a pseudo-window false-alarm rate of ~30% instead of
+# 5%, because metric series drift and are autocorrelated, so window and baseline samples are not exchangeable).
+# Remedy: the rank-test p-value is used only as a SCORE. For every (entity kind, signal) the score of each entity is also computed on K
+# pseudo-windows cut from the case's own baseline (no fault there: they precede the alert window); these scores, pooled over the entities
+# of that kind in the same case, form the empirical null (Efron 2004; conformal calibration, Vovk et al. 2005). The calibrated p-value of
+# the real window is (1 + #{null scores <= score}) / (N_null + 1). Every tested window (real or pseudo) is compared with the same length
+# of history immediately before it (B_SPAN window lengths), so real and pseudo scores are on the same footing.
+B_SPAN = 4              # history used by each rank test: the 4 window lengths (24 min) right before the tested window
+K_PSEUDO = 5            # pseudo-windows per series: as many as the ~55 min metric baseline allows with B_SPAN = 4
+LOG_B_SPAN, LOG_K = 1, 1  # logs have ~15 min of baseline (2.5 windows): 1 window of history, 1 pseudo-window
+
+NODE_SIGNALS = [("node_cpu_rise", ("cpu",), "up"), ("node_mem_rise", ("mem",), "up"), ("node_disk_rise", ("disk",), "up"),
+                ("node_ready_drop", ("ready", "pods"), "down")]
+SVC_SIGNALS = [("svc_cpu_rise", ("cpu",), "up"), ("svc_mem_rise", ("mem",), "up"), ("svc_gc_rise", ("gc",), "up"),
+               ("svc_thread_rise", ("thread",), "up"), ("svc_disk_rise", ("disk",), "up"), ("svc_throttle_rise", ("throttle",), "up"),
+               ("svc_request_rise", ("request",), "up"), ("svc_latency_rise", ("latency",), "up"), ("svc_error_rise", ("error",), "up"),
+               ("svc_restart_rise", ("restart",), "up"), ("replica_drop", ("replica", "pods", "ready"), "down")]
 
 
-def _cont(sig, name, tests, direction="up"):
-    if not tests:
-        return
-    idx = 0 if direction == "up" else 1
-    p = _bonferroni([t[idx] for t in tests])
-    if p is None:
-        return
-    best = min(tests, key=lambda t: t[idx])
-    sig[name] = {"kind": "cont", "p": p, "ev": f"{best[2]} (p={p:.3g}, {len(tests)} series)"}
+def _score(pts, a, b, span, direction, closed_end=False):
+    """Rank-test p-value of the window [a, b) (or [a, b]) against the `span` seconds of history right before a."""
+    base = [v for t, v in pts if a - span <= t < a]
+    win = [v for t, v in pts if a <= t < b or (closed_end and t == b)]
+    return mwu_greater(win, base) if direction == "up" else mwu_greater(base, win)
+
+
+def _family_scores(series_map, families, direction, windows, span, name_of):
+    """Signal score per window = min rank-test p over the entity's series of these families (None if no series)."""
+    sel = [pts for key, pts in series_map.items() if _family(name_of(key)) in families]
+    out = []
+    for i, (a, b) in enumerate(windows):
+        ps = [_score(pts, a, b, span, direction, closed_end=(i == 0)) for pts in sel]
+        ps = [p for p in ps if p is not None]
+        out.append(min(ps) if ps else None)
+    return out, len(sel)
+
+
+def _calibrate(db):
+    """Fills db["_cal"][entity][signal] = {"p": calibrated p, "raw": raw score, "n_null": N, "pseudo": [scores], "n_series": m}."""
+    if "_cal" in db:
+        return db["_cal"]
+    w0, w1 = db["w0"], db["w1"]
+    L = w1 - w0
+    span = B_SPAN * L
+    wins = [(w0, w1)] + [(w0 - j * L, w0 - (j - 1) * L) for j in range(1, K_PSEUDO + 1)]
+    metric_name = lambda k: k.split(":")[-1]
+    raw = defaultdict(dict)
+    for kind, group, sigs, name_of in (("node", "nodes", NODE_SIGNALS, metric_name), ("service", "services", SVC_SIGNALS, metric_name),
+                                       ("op", "services", [("op_request_rise", ("request",), "up")], lambda k: k[1])):
+        for ent, pr in db[group].items():
+            smap = pr["ops"] if kind == "op" else pr["series"]
+            for name, fams, d in sigs:
+                sc, m = _family_scores(smap, fams, d, wins, span, name_of)
+                if m and sc[0] is not None:
+                    raw[ent][name] = {"kind_pool": (kind, name), "raw": sc[0], "pseudo": [x for x in sc[1:] if x is not None], "n_series": m}
+    # log-keyword rates (30 s bins)
+    nw = db["win_bins"]
+    for ent, pr in db["services"].items():
+        for f, _ in _TEXT_FAMILIES:
+            bins = pr["log_bins"].get(f)
+            if not bins:
+                continue
+            def binv(lo, hi):
+                return [bins.get(i, 0) for i in range(lo, hi)]
+            real = mwu_greater(binv(0, nw), binv(-LOG_B_SPAN * nw, 0)) if db["log_base_bins"] >= LOG_B_SPAN * nw else None
+            pseudo = [mwu_greater(binv(-j * nw, -(j - 1) * nw), binv(-(j + LOG_B_SPAN) * nw, -j * nw)) for j in range(1, LOG_K + 1)
+                      if db["log_base_bins"] >= (j + LOG_B_SPAN) * nw]
+            if real is not None:
+                raw[ent][f"log_{f}_rise"] = {"kind_pool": ("log", "log"), "raw": real, "pseudo": [x for x in pseudo if x is not None],
+                                             "n_series": 1, "ev": f"'{f}' log lines in window={sum(binv(0, nw))}, previous window={sum(binv(-nw, 0))}"}
+    null = defaultdict(list)
+    for ent, sigs in raw.items():
+        for name, r in sigs.items():
+            null[r["kind_pool"]].extend(r["pseudo"])
+    cal = defaultdict(dict)
+    for ent, sigs in raw.items():
+        for name, r in sigs.items():
+            nl = null[r["kind_pool"]]
+            r["n_null"] = len(nl)
+            r["p"] = (1 + sum(1 for x in nl if x <= r["raw"])) / (len(nl) + 1)
+            cal[ent][name] = r
+    db["_cal"] = cal
+    db["_null"] = null
+    return cal
 
 
 def entity_signals(db: Dict, ent: str) -> Dict:
-    """Signals of one entity (a service or a node name). Continuous signals are listed with their p-value whether or not they hold;
+    """Signals of one entity (a service or a node name). Continuous signals carry their calibrated p-value whether or not they hold;
     categorical signals are listed only when observed."""
-    w0, w1 = db["w0"], db["w1"]
+    cal = _calibrate(db)
     sig = {}
+    for name, r in cal.get(ent, {}).items():
+        ev = r.get("ev") or f"rank-test score={r['raw']:.3g} over {r['n_series']} series"
+        sig[name] = {"kind": "cont", "p": r["p"], "ev": f"{ev} (calibrated p={r['p']:.3g} against {r['n_null']} pseudo-window scores)"}
     if ent in db["nodes"]:
         pr = db["nodes"][ent]
-        fam = _series_tests(pr["series"], w0, w1)
-        _cont(sig, "node_cpu_rise", fam.get("cpu"))
-        _cont(sig, "node_mem_rise", fam.get("mem"))
-        _cont(sig, "node_disk_rise", fam.get("disk"))
-        _cont(sig, "node_ready_drop", (fam.get("ready") or []) + (fam.get("pods") or []), "down")
         for f, name in (("node_notready", "ev_node_notready"), ("oom", "ev_node_oom"), ("evicted", "ev_evicted")):
             if pr["events"].get(f):
                 sig[name] = {"kind": "cat", "p": None, "ev": f"events {dict(pr['events'][f])}"}
         return sig
     pr = db["services"][ent]
-    fam = _series_tests(pr["series"], w0, w1, name_of=lambda k: k.split(":")[-1])
-    for name, f in (("svc_cpu_rise", "cpu"), ("svc_mem_rise", "mem"), ("svc_gc_rise", "gc"), ("svc_thread_rise", "thread"),
-                    ("svc_disk_rise", "disk"), ("svc_throttle_rise", "throttle"), ("svc_request_rise", "request"),
-                    ("svc_latency_rise", "latency"), ("svc_error_rise", "error"), ("svc_restart_rise", "restart")):
-        _cont(sig, name, fam.get(f))
-    _cont(sig, "replica_drop", (fam.get("replica") or []) + (fam.get("pods") or []) + (fam.get("ready") or []), "down")
-    # operation-level traffic: a rise on some operations while the service-level request signal does not hold -> hotspot
-    ops = _series_tests(pr["ops"], w0, w1, name_of=lambda k: k[1])
-    if ops.get("request"):
-        _cont(sig, "op_request_rise", ops["request"])
-    # log-keyword rates (30 s bins) against the baseline bins, when the baseline is long enough to test
-    nb, nw = db["log_base_bins"], db["win_bins"]
-    if nb >= MIN_BASE_BINS:
-        for f, _ in _TEXT_FAMILIES:
-            bins = pr["log_bins"].get(f)
-            if not bins:
-                continue
-            base = [bins.get(-i - 1, 0) for i in range(nb)]
-            win = [bins.get(i, 0) for i in range(nw)]
-            p = mwu_greater(win, base)
-            if p is not None:
-                sig[f"log_{f}_rise"] = {"kind": "cont", "p": p, "ev": f"'{f}' log lines per 30 s: window total={sum(win)} baseline total={sum(base)} (p={p:.3g})"}
     # categorical: events, status codes, error messages, failing dependency spans (window only)
     for f in ("oom", "crashloop", "unhealthy", "unschedulable", "scale_down", "restart", "evicted"):
         if pr["events"].get(f):
@@ -443,20 +473,26 @@ def profile_text(origin: str, osig: Dict, cands: List[Dict]) -> str:
 # calibration check (label-free): how often does a continuous signal 'hold' when there is no fault?
 # ------------------------------------------------------------------------------------------------------------------------------
 def false_alarm_rate(db: Dict, alpha: float = ALPHA) -> Dict:
-    """Pseudo-window = the last window-length of the baseline, tested against the earlier baseline, for every metric series.
-    The share of series with p <= alpha estimates the per-series false-alarm rate (should be close to alpha)."""
+    """Label-free validity check. raw: share of pseudo-window-1 scores <= alpha (the uncalibrated rank test; drift inflates it).
+    calibrated: pseudo-window 1 of every entity is calibrated against the null built from pseudo-windows 2..K only, and the share
+    with calibrated p <= alpha is reported (should be close to alpha)."""
     if not db or "services" not in db:
         return {}
-    L = db["w1"] - db["w0"]
-    pw0 = db["w0"] - L
-    n = fired = 0
-    for group in ("services", "nodes"):
-        for pr in db[group].values():
-            for pts in pr["series"].values():
-                base = [v for t, v in pts if t < pw0]
-                win = [v for t, v in pts if pw0 <= t < db["w0"]]
-                p = mwu_greater(win, base)
-                if p is not None:
-                    n += 1
-                    fired += p <= alpha
-    return {"series": n, "fired": fired, "rate": (fired / n if n else None)}
+    cal = _calibrate(db)
+    pools = defaultdict(list)
+    for sigs in cal.values():
+        for r in sigs.values():
+            pools[r["kind_pool"]].extend(r["pseudo"][1:])
+    n = raw_fired = cal_fired = 0
+    for sigs in cal.values():
+        for r in sigs.values():
+            if not r["pseudo"]:
+                continue
+            x = r["pseudo"][0]
+            nl = pools[r["kind_pool"]]
+            n += 1
+            raw_fired += x <= alpha
+            if nl:
+                cal_fired += (1 + sum(1 for y in nl if y <= x)) / (len(nl) + 1) <= alpha
+    return {"series": n, "fired": cal_fired, "raw_fired": raw_fired, "rate": (cal_fired / n if n else None),
+            "raw_rate": (raw_fired / n if n else None)}

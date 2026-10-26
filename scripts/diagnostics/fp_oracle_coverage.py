@@ -64,7 +64,7 @@ def main(argv):
         rank = types.index(truth) + 1 if truth in types else None
         rows.append(dict(case=cid, gt_type=truth, group=fault_group(truth), origin=names[0] if names else "", kind=osig["kind"],
                          rank=rank, n_cand=len(types), top3="|".join(types[:3]), signals="|".join(sorted(osig["signals"])),
-                         far_series=far.get("series"), far_fired=far.get("fired"),
+                         far_series=far.get("series"), far_fired=far.get("fired"), far_raw_fired=far.get("raw_fired"),
                          secs=round(time.time() - t0, 1)))
         r = rows[-1]
         print(f"{cid} {truth:32s} origin={r['origin']}({r['kind']}) rank={rank} n={len(types)} top3={r['top3']} | signals={r['signals']}")
@@ -84,9 +84,10 @@ def main(argv):
     for g, rs in sorted(by.items()):
         print(f"  {g:20s} n={len(rs):3d}  top1={sum(1 for r in rs if r['rank'] == 1)}  top3={sum(1 for r in rs if r['rank'] and r['rank'] <= 3)}")
     fs, ff = sum(r["far_series"] or 0 for r in rows), sum(r["far_fired"] or 0 for r in rows)
+    fr = sum(r["far_raw_fired"] or 0 for r in rows)
     if fs:
-        print(f"CALIBRATION (label-free): pseudo-window false-alarm rate per metric series = {ff}/{fs} = {ff / fs:.3f} "
-              f"(target alpha = {config.FP_ALPHA})")
+        print(f"CALIBRATION (label-free): held-out pseudo-window false-alarm rate per signal = calibrated {ff}/{fs} = {ff / fs:.3f}, "
+              f"uncalibrated rank test {fr}/{fs} = {fr / fs:.3f} (target alpha = {config.FP_ALPHA})")
     print(f"scoring = {config.FP_SCORING}")
     if csv_path:
         import csv

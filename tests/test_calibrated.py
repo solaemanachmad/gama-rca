@@ -19,6 +19,24 @@ from pipeline.fault_calibrated import (compute_signal_db, origin_signals, rank_c
 W0 = T0 - dt.timedelta(minutes=5)
 
 
+def make_case(extra_nodes=8, extra_svcs=8):
+    """FakeCase plus extra nodes/services with ordinary telemetry, so that the within-case null pools have realistic size
+    (RCA100 cases have ~10 nodes and ~12 services)."""
+    from schema import Entity
+    c = FakeCase()
+    for i in range(extra_nodes):
+        n = f"node-x{i}"
+        c.topology.add_node(n, entity=Entity(entity_id=n, entity_type="k8s.node", name=n))
+        metric(c, "k8s.node", n, "node_cpu_usage_rate", 0.3, 0.3, seed=100 + i)
+        metric(c, "k8s.node", n, "node_memory_usage_rate", 0.6, 0.6, seed=200 + i)
+    for i in range(extra_svcs):
+        sname = f"svc{i}"
+        c.topology.add_node(sname, entity=Entity(entity_id=sname, entity_type="apm.service", name=sname))
+        metric(c, "apm.metric.jvm", sname, "arms_jvm_gc_delta", 2.0, 2.0, noise=0.5, seed=300 + i)
+        metric(c, "apm.service.legacy", sname, "rt", 0.1, 0.1, seed=400 + i)
+    return c
+
+
 def metric(c, eset, name, metric_name, base, win, noise=0.05, seed=0):
     rnd = random.Random(seed)
     for i in range(110):                                   # baseline: 55 min at 30 s
@@ -63,7 +81,7 @@ def mwu_sanity():
 
 @test
 def node_cpu_hypothesis_on_host():
-    c = FakeCase()
+    c = make_case()
     metric(c, "k8s.node", "node-a", "node_cpu_usage_rate", 0.30, 0.95)
     metric(c, "k8s.node", "node-b", "node_cpu_usage_rate", 0.30, 0.30, seed=1)
     h, _, _ = types(c, "node-a")
@@ -76,7 +94,7 @@ def node_cpu_hypothesis_on_host():
 
 @test
 def stable_high_metric_does_not_hold():
-    c = FakeCase()
+    c = make_case()
     metric(c, "k8s.node", "node-a", "node_memory_usage_rate", 0.92, 0.92)   # always high = normal for this node
     h, osig, _ = types(c, "node-a")
     assert h == [] and not osig["signals"], (h, osig["signals"])
@@ -84,7 +102,7 @@ def stable_high_metric_does_not_hold():
 
 @test
 def rate_limit_categorical_beats_metric_symptom():
-    c = FakeCase()
+    c = make_case()
     metric(c, "apm.service.legacy", "checkout", "rt", 0.1, 0.4)              # latency symptom
     for i in range(6):
         wspan(c, "checkout", i, err=True, code="429", msg="Too Many Requests")
@@ -94,11 +112,11 @@ def rate_limit_categorical_beats_metric_symptom():
 
 @test
 def gc_rise_vs_ordinary_gc():
-    c = FakeCase()
+    c = make_case()
     metric(c, "apm.metric.jvm", "checkout", "arms_jvm_gc_delta", 2.0, 2.0, noise=0.5)   # bursty but unchanged
     h, _, _ = types(c, "checkout")
     assert all(t != "F022-fullGC" for t, _ in h), h
-    c2 = FakeCase()
+    c2 = make_case()
     metric(c2, "apm.metric.jvm", "checkout", "arms_jvm_gc_delta", 2.0, 30.0, noise=0.5)
     h2, _, _ = types(c2, "checkout")
     assert h2[0][0] == "F022-fullGC", h2
@@ -106,7 +124,7 @@ def gc_rise_vs_ordinary_gc():
 
 @test
 def scale_down_excludes_flapping():
-    c = FakeCase()
+    c = make_case()
     c.event("Deployment", "cart", "ScalingReplicaSet", "Scaled down replica set cart-7d9f8c6b5d to 0", when=W0 + dt.timedelta(minutes=1))
     c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "Killing", "Stopping container cart", when=W0 + dt.timedelta(minutes=1))
     h, _, _ = types(c, "cart")
@@ -115,7 +133,7 @@ def scale_down_excludes_flapping():
 
 @test
 def events_outside_window_ignored():
-    c = FakeCase()
+    c = make_case()
     c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "BackOff", "Back-off restarting", when=W0 - dt.timedelta(minutes=40))
     h, _, _ = types(c, "cart")
     assert h == [], h
@@ -123,7 +141,7 @@ def events_outside_window_ignored():
 
 @test
 def slow_db_within_window():
-    c = FakeCase()
+    c = make_case()
     for i in range(10):
         wspan(c, "checkout", i, name="GET /order", dur_ns=20e6)
         wspan(c, "checkout", i, name="SELECT orders", attrs='"db.system":"postgresql",', dur_ns=2500e6)
@@ -133,7 +151,7 @@ def slow_db_within_window():
 
 @test
 def residual_only_when_nothing_specific():
-    c2 = FakeCase()
+    c2 = make_case()
     for i in range(5):
         wspan(c2, "checkout", i, err=True, code="500", msg="internal")
     h2, _, _ = types(c2, "checkout")
@@ -141,19 +159,26 @@ def residual_only_when_nothing_specific():
 
 
 @test
-def false_alarm_rate_near_alpha():
-    c = FakeCase()
-    for k in range(40):                                   # 40 unchanged series: the pseudo-window test should rarely hold
-        metric(c, "k8s.node", "node-a", f"m{k}_usage_rate", 0.4, 0.4, noise=0.2, seed=k)
-    db = compute_signal_db(c, T0)
+def drifting_metric_is_not_an_anomaly():
+    """A series that grows steadily (e.g. disk usage) beats its own history in EVERY window: the raw rank test fires,
+    the calibrated test does not (its pseudo-windows show the same drift). This is the f2e2bf4 false-alarm problem."""
+    c = make_case()
+    from schema import Observation
+    for n in ["node-a", "node-b"] + [f"node-x{i}" for i in range(8)]:
+        for i in range(122):
+            t = W0 - dt.timedelta(seconds=30 * (110 - i))
+            c.observations["metrics"].append(Observation(None, t, "metrics", "", {"entity_set": "k8s.node", "entity_name": n,
+                                                                                   "metric": "node_disk_usage_rate", "value": 0.2 + 0.001 * i}))
+    h, osig, db = types(c, "node-a")
+    assert "node_disk_rise" not in osig["signals"], osig["signals"]
     far = false_alarm_rate(db)
-    assert far["series"] == 40 and far["rate"] <= 0.15, far
+    assert far["raw_rate"] > 0.2 and far["rate"] <= 0.1, far
 
 
 @test
 def typing_uses_hypothesis_entity_with_level_switch():
     from agents import multi_agent as ma
-    c = FakeCase()
+    c = make_case()
     metric(c, "k8s.node", "node-a", "node_cpu_usage_rate", 0.30, 0.95)
 
     class Stub:
