@@ -77,6 +77,8 @@ def main(argv):
         n_svc = len(db["services"])
         have = Counter(k[1] for k in r["vars"])
         r2 = [x for x in (holdout_r2(t, v["parents"], var) for t, v in r["vars"].items() if t[1] == "latency" and v["parents"]) if x is not None]
+        sk = [v["skill"] for t, v in r["vars"].items() if t[1] in ("latency", "error") and v.get("skill") is not None]
+        with_par = sum(1 for t, v in r["vars"].items() if t[1] in ("latency", "error") and v["parents"])
         # calibration: pseudo-window 1 against the null of pseudo-windows 2..K, per variable kind
         pools = defaultdict(list)
         for t, v in r["vars"].items():
@@ -91,7 +93,8 @@ def main(argv):
         top = r["ranking"][:3]
         row = dict(case=cid, alert=alert, target=f"{r['target'][0]}:{r['target'][1]}" if r["target"] else "",
                    services=n_svc, with_latency=have["latency"], with_error=have["error"], with_request=sum(1 for k in var if k[1] == "request"),
-                   nodes_cpu=have["cpu"], r2_median=round(float(np.median(r2)), 2) if r2 else None, n_raw_anom=len(raw), n_own_anom=len(own),
+                   nodes_cpu=have["cpu"], with_parents=with_par, skill_median=round(float(np.median(sk)), 2) if sk else None,
+                   r2_median=round(float(np.median(r2)), 2) if r2 else None, n_raw_anom=len(raw), n_own_anom=len(own),
                    top=" | ".join(f"{x['entity']} {x['share']:.2f} p={x['p_own'] if x['p_own'] is None else round(x['p_own'], 3)}" for x in top),
                    secs=round(time.time() - t0))
         rows.append(row)
@@ -101,7 +104,8 @@ def main(argv):
     med = lambda k: float(np.median([r[k] for r in rows if r[k] is not None])) if any(r[k] is not None for r in rows) else None
     print(f"\nSUMMARY {len(rows)} cases (label-free)")
     print(f"  services per case (median) {med('services')}, with latency {med('with_latency')}, error {med('with_error')}, request {med('with_request')}; nodes with cpu {med('nodes_cpu')}")
-    print(f"  baseline hold-out R^2 of latency models (median of case medians): {med('r2_median')}")
+    print(f"  latency/error variables with selected parents (median per case): {med('with_parents')}; selection skill vs intercept-only (median): {med('skill_median')}")
+    print(f"  baseline hold-out R^2 of latency models with parents (median of case medians): {med('r2_median')}")
     print(f"  calibration: pseudo-window false-alarm rate {far_f}/{far_n} = {far_f / max(far_n, 1):.3f} (target {ca.ALPHA})")
     print(f"  anomalous entities per case before / after explaining away (median): {med('n_raw_anom')} / {med('n_own_anom')}")
     print(f"  cases with no own-anomalous entity: {sum(1 for r in rows if r['n_own_anom'] == 0)}")

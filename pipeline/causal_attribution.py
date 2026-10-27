@@ -54,6 +54,12 @@ def build_variables(db) -> Tuple[Dict, Dict]:
         for fam, (key, pts) in best.items():
             var[(s, fam)] = _bins(pts, w0)
             names[(s, fam)] = key.split(":")[-1]
+        # RCA100 exports an error sample only when errors >= 1 (repo history 29e2a97): where the service has a request ('workload')
+        # sample and no error sample, the error count is 0.
+        if (s, "request") in var:
+            err = var.get((s, "error"), {})
+            var[(s, "error")] = {b: err.get(b, 0.0) for b in set(var[(s, "request")]) | set(err)}
+            names.setdefault((s, "error"), "error (zero-filled)")
     for n, pr in db["nodes"].items():
         cands = [(k, p) for k, p in pr["series"].items() if _family(k) == "cpu"]
         if cands:
@@ -111,6 +117,41 @@ def _rows(target, parents, var, bins):
     return np.array(ys, float), np.array(rows, float).reshape(len(ys), len(parents)), used
 
 
+def select_parents(target, parents, var, nw, max_parents=3):
+    """Forward selection of parents by out-of-sample error on the EARLY baseline only (bins before the K pseudo-windows, so neither
+    the pseudo-windows nor the alert window influence the choice): fit on its first 70%, validate on the last 30%; a parent is added
+    only if it lowers the validation MSE of the current model; start = intercept only. Returns (parents, skill) with
+    skill = 1 - MSE(model) / MSE(intercept only) on the validation part (<= 0 means no parent helps: no explaining away)."""
+    early = sorted(b for b in var[target] if b < -K_PSEUDO * nw)
+    cut = int(len(early) * 0.7)
+    tr, va = early[:cut], early[cut:]
+    def mse(ps):
+        y, X, _ = _rows(target, ps, var, tr)
+        yv, Xv, _ = _rows(target, ps, var, va)
+        if len(y) < 10 or len(yv) < 5:
+            return None
+        pred, _ = _fit(y, X) if len(y) >= MIN_FIT or not ps else (None, None)
+        if pred is None:
+            return None
+        mu, _ = pred(Xv)
+        return float(np.mean((yv - mu) ** 2))
+    base = mse([])
+    if base is None:
+        return [], None
+    chosen, best = [], base
+    while len(chosen) < max_parents:
+        trial = [(mse(chosen + [p]), p) for p in parents if p not in chosen]
+        trial = [(m, p) for m, p in trial if m is not None]
+        if not trial:
+            break
+        m, p = min(trial, key=lambda mp: mp[0])
+        if m >= best:
+            break
+        chosen.append(p)
+        best = m
+    return chosen, (1 - best / base) if base > 0 else 0.0
+
+
 def score_variable(target, parents, var, nw):
     """Scores of the real window (index 0) and K pseudo-windows, each fitted on the baseline WITHOUT the scored window.
     Score = mean residual of the window / standard error of that mean (a z-score; upward deviation positive)."""
@@ -140,10 +181,11 @@ def attribute(db, callees: Dict[str, List[str]], hosts: Dict[str, List[str]], al
     targets = [k for k in var if k[1] in ("latency", "error", "cpu")]
     res = {}
     for t in targets:
-        ps = parents_of(t, var, callees, hosts)
+        cands = parents_of(t, var, callees, hosts)
+        ps, skill = select_parents(t, cands, var, nw)
         own, coef, r0 = score_variable(t, ps, var, nw)
         raw, _, _ = score_variable(t, [], var, nw)
-        res[t] = {"parents": ps, "coef": coef or {}, "own": own, "raw": raw, "resid": r0 or 0.0}
+        res[t] = {"parents": ps, "candidates": cands, "skill": skill, "coef": coef or {}, "own": own, "raw": raw, "resid": r0 or 0.0}
     # empirical null per variable kind, pooled over the entities of the case (pseudo-windows only)
     null = defaultdict(list)
     for t, r in res.items():

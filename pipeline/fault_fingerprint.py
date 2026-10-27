@@ -43,7 +43,8 @@ _METRIC_FAMILIES = [    # first match wins; matched on the lower-case metric nam
     ("throttle", r"throttl"), ("gc", r"gc"), ("thread", r"thread"), ("error", r"error|exception|fail"),
     ("latency", r"latency|(^|_)rt($|_)|duration|response_time|elapsed"), ("replica", r"replica"), ("restart", r"restart"),
     ("ready", r"ready"), ("pods", r"pod.*(running|count)|running.*pod"), ("disk", r"disk|(^|_)io($|_)|iops|(^|_)fs_"),
-    ("cpu", r"cpu"), ("mem", r"mem|heap"), ("request", r"request|qps|(^|_)count$"),
+    ("cpu", r"cpu"), ("mem", r"mem|heap"), ("request", r"request|qps|workload|(^|_)count$"),   # RCA100 APM: request count is exported as 'workload'
+
 ]
 _METRIC_FAMILIES = [(f, re.compile(p)) for f, p in _METRIC_FAMILIES]
 _RATE_NAME = re.compile(r"rate|usage|util|percent|ratio")

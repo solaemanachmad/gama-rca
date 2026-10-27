@@ -27,3 +27,19 @@ Next: re-run V2_RULE on dev-30 (round 1 check), then GPU smoke of V2 on 4 cases,
 ## Superseded
 - PREREGISTRATION.md (FP arms on the v1 pipeline, tag fp-freeze-v1) was not run; replaced by the v2 design. The round-1 change to
   pipeline/fault_calibrated.py (nodeDown signals) therefore does not affect any reported experiment.
+
+## Causal attribution prototype — label-free checks (no labels read or printed)
+### Check 1 — 97088f3, scripts/diagnostics/causal_check.py on dev-30 inputs, ALERT_T0_MODE=window
+- Calibration OK: pseudo-window false-alarm rate 55/961 = 5.7% (target 5%).
+- Coverage: per case 19 services, 15 with a latency series, only ~3 with an error series, **0 with a request series**; 14 nodes with CPU.
+- Baseline hold-out R^2 of the latency models: median -0.94 (worse than the mean), and explaining away did not narrow the anomalous
+  entities (median 4 before / 4 after).
+- Causes found without labels: (1) the APM request count is exported as `workload`, which no metric family matched, so the load
+  driver was missing (this also silenced `svc_request_rise` in the fingerprints); (2) error samples exist only when errors >= 1
+  (repo history 29e2a97), so error series looked absent; (3) models used every candidate parent, which over-fits 110 samples.
+### Fixes (this commit)
+1. `workload` added to the request family (fault_fingerprint._METRIC_FAMILIES; affects fault_calibrated as well).
+2. Error count zero-filled where a request sample exists.
+3. Parent selection by forward selection on the EARLY baseline (before the pseudo-windows; 70/30 time split, a parent is added only
+   if it lowers the validation error; at most 3); variables where no parent helps get no explaining away.
+Synthetic tests unchanged (20/20, 20/20, 19/20). Next: re-run causal_check on dev-30 inputs.
