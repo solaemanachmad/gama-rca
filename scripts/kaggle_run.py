@@ -98,6 +98,10 @@ ARMS = {                                                          # name -> extr
     "V2_RULE_UNCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_UNCALIBRATED": "1"},
     "V2_RULE_NOLOCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_LOCALITY": "1"},
     "V2_RULE_LEGACYWIN": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "legacy"},                         # window definition of v1
+    # v3 computed belief states (pipeline/belief_rca.py; PREREGISTRATION_V3.md)
+    "V3": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window"},                                            # proposed (GPU)
+    "V3_B0": {"_SYSTEM": "belief_rca_b0", "ALERT_T0_MODE": "window"},                                      # no text sensor (GPU, narrator)
+    "V3_RULE": {"_SYSTEM": "belief_rule", "ALERT_T0_MODE": "window"},                                      # no LLM at all (CPU)
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},
