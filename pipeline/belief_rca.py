@@ -81,8 +81,9 @@ def run_case(case, llm, budget: int, narrate: bool) -> RCAResult:
                   + ("\n\nText probes: " + "; ".join(f"{p['probe']} -> {p['category']}" for p in res["probes"]) if res["probes"] else "")
                   + f"\n\nEvidence tables:\n{tables}\n\n"
                   "Task: write the causal chain from the root cause to the alerted service. Each step is 'step_type: target signal=value "
-                  "...' with step_type in cause / propagation / impact; 'target' is an entity NAME from the evidence; copy every value "
-                  "exactly as the evidence shows it.\n"
+                  "...' with step_type in cause / propagation / impact; 'target' is an entity NAME from the evidence; write signals as "
+                  "metric_name=value using the window value the evidence shows (e.g. node_cpu_usage_rate=0.95, error_count=412, "
+                  "latency=2.8), copied exactly; do not write test statistics, p-values or ratios.\n"
                   'Respond as JSON: {"reasoning_chain": ["cause: ...", "propagation: ...", "impact: ..."]}')
         out = llm.generate_json(prompt, system=NARRATOR_SYSTEM)
         chain = [str(x) for x in (out.get("reasoning_chain") or [])] if isinstance(out, dict) else []

@@ -234,13 +234,20 @@ def _score(pts, a, b, span, direction, closed_end=False):
 
 def _family_scores(series_map, families, direction, windows, span, name_of):
     """Signal score per window = min rank-test p over the entity's series of these families (None if no series)."""
-    sel = [pts for key, pts in series_map.items() if _family(name_of(key)) in families]
-    out = []
+    sel = [(key, pts) for key, pts in series_map.items() if _family(name_of(key)) in families]
+    out, desc = [], None
     for i, (a, b) in enumerate(windows):
-        ps = [_score(pts, a, b, span, direction, closed_end=(i == 0)) for pts in sel]
-        ps = [p for p in ps if p is not None]
-        out.append(min(ps) if ps else None)
-    return out, len(sel)
+        ps = [(_score(pts, a, b, span, direction, closed_end=(i == 0)), key, pts) for key, pts in sel]
+        ps = [x for x in ps if x[0] is not None]
+        out.append(min(x[0] for x in ps) if ps else None)
+        if i == 0 and ps:                          # plain values of the most anomalous series, for prompts and chains (not for decisions)
+            _, key, pts = min(ps, key=lambda x: x[0])
+            base = sorted(v for t, v in pts if a - span <= t < a)
+            win = [v for t, v in pts if a <= t <= b]
+            if base and win:
+                desc = (f"{name_of(key)}: baseline median={_fmt(base[len(base) // 2])}, window "
+                        + (f"max={_fmt(max(win))}" if direction == "up" else f"min={_fmt(min(win))}"))
+    return out, len(sel), desc
 
 
 def _calibrate(db):
@@ -258,9 +265,10 @@ def _calibrate(db):
         for ent, pr in db[group].items():
             smap = pr["ops"] if kind == "op" else pr["series"]
             for name, fams, d in sigs:
-                sc, m = _family_scores(smap, fams, d, wins, span, name_of)
+                sc, m, desc = _family_scores(smap, fams, d, wins, span, name_of)
                 if m and sc[0] is not None:
-                    raw[ent][name] = {"kind_pool": (kind, name), "raw": sc[0], "pseudo": [x for x in sc[1:] if x is not None], "n_series": m}
+                    raw[ent][name] = {"kind_pool": (kind, name), "raw": sc[0], "pseudo": [x for x in sc[1:] if x is not None], "n_series": m,
+                                      "ev": desc}
     # log-keyword rates (30 s bins)
     nw = db["win_bins"]
     for ent, pr in db["services"].items():

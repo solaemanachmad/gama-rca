@@ -1,4 +1,4 @@
-"""Lenient JSON parsing shared by all LLM clients.
+r"""Lenient JSON parsing shared by all LLM clients.
 
 Why: small instruction-tuned models often emit JSON with invalid backslash
 escapes (e.g. a quoted log line "React\\EventLoop\\Loop" written as
