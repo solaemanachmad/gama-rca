@@ -134,7 +134,7 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         )
 
     # systems that make no LLM call (v2 rule-only) run without loading the model, e.g. on a CPU session
-    _no_llm = {"hypothesis_rule"}
+    _no_llm = {"hypothesis_rule", "belief_rule"}
     llm = None if set(systems) <= _no_llm else get_llm_client()
     hybrid_pipeline = GraphRAGPipeline(llm=llm) if "proposed_hybrid" in systems else None
 

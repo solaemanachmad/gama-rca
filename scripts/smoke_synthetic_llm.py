@@ -52,6 +52,23 @@ def main():
             print("   ", step)
     print(f"\n{ok}/4 scenarios as expected (expected = the top hypothesis is the injected fault; the LLM may still pick another "
           f"admitted one in 'two hypotheses')")
+    # v3: computed belief + LLM text sensor + narrator
+    from pipeline.belief_rca import run_case
+    print("\n##### v3 belief_rca (sensor budget 5) #####")
+    ok3 = 0
+    for name, c, expect in scenarios():
+        t0 = time.time()
+        r = run_case(c, llm, budget=5, narrate=True)
+        st = r.retrieval_stats
+        got = f"{st.get('v3_top', '').split('|')[0].rsplit(':', 1)[0]}"
+        good = (expect is None or got == expect) and bool(r.reasoning_chain)
+        ok3 += good
+        print(f"\n=== {name}: answer={got} p={st.get('v3_answer_p')} p_h0={st.get('v3_p_h0')} probes={st.get('v3_probe_log')} "
+              f"quote_ok={st.get('v3_sensor_quote_ok')} grounded={st.get('v3_grounded')} calls={st.get('total_calls')} "
+              f"{time.time() - t0:.0f}s {'OK' if good else 'CHECK'}")
+        for step in r.reasoning_chain:
+            print("   ", step)
+    print(f"\nv3: {ok3}/4 scenarios as expected")
 
 
 if __name__ == "__main__":
