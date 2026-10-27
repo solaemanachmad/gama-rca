@@ -43,3 +43,16 @@ Next: re-run V2_RULE on dev-30 (round 1 check), then GPU smoke of V2 on 4 cases,
 3. Parent selection by forward selection on the EARLY baseline (before the pseudo-windows; 70/30 time split, a parent is added only
    if it lowers the validation error; at most 3); variables where no parent helps get no explaining away.
 Synthetic tests unchanged (20/20, 20/20, 19/20). Next: re-run causal_check on dev-30 inputs.
+### Check 2 — 8d343b8, same script and inputs
+Criteria fixed BEFORE the run: request series present for most services; median selection skill > 0; fewer anomalous entities after
+explaining away; false alarms ~5%.
+- Request present 15/19 (met); false alarms 75/1323 = 5.7% (met).
+- Median skill of the selected models vs intercept-only = 0.0 (NOT met): parents rarely predict a service's latency/errors on
+  held-out baseline data; hold-out R^2 median -0.73.
+- Anomalous entities before / after explaining away: median 5 / 5 (NOT met).
+**Decision (as fixed beforehand): the per-case linear causal model is not used in v2.** Interpretation for the paper: the ~55 min
+of normal operation contains too little co-variation between connected services for a per-case regression to learn propagation
+(propagation mainly shows under the fault itself), so regression-based explaining away (CIRCA-style) cannot separate victims
+from origins on RCA100; v2 keeps the structural root rule over admitted hypotheses. The module and its checks stay in the repo as
+this negative result. The `workload` fix (request family) stays: it is a data-mapping bug fix that also enables `svc_request_rise`.
+From here on, dev-30 runs are summarised with scripts/diagnostics/v2_label_free_summary.py only (no label-derived column).
