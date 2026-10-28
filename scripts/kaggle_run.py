@@ -64,7 +64,7 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
-         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE")
+         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -104,6 +104,13 @@ ARMS = {                                                          # name -> extr
     "V3_RAWLOG": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "raw"},               # frozen v3 sensor input (ablation)
     "V3_B0": {"_SYSTEM": "belief_rca_b0", "ALERT_T0_MODE": "window"},                                      # no text sensor (GPU, narrator)
     "V3_RULE": {"_SYSTEM": "belief_rule", "ALERT_T0_MODE": "window"},                                      # no LLM at all (CPU)
+    # v4 (pipeline/belief_v4.py; design claude/RCA_v4_design.md). RCA100 is DEVELOPMENT data for v4 (labels seen in V3_RAWLOG).
+    "V4": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template", "V4_PARTS": "all"},          # GPU
+    "V4_B0": {"_SYSTEM": "belief_v4_b0", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                               # GPU (narrator)
+    "V4_RULE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                           # CPU
+    **{f"V4_RULE_NO{p.upper()}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                                  "V4_PARTS": ",".join(x for x in ("score", "open", "twostage", "fp") if x != p)}
+       for p in ("score", "open", "twostage", "fp")},                                                                 # CPU ablations
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},

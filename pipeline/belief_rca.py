@@ -45,7 +45,7 @@ def _safe(fn, *a):
         return {"text": "", "error": repr(e)}
 
 
-def run_case(case, llm, budget: int, narrate: bool) -> RCAResult:
+def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResult:
     t0 = time.time()
     if llm is not None:
         llm.reset_usage()
@@ -68,12 +68,16 @@ def run_case(case, llm, budget: int, narrate: bool) -> RCAResult:
             from pipeline.log_preprocess import preprocess_texts
             texts, notes, pre_stats = preprocess_texts(case, db)
             sensor = make_sensor(llm, sensor_log, notes)
-    res = diagnose_belief(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
+    if v4:                                                       # v4 (pipeline/belief_v4.py; parts from V4_PARTS)
+        from pipeline.belief_v4 import diagnose_v4
+        res = diagnose_v4(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
+    else:
+        res = diagnose_belief(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
     stats = {"v3_alert_service": alert, "v3_answer_p": round(res["p"], 4), "v3_p_h0": round(res["p_h0"], 4),
              "v3_entropy_bits": res["entropy_bits"], "v3_n_obs": res["n_obs"], "v3_n_hyp": res["n_hyp"], "v3_probes": len(res["probes"]),
              "v3_probe_log": "|".join(f"{p['probe']}:{p['category']}:{p['eig_bits']}" for p in res["probes"]),
              "v3_sensor_quote_ok": sum(1 for s in sensor_log if s["quote_ok"]), "v3_top": "|".join(f"{t['entity']}:{t['type']}:{t['p']}" for t in res["top"]),
-             "v3_budget": budget, "v3_log_mode": log_mode if budget > 0 and llm is not None else "",
+             "v3_budget": budget, "v4_parts": ",".join(res.get("parts", [])), "v4_p_type": res.get("p_type"), "v3_log_mode": log_mode if budget > 0 and llm is not None else "",
              "v3_text_entities": len(texts), "v3_sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats}
     ev_lines = [f"- {e['entity']} {e['signal']} {'holds' if e['holds'] else 'absent'} (log Bayes factor {e['log_bf']}): {e['ev']}"
                 for e in res["evidence"]]
@@ -126,3 +130,15 @@ def belief_rca_b0(case_id, llm, cases_dir=config.CASES_DIR):
 
 def belief_rule(case_id, llm, cases_dir=config.CASES_DIR):
     return run_case(Case(case_id, cases_dir=cases_dir), None, 0, narrate=False)
+
+
+def belief_v4(case_id, llm, cases_dir=config.CASES_DIR):
+    return run_case(Case(case_id, cases_dir=cases_dir), llm, PROBE_BUDGET, narrate=True, v4=True)
+
+
+def belief_v4_b0(case_id, llm, cases_dir=config.CASES_DIR):
+    return run_case(Case(case_id, cases_dir=cases_dir), llm, 0, narrate=True, v4=True)
+
+
+def belief_v4_rule(case_id, llm, cases_dir=config.CASES_DIR):
+    return run_case(Case(case_id, cases_dir=cases_dir), None, 0, narrate=False, v4=True)
