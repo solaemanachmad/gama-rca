@@ -37,3 +37,4 @@ STOP_P 0.8, EIG_MIN 0.05 bit, PROBE_BUDGET 5; calibration alpha 0.05, 5 pseudo-w
 ## Crash fixes after the freeze
 | Commit | Reason | Effect |
 |---|---|---|
+| (this commit) | Runner display only: the Kaggle progress counter counted v1 debug dumps, so it showed 0/103 for v3 runs; it now counts main.py's per-case lines. | None (no method code changed). |

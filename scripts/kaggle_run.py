@@ -144,7 +144,13 @@ t0 = time.time()
 while p.poll() is None:
     try: time.sleep(300)
     except KeyboardInterrupt: p.kill(); print("stopped; re-run to resume"); break
-    print(f"{(time.time() - t0) / 60:.0f} min, {len(glob.glob(f'/kaggle/working/dump_{name}/*.json'))}/{len(CASES)} cases done")
+    try:                                  # progress from main.py's per-case lines (dump files exist only for the v1 pipeline)
+        _lg = open(f"/kaggle/working/{name}.log", encoding="utf-8", errors="ignore").read()
+        _done = _lg.count("entity_loc=") + _lg.count("[error]")
+        _last = [l for l in _lg.splitlines() if l.strip()][-1:]
+    except Exception:
+        _done, _last = 0, []
+    print(f"{(time.time() - t0) / 60:.0f} min, {_done}/{len(CASES)} cases done | {(_last or [''])[0][-160:]}", flush=True)
 print("rc =", p.poll()); print(subprocess.run(f"tail -c 1500 /kaggle/working/{name}.log", shell=True, capture_output=True, text=True).stdout)
 
 # %% Cell 6 -- health + sanity (dev-30 is for debugging only; this is not a verdict)
