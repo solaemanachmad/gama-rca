@@ -64,7 +64,7 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
-         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY")
+         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE")
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -100,7 +100,8 @@ ARMS = {                                                          # name -> extr
     "V2_RULE_NOLOCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_LOCALITY": "1"},
     "V2_RULE_LEGACYWIN": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "legacy"},                         # window definition of v1
     # v3 computed belief states (pipeline/belief_rca.py; PREREGISTRATION_V3.md)
-    "V3": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window"},                                            # proposed (GPU)
+    "V3": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},                 # proposed (GPU; Amendment 2)
+    "V3_RAWLOG": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "raw"},               # frozen v3 sensor input (ablation)
     "V3_B0": {"_SYSTEM": "belief_rca_b0", "ALERT_T0_MODE": "window"},                                      # no text sensor (GPU, narrator)
     "V3_RULE": {"_SYSTEM": "belief_rule", "ALERT_T0_MODE": "window"},                                      # no LLM at all (CPU)
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)

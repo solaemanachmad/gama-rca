@@ -72,15 +72,25 @@ def collect_texts(case, db) -> Dict[str, List[str]]:
     return {k: list(v.values()) for k, v in seen.items()}
 
 
-def make_sensor(llm, log: list):
-    """Returns sensor(entity, texts) -> category, recording every call (prompt size, raw answer, accepted category) in `log`."""
+def make_sensor(llm, log: list, notes: Dict[str, List[str]] = None):
+    """Returns sensor(entity, texts) -> category, recording every call (prompt size, raw answer, accepted category) in `log`.
+    notes (log preprocessing, pipeline/log_preprocess.py): per-entity count notes aligned with texts; None = the raw-input prompt."""
     cats = "\n".join(f"- {c}: {CATEGORY_HELP[c]}" for c in CATS + ["none"])
 
     def sensor(entity, texts):
-        body = "\n".join(f"- {t}" for t in texts)
-        prompt = (f"Messages observed for '{entity}' during an incident window (ids and numbers may be masked):\n{body}\n\n"
-                  f"Which ONE category best describes the dominant failure mechanism these messages show?\n{cats}\n\n"
-                  'Respond as JSON: {"category": "<one category name>", "quote": "<an exact excerpt of one message above that shows it>"}')
+        nts = (notes or {}).get(entity) if notes is not None else None
+        if nts is None:
+            body = "\n".join(f"- {t}" for t in texts)
+            prompt = (f"Messages observed for '{entity}' during an incident window (ids and numbers may be masked):\n{body}\n\n"
+                      f"Which ONE category best describes the dominant failure mechanism these messages show?\n{cats}\n\n"
+                      'Respond as JSON: {"category": "<one category name>", "quote": "<an exact excerpt of one message above that shows it>"}')
+        else:
+            body = "\n".join(f"- {t}\n  [{n}]" for t, n in zip(texts, nts))
+            prompt = (f"Messages observed for '{entity}' during an incident window. Log messages were selected because they are new or "
+                      f"clearly more frequent than before the window; each message is followed by its counts in brackets:\n{body}\n\n"
+                      f"Which ONE category best describes the dominant failure mechanism these messages show?\n{cats}\n\n"
+                      'Respond as JSON: {"category": "<one category name>", "quote": "<an exact excerpt of one message above (not of the '
+                      'bracketed counts) that shows it>"}')
         res = llm.generate_json(prompt, system=SENSOR_SYSTEM)
         res = res if isinstance(res, dict) else {}
         cat = str(res.get("category", "")).strip().lower()

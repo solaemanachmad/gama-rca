@@ -13,7 +13,8 @@ Supersedes PREREGISTRATION.md (v1 FP arms) and PREREGISTRATION_V2.md (draft, not
 ## Systems (Qwen2.5-7B-Instruct local, temperature 0, seed 0; Kaggle arms)
 | Arm | System | Role |
 |---|---|---|
-| `V3` | belief_rca: computed belief + EIG text probes (budget 5) + narrator | **proposed** |
+| `V3` | belief_rca: computed belief + EIG text probes (budget 5, preprocessed logs, Amendment 2) + narrator | **proposed** |
+| `V3_RAWLOG` | belief_rca with the frozen raw log input (Amendment 2) | does log preprocessing help? |
 | `V3_B0` | belief_rca_b0: no text probes, narrator | does the text sensor help? |
 | `V3_RULE` | belief_rule: no LLM | what the LLM adds |
 | `V2` | hypothesis_rca: one-shot constrained selection | previous design |
@@ -39,6 +40,22 @@ Backbone for all LLM arms (V3, V3_B0, V2, DIRECT_LLM) changed from Qwen2.5-7B-In
 qwen-lm/qwen-3/transformers/8b/1, MODEL=qwen3_8b_local), thinking mode OFF, temperature 0, seed 0. Reason: the user's choice of a newer
 open small model of the same size class; no 103-case run had finished (the first V3 run was stopped at 60 min with no result read).
 Method code, parameters, hypotheses and analysis are unchanged. All arms of the comparison use the same backbone.
+
+## Amendment 2 (before any 103-case result was seen): log preprocessing for the text sensor
+Reason: the frozen sensor input (semantic_probes.collect_texts: first 20 distinct keyword-matching lines per entity in the window) depends
+on vocabulary, drops frequency and time order, and cannot separate chronic errors from new ones (no baseline). New input
+(pipeline/log_preprocess.py): regex masking + Drain (drain3 defaults: similarity 0.4, depth 4), one tree per service, no keyword filter;
+per template n_b (pre-window) and n_w (window); one-sided Poisson test with lambda = (n_b + 0.5) T_w / T_b; Benjamini-Hochberg over the
+case's window templates at q = 0.05; per entity at most 20 items of at most 200 characters (the same budget as before): Kubernetes events,
+error-span messages (window only; traces have no baseline), then significant templates by p-value, each with one raw example (the only
+quotable text) and its counts shown to the sensor. No log test when the log baseline is shorter than one window. Belief model, fingerprints,
+parameters, probe selection and narrator are unchanged; arms V3_B0, V3_RULE, V2, DIRECT_LLM are unaffected.
+- **V3** = belief_rca with V3_LOG_MODE=template (proposed). **V3_RAWLOG** = belief_rca with V3_LOG_MODE=raw (the frozen input; the run
+  started under Amendment 1 at commit 393d690 is this arm: identical code path).
+- **H3:** joint accuracy V3 > V3_RAWLOG, one-sided exact McNemar; Holm over H1-H3. Exploratory: V3_RAWLOG vs V3_B0.
+- Label-free check before the freeze (scripts/diagnostics/logpre_check.py, CPU): runtime per case and the false-alarm rate on a pseudo
+  window inside the log baseline, reported as is; no parameter is changed from its result.
+- Tests: tests/test_logpre.py (8 synthetic checks).
 
 ## Crash fixes after the freeze
 | Commit | Reason | Effect |

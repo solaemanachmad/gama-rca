@@ -2,10 +2,10 @@
 analyze_final.py -- the pre-registered analysis of PREREGISTRATION_V3.md, fixed BEFORE the final runs (reads the run CSVs, which contain
 the scores). Joint accuracy = exact entity (rcl_exact: the first predicted entity id is a target id) AND fault type (ft_binary).
 
-    python scripts/analyze_final.py V3=V3_final.csv V2=V2_final.csv V3_B0=V3_B0_final.csv V3_RULE=V3_RULE_final.csv DIRECT=DIRECT_LLM_final.csv
+    python scripts/analyze_final.py V3=V3_final.csv V3_RAWLOG=V3_RAWLOG_final.csv V2=V2_final.csv V3_B0=V3_B0_final.csv V3_RULE=V3_RULE_final.csv DIRECT=DIRECT_LLM_final.csv
 
 Prints: per system joint / entity / type / group accuracy, RP (chain), Final, LLM calls and time per case, abstain-like low-confidence
-share; confirmatory tests H1 (V3 > V2) and H2 (V3 > V3_B0) on joint accuracy, one-sided exact McNemar with Holm correction;
+share; confirmatory tests H1 (V3 > V2), H2 (V3 > V3_B0) and H3 (V3 > V3_RAWLOG, Amendment 2) on joint accuracy, one-sided exact McNemar with Holm correction;
 exploratory paired tests; bootstrap 95% CIs of paired differences; breakdown by level (node / service) and by semantic fault group.
 Error rows count as wrong (they stay in the denominator of 103).
 """
@@ -14,8 +14,8 @@ import math
 import random
 import sys
 
-CONFIRMATORY = [("H1", "V3", "V2"), ("H2", "V3", "V3_B0")]
-EXPLORATORY = [("V3", "V3_RULE"), ("V3", "DIRECT"), ("V2", "DIRECT"), ("V3_B0", "V3_RULE")]
+CONFIRMATORY = [("H1", "V3", "V2"), ("H2", "V3", "V3_B0"), ("H3", "V3", "V3_RAWLOG")]   # H3: Amendment 2
+EXPLORATORY = [("V3", "V3_RULE"), ("V3", "DIRECT"), ("V2", "DIRECT"), ("V3_B0", "V3_RULE"), ("V3_RAWLOG", "V3_B0")]
 
 
 def f(r, k):
@@ -99,7 +99,7 @@ def main(args):
         print(f"{k:10s} " + " ".join(f"{100 * sum(res[m]) / len(cases):6.1f}" for m in ("joint", "entity", "type", "group"))
               + f" {100 * mean('reasoning_process_chain'):7.1f} {100 * mean('final_score'):6.1f} {mean('total_calls'):5.1f}"
               f" {mean('total_pipeline_time_s'):6.0f} {len(cases) - len(ok):6d}")
-    print("\nCONFIRMATORY (joint accuracy, one-sided exact McNemar, Holm over H1-H2):")
+    print("\nCONFIRMATORY (joint accuracy, one-sided exact McNemar, Holm over the confirmatory tests present):")
     tests = []
     for h, a, b in CONFIRMATORY:
         if a in out and b in out:
