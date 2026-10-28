@@ -33,7 +33,7 @@ def _current_model_name() -> str:
     without this, merging chunk files from different backends/sessions
     (e.g. Qwen 7B + Qwen 14B runs) leaves no way to
     tell which row came from which model, purely from the CSV itself."""
-    return config.KAGGLE_MODEL_HANDLE
+    return config.KAGGLE_MODEL_LOCAL_PATH or config.KAGGLE_MODEL_HANDLE   # the local copy is what is loaded when it is set
 
 
 def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None, save_path=None,

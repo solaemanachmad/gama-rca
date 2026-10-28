@@ -61,3 +61,4 @@ parameters, probe selection and narrator are unchanged; arms V3_B0, V3_RULE, V2,
 | Commit | Reason | Effect |
 |---|---|---|
 | (this commit) | Runner display only: the Kaggle progress counter counted v1 debug dumps, so it showed 0/103 for v3 runs; it now counts main.py's per-case lines. | None (no method code changed). |
+| (this commit) | Reporting only: the llm_model column showed KAGGLE_MODEL_HANDLE (default Qwen2.5-7B) even when a local copy (KAGGLE_MODEL_LOCAL_PATH) was loaded; it now shows the local path when set. | None (label column only). |
