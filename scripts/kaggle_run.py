@@ -53,6 +53,7 @@ FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # strict r
 MODELS = {
     "qwen25_7b": {},                                                                                 # the main configuration so far (BASE)
     "qwen3_8b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-8B"},
+    "qwen3_8b_local": {"KAGGLE_MODEL_LOCAL_PATH": "/kaggle/input/models/qwen-lm/qwen-3/transformers/8b/1"},   # v3 backbone (amendment 1); thinking OFF
     "qwen3_8b_think": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-8B", "ENABLE_THINKING": "1", "LLM_MAX_TOKENS": "4096"},
     "qwen25_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen2.5-14B-Instruct", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
     "qwen3_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-14B", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},

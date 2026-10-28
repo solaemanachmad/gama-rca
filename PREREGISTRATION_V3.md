@@ -34,6 +34,12 @@ STOP_P 0.8, EIG_MIN 0.05 bit, PROBE_BUDGET 5; calibration alpha 0.05, 5 pseudo-w
   stop, by level (node / service) and by semantic fault group; the 30 / 73 split above.
 - Faithfulness: share of accepted sensor answers with a verified quote; grounding rate of quoted numbers in the chain.
 
+## Amendment 1 (before any 103-case result was seen)
+Backbone for all LLM arms (V3, V3_B0, V2, DIRECT_LLM) changed from Qwen2.5-7B-Instruct to **Qwen3-8B** (local Kaggle copy
+qwen-lm/qwen-3/transformers/8b/1, MODEL=qwen3_8b_local), thinking mode OFF, temperature 0, seed 0. Reason: the user's choice of a newer
+open small model of the same size class; no 103-case run had finished (the first V3 run was stopped at 60 min with no result read).
+Method code, parameters, hypotheses and analysis are unchanged. All arms of the comparison use the same backbone.
+
 ## Crash fixes after the freeze
 | Commit | Reason | Effect |
 |---|---|---|
