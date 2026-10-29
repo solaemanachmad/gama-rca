@@ -100,3 +100,9 @@ recomputes EL / rcl_strict / Final of existing CSVs (needs the dataset; CPU, min
 | ops | operation-level signals op_error_rise / op_latency_rise (the most affected operation; zero-filled error counts); key of httpError5xx, support of codeDefect / NPE / rateLimiting; own and propagated symptoms | failing_operation_is_seen_when_the_service_total_is_diluted |
 Default parts = all except rnull (it hurt on every measure in dev run 2: a model-selection step on development data, disclosed).
 EL / Final from this run on use the corrected scorer (no node roll-up): compare with earlier runs on joint accuracy only.
+
+## Chain format (v4 only; does not change entity or type)
+The benchmark's chain is cause -> propagation -> impact, the impact step naming the alerted apm.operation (benchmark paper, Fig. 6).
+v4 now gives the narrator the alerted operation and the topology call path (root -> ... -> alerted service) and asks for one step
+per path entity; without an LLM, rule_chain builds the same chain deterministically. v3 prompts unchanged.
+Test: chain_follows_the_topology_path_to_the_alerted_operation.

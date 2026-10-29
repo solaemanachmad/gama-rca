@@ -347,6 +347,21 @@ def failing_operation_is_seen_when_the_service_total_is_diluted():
     assert (r["entity"], r["type"]) == ("checkout", "F014-httpError5xx"), r["top"]
 
 
+@test
+def chain_follows_the_topology_path_to_the_alerted_operation():
+    from pipeline.belief_rca import call_path, rule_chain
+    hosts = {"cart": ["node-a"], "frontend": ["node-a"], "checkout": ["node-b"]}
+    assert call_path(CALLEES, hosts, "frontend", "cart") == ["cart", "checkout", "frontend"]
+    assert call_path(CALLEES, hosts, "frontend", "node-b") == ["node-b", "checkout", "frontend"]
+    assert call_path(CALLEES, hosts, "frontend", "frontend") == ["frontend"]
+    res = {"entity": "cart", "type": "F029-redisUnavailable",
+           "evidence": [{"entity": "cart", "signal": "redis_err", "holds": True, "ev": "12 failing redis spans"},
+                        {"entity": "checkout", "signal": "svc_error_rise", "holds": True, "ev": "error: window max=40"}]}
+    ch = rule_chain(res, ["cart", "checkout", "frontend"], "frontend::POST /api/checkout")
+    assert ch[0].startswith("cause: cart F029") and ch[1].startswith("propagation: checkout svc_error_rise") \
+        and ch[2] == "propagation: frontend" and ch[-1] == "impact: frontend::POST /api/checkout", ch
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

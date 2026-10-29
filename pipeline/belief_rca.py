@@ -86,7 +86,23 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
     infra = _safe(compute_infra_evidence, case, at, entry)
     trace = _safe(compute_trace_evidence, case, at, entry)
     tables = "\n\n".join(t for t in (prop.get("text"), infra.get("text"), trace.get("text")) if t)
-    if narrate and llm is not None:
+    op_name = _node_name(case.topology, entry) if (v4 and entry and entry in case.topology) else None
+    path = call_path(callees, db.get("hosts", {}), alert, res["entity"]) if v4 else []
+    if narrate and llm is not None and v4:
+        prompt = (f"Alert: {case.alert.alert_text}\nAlerted service: {alert or '(none given)'}\nAlerted operation: {op_name or '(none given)'}\n"
+                  f"Call path from the root cause to the alerted service (topology): {' -> '.join(path) if path else '(none)'}\n\n"
+                  f"Diagnosis (decided): root cause entity = {res['entity']} ({res['level']}), fault type = {res['type']}: "
+                  f"{FAULT_DEFINITIONS.get(res['type'], '')}\n\nEvidence that decided it:\n" + "\n".join(ev_lines)
+                  + ("\n\nText probes: " + "; ".join(f"{p['probe']} -> {p['category']}" for p in res["probes"]) if res["probes"] else "")
+                  + f"\n\nEvidence tables:\n{tables}\n\n"
+                  "Task: write the causal chain from the root cause to the alerted operation, one step per entity of the call path: "
+                  "'cause: <root cause entity> ...' first, then 'propagation: <service> ...' for each service between the root and the "
+                  "alerted service, and last 'impact: <alerted operation name, exactly as given> ...'. 'target' names are copied from "
+                  "the text above; write signals as metric_name=value using the window value the evidence shows (e.g. "
+                  "node_cpu_usage_rate=0.95, error_count=412, latency=2.8), copied exactly; do not write test statistics, p-values or "
+                  "ratios.\n"
+                  'Respond as JSON: {"reasoning_chain": ["cause: ...", "propagation: ...", "impact: ..."]}')
+    elif narrate and llm is not None:
         prompt = (f"Alert: {case.alert.alert_text}\nAlerted service: {alert or '(none given)'}\n\n"
                   f"Diagnosis (decided): root cause entity = {res['entity']} ({res['level']}), fault type = {res['type']}: "
                   f"{FAULT_DEFINITIONS.get(res['type'], '')}\n\nEvidence that decided it:\n" + "\n".join(ev_lines)
@@ -106,6 +122,8 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             g, n, _bad = _grounding(chain, pool)
             stats.update(v3_grounded=round(g, 3), v3_numbers=n)
         stats["v3_narrator_prompt_chars"] = len(prompt)
+    if not chain and v4:                                          # deterministic chain along the topology path (no LLM)
+        chain = rule_chain(res, path, op_name)
     if not chain:
         chain = [f"cause: {res['entity']} {res['type']}"] + [f"evidence: {e['entity']} {e['signal']}" for e in res["evidence"][:3]]
         if alert and alert != res["entity"]:
@@ -142,3 +160,46 @@ def belief_v4_b0(case_id, llm, cases_dir=config.CASES_DIR):
 
 def belief_v4_rule(case_id, llm, cases_dir=config.CASES_DIR):
     return run_case(Case(case_id, cases_dir=cases_dir), None, 0, narrate=False, v4=True)
+
+
+def call_path(callees, hosts, alert, root):
+    """Topology path root -> ... -> alerted service (services along callee edges, reversed). For a node root, the path starts at the
+    node and continues from the hosted service closest to the alerted service. [] when unknown."""
+    import networkx as nx
+    if not alert or not root:
+        return []
+    g = nx.DiGraph()
+    for a, bs in callees.items():
+        for b in bs:
+            g.add_edge(a, b)
+    starts = [root] if root not in sum(hosts.values(), []) else [s for s, ns in hosts.items() if root in ns]
+    best = None
+    for st in starts:
+        if st == alert:
+            p = [alert]
+        elif alert in g and st in g and nx.has_path(g, alert, st):
+            p = list(reversed(nx.shortest_path(g, alert, st)))
+        else:
+            continue
+        if best is None or len(p) < len(best):
+            best = p
+    if best is None:
+        return [root] if root == alert else [root, alert]
+    return ([root] + best) if best[0] != root else best
+
+
+def rule_chain(res, path, op_name):
+    """Chain without an LLM: cause at the root with its strongest own evidence, propagation through the path's services with their
+    own symptom evidence, impact at the alerted operation."""
+    ev = {}
+    for e in res.get("evidence", []):
+        if e["holds"] and e["entity"] not in ev:
+            ev[e["entity"]] = f"{e['signal']} ({e['ev']})" if e.get("ev") else e["signal"]
+    root = res["entity"]
+    chain = [f"cause: {root} {res['type']} " + ev.get(root, "")]
+    for s_ in (path or [])[1:]:
+        if s_ != root:
+            chain.append(f"propagation: {s_} " + ev.get(s_, ""))
+    if op_name:
+        chain.append(f"impact: {op_name}")
+    return [c.strip() for c in chain]
