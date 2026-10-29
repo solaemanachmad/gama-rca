@@ -64,3 +64,21 @@ Not changed: memoryPressure vs CPU/GC types (overlapping mechanisms; left to the
 
 **Stopping rule (agreed before the run):** v4.1 gets ONE more development run on RCA100 (CPU arms, no LLM). After it, v4 is frozen
 whatever the result; no further changes are motivated by RCA100 labels. Final claims rest on the frozen method.
+
+## Dev run 2 = the last RCA100 development run (CPU, no LLM, 103 cases, commit d97a61b, two Kaggle accounts)
+| Arm | joint | entity | type | group | mean EL | Final |
+|---|---|---|---|---|---|---|
+| V3_RULE (run 1) | 6 | 32 | 9 | 28 | 0.424 | 0.337 |
+| V4.0_RULE (run 1) | 4 | 38 | 7 | 38 | 0.493 | 0.358 |
+| **V4.1_RULE (all parts)** | 7 | 36 | 10 | 24 | 0.547 | 0.390 |
+| V4.1 without peer | 8 | 35 | 12 | 25 | 0.512 | 0.382 |
+| V4.1 without rnull | **9** | 34 | **16** | 34 | **0.577** | **0.420** |
+| V4.1 without prop | 4 | 39 | 8 | 32 | 0.491 | 0.361 |
+Observations:
+- Node faults are now found (Cloud resource: 3 joint, was 0).
+- Partial propagation (prop) is the part that matters most (removing it: joint 7 -> 4).
+- The central-matching null (rnull) hurts on every measure.
+- A new attractor appears: node cn-hongkong.10.0.2.59 is the answer in 19 cases (13 without rnull), mostly Application-logic ground
+  truth. Once absent symptoms are free, a wide (node) hypothesis is cheap. Application logic (38 cases) falls to 6 exact entities.
+- The differences between the V4.1 variants (7-9 of 103) are within noise for McNemar.
+Per the stopping rule, no further changes are made from RCA100 labels.
