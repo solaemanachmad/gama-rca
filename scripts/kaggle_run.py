@@ -43,7 +43,7 @@ BASE = dict(
     USE_PROPAGATION_EVIDENCE="1", ENTITY_SOURCE="coordinator", CHAIN_FIRST_ENTITY="coordinator",
     USE_INFRA_EVIDENCE="1", CHAIN_FIRST="1",
     USE_CHANGE_FACTOR="1", USE_CHANGE_STATS="1", USE_TRACE_EVIDENCE="1",
-    PYTHONHASHSEED="0", RCA100_ROOT=DATA,
+    PYTHONHASHSEED="0", RCA100_ROOT=DATA, PYTHONUNBUFFERED="1",   # unbuffered: per-case lines reach the .log at once (progress counter)
     **({"KAGGLE_MODEL_LOCAL_PATH": LOCAL_MODEL} if LOCAL_MODEL else {}))
 FIXED = {"STRICT_MODALITY_ROUTING": "1", "SPECIALIST_ENGLISH": "1"}   # strict routing + English specialist text (the base A1rT_fixed)
 # Backbone presets (MODEL in Cell 4). Each is a set of env variables on top of BASE; "" clears the local path so the HF handle is used.
