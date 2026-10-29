@@ -35,3 +35,19 @@ Localisation improves (EL +0.07) but joint accuracy does not. Remaining failure 
    pressure, and svc_mem_rise does not hold. That addition was a design error and should be revisited.
 4. replicaScaleDown (6): svc_avail_drop does not hold at any service.
 Next step: per-case timelines (scripts/diagnostics/v4_case_dump.py) for selected dev cases of each failure mode.
+
+## Case timelines (scripts/diagnostics/v4_case_dump.py; dev cases t008 t036 t069 t024 t047 t065 t081 t004)
+Mechanisms seen in the raw timelines (5-minute medians), not guessed from scores:
+1. **Non-stationary history with common-mode steps.** The 55 min before a window contains other injected faults (t008: node 10.0.1.107
+   at 100% CPU 35 min earlier, 10.0.1.49 at 100% 50 min earlier; t069: 10.0.1.49 and 10.0.1.56 at 100% in the history) and a load step
+   that raises request count and CPU of every service ~15 min before the window. The pseudo-window null then contains 100%-CPU
+   episodes, so the real fault in the window (t008: 10.0.1.56 2% -> 100%; t069: 10.0.1.107 5% -> 100%) gets calibrated p 0.04-0.06.
+   Every service shows the same load step, so per-entity history comparisons see a "rise" everywhere.
+2. **Absent propagated symptoms penalise wide hypotheses.** A node (or an upstream service) can explain symptoms at many services;
+   with THETA_P = 0.6 every one of them that shows no symptom costs log(0.4/0.95). Real faults reach only some replicas or callers.
+3. **Chronic events count as new evidence.** Node 10.0.16.66 has EvictionThresholdMet since 2026-03-15 (count ~247,000); a prometheus
+   pod has OOMKilling/BackOff since the day before. They overlap every window and give node .66 its nodeMemoryOOM mass.
+4. **Availability is exported as a state, sparsely.** t081: quote's deployment_available_replicas exists only inside the window (value 0);
+   the coverage rule makes it untestable, although "available < desired" is unavailability by definition and needs no history.
+5. memoryPressure vs CPU/GC types: inventory shows heap, GC, thread, CPU (to 97% of limit) and latency rising together; the CPU of
+   its host nodes rises too, which the LOAD_TYPES rule credits to the CPU types. Overlapping mechanisms; no fix proposed from these cases.
