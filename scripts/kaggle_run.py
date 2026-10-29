@@ -65,7 +65,8 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
-V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail")   # = pipeline/belief_v4.ALL_PARTS
+V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops")   # = belief_v4.ALL_PARTS
+V4_DEFAULT = tuple(p for p in V4_ALL if p != "rnull")                                               # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -110,8 +111,8 @@ ARMS = {                                                          # name -> extr
     "V4_B0": {"_SYSTEM": "belief_v4_b0", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                               # GPU (narrator)
     "V4_RULE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                           # CPU
     **{f"V4_RULE_NO{p.upper()}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                  "V4_PARTS": ",".join(x for x in V4_ALL if x != p)}
-       for p in V4_ALL},                                                                                              # CPU ablations
+                                  "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != p)}
+       for p in V4_DEFAULT},                                                                                              # CPU ablations
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},

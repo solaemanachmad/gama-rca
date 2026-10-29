@@ -19,6 +19,11 @@ v4.1 parts (DEVLOG_V4.md "Case timelines"; mechanisms seen in raw timelines of d
   prop     an absent symptom at an entity the hypothesis could reach is uninformative (partial propagation: some replicas, callers)
   events   Kubernetes events count only when their occurrence rate in the window exceeds their own long-run rate (Poisson test)
   avail    availability as a state: available replicas < desired, or availability < full, in the window and not chronically
+v4.2 parts (ideas 1-3 of the development plan):
+  onset    temporal precedence: a root starts no later than the entities it explains (onset = first sample at >= 3 robust SDs, twice)
+  em       propagation probability estimated per case by EM (replaces the all-or-nothing choice between v4.0 and 'prop')
+  ops      operation-level evidence: the most affected operation's error count / rate and latency (the alert is an apm.operation)
+'rnull' is opt-in (it hurt in dev run 2); V4_PARTS=all means DEFAULT_PARTS.
 Nothing here reads labels."""
 from __future__ import annotations
 
@@ -34,7 +39,11 @@ from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
-ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail")
+ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p != "rnull")   # rnull hurt on every measure in dev run 2 (DEVLOG_V4.md); opt-in only
+THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
+PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
+OP_CONT = ["op_error_rise", "op_latency_rise"]
 ANOM = "ANOMALY"
 SVC_CONT = [s for s, _, _ in V4_SVC_SIGNALS] + ["op_request_rise"]
 NODE_CONT = [s for s, _, _ in NODE_SIGNALS]
@@ -42,7 +51,7 @@ NODE_CONT = [s for s, _, _ in NODE_SIGNALS]
 
 def parts_from_env() -> set:
     v = os.environ.get("V4_PARTS", "all")
-    return set(ALL_PARTS) if v in ("all", "") else {p.strip() for p in v.split(",") if p.strip()}
+    return set(DEFAULT_PARTS) if v in ("all", "") else {p.strip() for p in v.split(",") if p.strip()}
 
 
 def fingerprints_v4(parts) -> Dict:
@@ -54,6 +63,10 @@ def fingerprints_v4(parts) -> Dict:
         fp["F012-cpuDeadLoop"]["sup"].append("svc_request_drop")
     if "avail" in parts:
         fp["F036-replicaScaleDown"]["key"].append("svc_unavailable")
+    if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)
+        fp["F014-httpError5xx"]["key"].append("op_error_rise")
+        for t in ("F011-codeDefect", "F023-nullPointerException", "F016-rateLimiting"):
+            fp[t]["sup"].append("op_error_rise")
     return fp
 
 
@@ -74,8 +87,16 @@ class Model:
 
     def keys(self, h):
         if h["type"] == ANOM:
-            return NODE_CONT if h["level"] == "node" else SVC_CONT
+            return NODE_CONT if h["level"] == "node" else SVC_CONT + (OP_CONT if "ops" in self.parts else [])
         return self.fp[h["type"]]["key"]
+
+    @property
+    def symptoms(self):
+        return bd.SYMPTOMS | (set(OP_CONT) if "ops" in self.parts else set())
+
+    @property
+    def own_symptoms(self):
+        return bd.OWN_SYMPTOMS | (set(OP_CONT) if "ops" in self.parts else set())
 
     def role(self, h, s):
         if h["type"] == ANOM:
@@ -119,10 +140,10 @@ class Model:
             return base
         if e == h["entity"]:
             role = self.role(h, s)
-            if role is None and s in bd.OWN_SYMPTOMS:
+            if role is None and s in self.own_symptoms:
                 return max(bd.THETA_P, base)
             return {"K": h.get("q", bd.THETA_K), "U": bd.THETA_U, "C": bd.ALPHA_C}.get(role, base)
-        if s in bd.SYMPTOMS and e in expl and h["entity"] in expl[e]:
+        if s in self.symptoms and e in expl and h["entity"] in expl[e]:
             return max(bd.THETA_P, base)
         if s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []):
             return max(bd.THETA_P, base)
@@ -132,7 +153,7 @@ class Model:
         s, e = o["signal"], o["entity"]
         if h["type"] is None or e == h["entity"]:
             return False
-        return (s in bd.SYMPTOMS and e in expl and h["entity"] in expl[e]) or \
+        return (s in self.symptoms and e in expl and h["entity"] in expl[e]) or \
                (s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []))
 
     def log_likelihood(self, obs, H, bg, expl, db):
@@ -145,6 +166,23 @@ class Model:
                     p = self.p_holds(o, H[-1], bg, expl, hosts, db)      # partial propagation: an absent symptom is uninformative
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll
+
+    def ll_parts(self, obs, H, bg, expl, db):
+        """For the EM part: log-likelihood WITHOUT the propagated-symptom observations, and per hypothesis the number of propagated
+        symptoms that hold / are absent."""
+        hosts = db.get("hosts", {})
+        ll, n_hold, n_abs = np.zeros(len(H)), np.zeros(len(H)), np.zeros(len(H))
+        for o in obs:
+            for i, h in enumerate(H):
+                if self.propagated(o, h, expl, hosts):
+                    if o["holds"]:
+                        n_hold[i] += 1
+                    else:
+                        n_abs[i] += 1
+                    continue
+                p = self.p_holds(o, h, bg, expl, hosts, db)
+                ll[i] += math.log(p if o["holds"] else 1.0 - p)
+        return ll, n_hold, n_abs
 
     def prior(self, H):
         w = np.array([bd.RESIDUAL_PRIOR if h["type"] in RESIDUAL else 1.0 for h in H[:-1]])
@@ -193,7 +231,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if "events" in parts and case is not None:
         new_events(case, db, B_SPAN * (db["w1"] - db["w0"]).total_seconds())
     if "score" in parts:
-        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts)
+        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts, ops_level="ops" in parts)
     obs = bd.observations(db)
     if "avail" in parts:
         for s_, bad in unavailability(db).items():
@@ -204,7 +242,34 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if alert and alert in db["services"]:
         obs.append({"entity": alert, "signal": "alert", "holds": True, "kind": "alert", "ev": "the alert fired on this service"})
     expl = bd.explainers(db, callees)
-    logp = model.prior(H) + model.log_likelihood(obs, H, bg, expl, db)
+    pi = None
+    if "em" in parts:
+        # propagation probability pi (P(a symptom shows at an entity the root can reach)) is a per-case nuisance parameter, estimated by
+        # EM from the case itself (no labels): E-step = posterior over hypotheses; M-step = posterior-weighted share of reachable
+        # symptoms that hold. A wide hypothesis then pays for every reachable entity that stays quiet, at the rate this case shows.
+        ll0, nh, na = model.ll_parts(obs, H, bg, expl, db)
+        pr_ = model.prior(H)
+        pi = 0.5
+        for _ in range(EM_ITERS):
+            lp = pr_ + ll0 + nh * math.log(pi) + na * math.log(1 - pi)
+            w = bd.posterior(lp)
+            den = float((w * (nh + na)).sum())
+            new_pi = min(max(float((w * nh).sum()) / den, PI_MIN), PI_MAX) if den > 0 else pi
+            if abs(new_pi - pi) < 1e-4:
+                pi = new_pi
+                break
+            pi = new_pi
+        logp = pr_ + ll0 + nh * math.log(pi) + na * math.log(1 - pi)
+    else:
+        logp = model.prior(H) + model.log_likelihood(obs, H, bg, expl, db)
+    onsets = {}
+    if "onset" in parts:
+        cal = db.get("_cal", {})
+        for ent, sigs in cal.items():
+            ts = [r["onset"] for r in sigs.values() if r.get("onset") is not None and r.get("p") is not None and r["p"] <= bd.ALPHA]
+            if ts:
+                onsets[ent] = min(ts)
+        logp = logp + onset_loglik(H, onsets, expl)
     log, probed, steps = [], set(), 0
     while sensor is not None and steps < budget:
         post = bd.posterior(logp)
@@ -265,4 +330,22 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     contrib.sort(key=lambda x: -abs(x["log_bf"]))
     return {"entity": ent, "level": level, "type": typ, "p": p_ent, "p_type": p_type, "p_h0": float(post[-1]),
             "entropy_bits": round(bd.entropy(post), 3), "top": top, "probes": log, "n_obs": len(obs), "n_hyp": len(H),
-            "evidence": contrib[:12], "parts": sorted(parts)}
+            "evidence": contrib[:12], "parts": sorted(parts), "pi": pi,
+            "onset_root": onsets.get(ent), "n_onsets": len(onsets)}
+
+
+def onset_loglik(H, onsets, expl) -> np.ndarray:
+    """v4.2 temporal precedence: a root cause starts no later than what it causes. For h = (e*, .) with a measured onset of e*, every
+    service e that e* can explain (e* in Expl(e)) and that has its own onset contributes P(onset_e >= onset_e* - ONSET_TOL | h) = THETA_T
+    (else 1 - THETA_T), against 0.5 when nothing is assumed about the order. No onset at e* (silent or unmeasured root) = neutral."""
+    out = np.zeros(len(H))
+    for i, h in enumerate(H):
+        r = h["entity"]
+        if h["type"] is None or r not in onsets:
+            continue
+        for e, t in onsets.items():
+            if e == r or r not in expl.get(e, ()):
+                continue
+            ok = t >= onsets[r] - ONSET_TOL
+            out[i] += math.log((THETA_T if ok else 1 - THETA_T) / 0.5)
+    return out

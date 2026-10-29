@@ -40,7 +40,7 @@ def series(c, eset, name, m, f, n_base=110, keep=1.0, seed=0):
         c.observations["metrics"].append(_obs(t, eset, name, m, f(i)))
 
 
-def run(c, parts=b4.ALL_PARTS, alert="frontend"):
+def run(c, parts=b4.DEFAULT_PARTS, alert="frontend"):
     db = compute_signal_db(c, T0)
     assert "error" not in db, db
     return b4.diagnose_v4(db, CALLEES, {}, sensor=None, budget=0, alert=alert, parts=parts, case=c), db
@@ -171,7 +171,7 @@ def v3_engine_untouched_when_v4_unused():
 def ablation_parts_switch_independently():
     c = make_case()
     metric(c, "apm.service.legacy", "cart", "rt", 0.1, 0.9, seed=12)
-    for parts in ([], ["score"], ["open"], ["twostage"], ["fp"], ["score", "peer"], ["score", "rnull"], ["prop"], ["events"], ["avail"], list(b4.ALL_PARTS)):
+    for parts in ([], ["score"], ["open"], ["twostage"], ["fp"], ["score", "peer"], ["score", "rnull"], ["prop"], ["events"], ["avail"], ["score", "onset"], ["em"], ["score", "ops"], list(b4.ALL_PARTS), list(b4.DEFAULT_PARTS)):
         r, _ = run(c, parts=parts, alert="cart")
         assert r["parts"] == sorted(parts) and r["type"] is not None, (parts, r)
 
@@ -192,7 +192,7 @@ def end_to_end_v4_with_stub_llm():
         wspan(c, "checkout", i, err=True, code="429", msg="Too Many Requests")
     r = run_case(c, SensorStub(), budget=5, narrate=True, v4=True)
     assert r.predicted_fault_type == "F016-rateLimiting" and r.reasoning_chain, (r.predicted_fault_type, r.retrieval_stats)
-    assert r.retrieval_stats["v4_parts"] == ",".join(sorted(b4.ALL_PARTS)), r.retrieval_stats
+    assert r.retrieval_stats["v4_parts"] == ",".join(sorted(b4.DEFAULT_PARTS)), r.retrieval_stats
     r0 = run_case(c, None, budget=0, narrate=False, v4=True)
     assert r0.predicted_fault_type == "F016-rateLimiting" and r0.reasoning_chain
 
@@ -300,6 +300,51 @@ def scoring_does_not_roll_a_node_up_to_a_service():
         target_entity_ids, target_entity_names = ["svc"], []
     assert entity_localization_score(["inst"], GT, g) == 1.0                 # an instance of the service: same logical entity
     assert entity_localization_score(["node"], GT, g) == 0.125               # the hosting node: adjacent (3 hops), not the service
+
+
+@test
+def onset_order_separates_root_from_later_victim():
+    """cart's CPU and latency break at the window start; node-a (which hosts cart) rises 3 minutes later as a consequence."""
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "cpu", 0.1, 700)
+    ordinary(c, "apm.service.legacy", "rt", 0.1, 720)
+    series(c, "apm.service.legacy", "cart", "cpu", lambda k: 0.1 + 0.002 * (k % 3) if k < 110 else 0.9)
+    series(c, "apm.service.legacy", "cart", "rt", lambda k: 0.1 + 0.002 * (k % 3) if k < 110 else 0.8)
+    series(c, "k8s.node", "node-a", "node_cpu_usage_rate", lambda k: 0.3 + 0.01 * (k % 3) if k < 116 else 0.9)
+    lp = {}
+    for parts in (tuple(p for p in b4.DEFAULT_PARTS if p != "onset"), b4.DEFAULT_PARTS):
+        r, db = run(c, parts=parts, alert="cart")
+        lp["onset" in parts] = r
+    assert lp[True]["entity"] == "cart", lp[True]["top"]
+    assert lp[True]["onset_root"] is not None and lp[True]["n_onsets"] >= 2, lp[True]
+    node_p = lambda r: sum(t["p"] for t in r["top"] if t["entity"] == "node-a")
+    assert node_p(lp[True]) < node_p(lp[False]), (lp[False]["top"], lp[True]["top"])     # the later-starting node loses mass
+
+
+@test
+def em_estimates_a_propagation_probability_and_penalises_wide_quiet_hypotheses():
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "rt", 0.1, 740)
+    series(c, "apm.service.legacy", "cart", "error", lambda k: 1.0 if k < 110 else 30.0)
+    series(c, "apm.service.legacy", "checkout", "rt", lambda k: 0.1 + 0.002 * (k % 3) if k < 110 else 0.5)   # its only caller
+    r, _ = run(c, alert="checkout")
+    assert r["pi"] is not None and b4.PI_MIN <= r["pi"] <= b4.PI_MAX, r["pi"]
+    assert r["entity"] == "cart", r["top"]
+
+
+@test
+def failing_operation_is_seen_when_the_service_total_is_diluted():
+    c = make_case()
+    for i in range(6):                                                   # six healthy operations of checkout, one failing
+        series(c, "apm.operation", f"checkout::op{i}", "request_count", lambda k: 100.0 + (k % 3), seed=i)
+    series(c, "apm.operation", "checkout::PlaceOrder", "error_count", lambda k: 1.0 if k < 110 else 25.0)
+    for i in range(8):
+        series(c, "apm.operation", f"svc{i}::op", "error_count", lambda k, i=i: float((k + i) % 2), seed=i)
+    db = compute_signal_db(c, T0)
+    cal = calibrate_v4(db, ops_level=True)
+    assert cal["checkout"]["op_error_rise"]["p"] <= 0.05, cal["checkout"]["op_error_rise"]
+    r, _ = run(c, alert="checkout")
+    assert (r["entity"], r["type"]) == ("checkout", "F014-httpError5xx"), r["top"]
 
 
 if __name__ == "__main__":

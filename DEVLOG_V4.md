@@ -91,3 +91,12 @@ rcl_strict = 1). In run 2, 18 node answers (V4.1 without rnull) scored EL = 1.0 
 all runs that predicted nodes are inflated, so the EL gains of V4.1 are partly an artifact.
 Fix: nodes, clusters and namespaces are not rolled up (test scoring_does_not_roll_a_node_up_to_a_service). scripts/rescore_el.py
 recomputes EL / rcl_strict / Final of existing CSVs (needs the dataset; CPU, minutes).
+
+## v4.2 (development plan ideas 1-3; synthetic tests 22/22)
+| Part | Change | Test |
+|---|---|---|
+| onset | temporal precedence: onset = first sample >= 3 robust SDs (twice) from one window before w0, history ending there; for h = (e*, .), every service e* can explain with its own onset contributes P(onset_e >= onset_e* - 60 s) = 0.9 vs 0.5 | onset_order_separates_root_from_later_victim |
+| em | propagation probability pi estimated per case by EM (posterior-weighted share of reachable symptoms that hold; clamped to [0.06, 0.95]); replaces the all-or-nothing THETA_P / neutral choice | em_estimates_a_propagation_probability_and_penalises_wide_quiet_hypotheses |
+| ops | operation-level signals op_error_rise / op_latency_rise (the most affected operation; zero-filled error counts); key of httpError5xx, support of codeDefect / NPE / rateLimiting; own and propagated symptoms | failing_operation_is_seen_when_the_service_total_is_diluted |
+Default parts = all except rnull (it hurt on every measure in dev run 2: a model-selection step on development data, disclosed).
+EL / Final from this run on use the corrected scorer (no node roll-up): compare with earlier runs on joint accuracy only.

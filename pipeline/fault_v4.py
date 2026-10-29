@@ -37,6 +37,8 @@ CONSTANT_METRIC = re.compile(r"_(init|max|committed)_bytes$|core_pool_size|max_p
 COUNT_FAMILIES = {"error"}
 MIN_POOL = 20                      # smallest null pool whose resolution 1/(N+1) is below alpha = 0.05
 V4_SVC_SIGNALS = SVC_SIGNALS + [("svc_request_drop", ("request",), "down"), ("svc_avail_drop", ("avail",), "down")]
+OP_SIGNALS = [("op_error_rise", ("error",), "up"), ("op_latency_rise", ("latency",), "up")]   # v4.2: the most affected operation
+Z_ON = 3.0               # onset: first sample (from one window before w0) whose robust shift reaches 3 robust SDs, for 2 samples in a row
 
 
 def family_v4(metric: str) -> Optional[str]:
@@ -98,7 +100,7 @@ def _family_z(series_map, fams, direction, windows, span, key_name, key_metric):
         f = family_v4(key_metric(key))
         if f in fams:
             sel.append((key, sorted((t.timestamp(), v) for t, v in pts), f))
-    out, desc = [], None
+    out, desc, onset = [], None, None
     for i, (a, b) in enumerate(windows):
         zs = [(shift_z(pts, a.timestamp(), b.timestamp(), span, direction, counts=f in COUNT_FAMILIES, closed_end=(i == 0)), key, pts)
               for key, pts, f in sel]
@@ -107,15 +109,17 @@ def _family_z(series_map, fams, direction, windows, span, key_name, key_metric):
         if i == 0 and zs:
             z, key, pts = max(zs, key=lambda x: x[0])
             a_, b_ = a.timestamp(), b.timestamp()
+            fam = family_v4(key_metric(key))
+            onset = onset_time(pts, a_, b_, span, direction, counts=fam in COUNT_FAMILIES)
             base = sorted(v for t, v in pts if a_ - span <= t < a_)
             win = [v for t, v in pts if a_ <= t <= b_]
             if base and win:
                 desc = (f"{key_metric(key)}: baseline median={_fmt(base[len(base) // 2])}, window "
                         + (f"max={_fmt(max(win))}" if direction == "up" else f"min={_fmt(min(win))}") + f" (robust shift {z:.2g})")
-    return out, len(sel), desc
+    return out, len(sel), desc, onset
 
 
-def calibrate_v4(db, peer: bool = False, robust_null: bool = False) -> Dict:
+def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: bool = False) -> Dict:
     """Fills db["_cal"] in the format of fault_calibrated._calibrate (so entity_signals() and the v3 belief code read it unchanged)."""
     w0, w1 = db["w0"], db["w1"]
     L = w1 - w0
@@ -127,14 +131,16 @@ def calibrate_v4(db, peer: bool = False, robust_null: bool = False) -> Dict:
     for kind, group, sigs, (kn, km) in (("node", "nodes", NODE_SIGNALS, node_key), ("service", "services", V4_SVC_SIGNALS, svc_key)):
         for ent, pr in db[group].items():
             for name, fams, d in sigs:
-                sc, m, desc = _family_z(pr["series"], fams, d, wins, span, kn, km)
+                sc, m, desc, on = _family_z(pr["series"], fams, d, wins, span, kn, km)
                 if m and sc[0] is not None:
-                    raw[ent][name] = {"kind_pool": (kind, name), "zs": list(sc), "n_series": m, "ev": desc}
-    for ent, pr in db["services"].items():                 # hot operation (trafficHotspot)
+                    raw[ent][name] = {"kind_pool": (kind, name), "zs": list(sc), "n_series": m, "ev": desc, "onset": on}
+    op_sigs = [("op_request_rise", ("request",), "up")] + (OP_SIGNALS if ops_level else [])
+    for ent, pr in db["services"].items():                 # operation level: hot operation (trafficHotspot); v4.2: failing operation
         ops = {(k, m): v for (k, m), v in pr["ops"].items()}
-        sc, m, desc = _family_z(ops, ("request",), "up", wins, span, lambda k: k[0], lambda k: k[1])
-        if m and sc[0] is not None:
-            raw[ent]["op_request_rise"] = {"kind_pool": ("op", "op_request_rise"), "zs": list(sc), "n_series": m, "ev": desc}
+        for name, fams, d in op_sigs:
+            sc, m, desc, on = _family_z(ops, fams, d, wins, span, lambda k: k[0], lambda k: k[1])
+            if m and sc[0] is not None:
+                raw[ent][name] = {"kind_pool": ("op", name), "zs": list(sc), "n_series": m, "ev": desc, "onset": on}
     nw = db["win_bins"]                                     # log-keyword counts per 30 s bin (zero-filled), as in v3 but scored by size
     for ent, pr in db["services"].items():
         for f, _ in _TEXT_FAMILIES:
@@ -321,3 +327,32 @@ def unavailability(db) -> Dict[str, bool]:
 def _td(seconds):
     import datetime as _dt
     return _dt.timedelta(seconds=seconds)
+
+
+def onset_time(pts, a: float, b: float, span: float, direction: str, counts: bool = False) -> Optional[float]:
+    """v4.2: when the series' anomaly starts. History = [a - L - span, a - L) with L = b - a (it ends one window before the evidence
+    window, so an anomaly that starts shortly before the alert window is still measured against clean data); the onset is the first
+    sample in [a - L, b] whose directional robust shift reaches Z_ON and stays there for the next sample. None if it never does."""
+    L = b - a
+    h0, h1 = a - L - span, a - L
+    if counts:
+        bins = defaultdict(float)
+        for t, v in pts:
+            if h0 <= t <= b:
+                bins[int((t - h1) // LOG_BIN_S)] += v
+        n_h, n_s = int(round(span / LOG_BIN_S)), int(round(2 * L / LOG_BIN_S))
+        hist = [bins.get(i, 0.0) for i in range(-n_h, 0)]
+        seq = [(h1 + i * LOG_BIN_S, bins.get(i, 0.0)) for i in range(0, n_s + 1)]
+        floor = COUNT_FLOOR
+    else:
+        hist = [v for t, v in pts if h0 <= t < h1]
+        seq = [(t, v) for t, v in pts if h1 <= t <= b]
+        floor = ABS_FLOOR
+    if len(hist) < 3 or len(seq) < 2:
+        return None
+    mb, sc = _scale(hist, floor)
+    zs = [((v - mb) / sc) * (1 if direction == "up" else -1) for _, v in seq]
+    for i in range(len(seq) - 1):
+        if zs[i] >= Z_ON and zs[i + 1] >= Z_ON:
+            return seq[i][0]
+    return None
