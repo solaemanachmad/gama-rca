@@ -82,3 +82,12 @@ Observations:
   truth. Once absent symptoms are free, a wide (node) hypothesis is cheap. Application logic (38 cases) falls to 6 exact entities.
 - The differences between the V4.1 variants (7-9 of 103) are within noise for McNemar.
 Per the stopping rule, no further changes are made from RCA100 labels.
+
+## Scoring bug found while reading run 2 (2026-10-30)
+evaluation/scoring.py rolled every predicted id up to an apm.service by BFS (max 3 hops) before comparing. A k8s.node reaches a service
+through node -> pod -> instance -> service, so a node answer could inherit an arbitrary hosted service and score EL = 1.0 (and
+rcl_strict = 1). In run 2, 18 node answers (V4.1 without rnull) scored EL = 1.0 against a service ground truth. **joint accuracy
+(rcl_exact AND ft_binary) uses the exact id and was never affected**, nor the V3 pre-registered analysis. EL, rcl_strict and Final of
+all runs that predicted nodes are inflated, so the EL gains of V4.1 are partly an artifact.
+Fix: nodes, clusters and namespaces are not rolled up (test scoring_does_not_roll_a_node_up_to_a_service). scripts/rescore_el.py
+recomputes EL / rcl_strict / Final of existing CSVs (needs the dataset; CPU, minutes).

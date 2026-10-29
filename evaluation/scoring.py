@@ -197,6 +197,19 @@ def load_ground_truth(task_id: str, name_index: Optional[Dict[str, str]] = None,
 # ---------------------------------------------------------------------------
 # RCA100 official protocol
 # ---------------------------------------------------------------------------
+NO_ROLLUP_TYPES = ("k8s.node", "k8s.cluster", "k8s.namespace")
+
+
+def _scoring_rollup(eid: str, topology: nx.DiGraph) -> str:
+    """Instance / operation / pod -> its apm.service (same logical service). A node, cluster or namespace is NOT a part of a service:
+    rolling it up (BFS through a hosted pod) used to land on an arbitrary service on that node and give a node answer full credit
+    (fixed 2026-10-30; joint accuracy, which uses the exact id, was never affected)."""
+    ent = topology.nodes[eid].get("entity") if eid in topology else None
+    if ent is not None and getattr(ent, "entity_type", None) in NO_ROLLUP_TYPES:
+        return eid
+    return find_service_ancestor(eid, topology) or eid
+
+
 def entity_localization_score(predicted_ids: List[str], gt: GroundTruth,
                                topology: nx.DiGraph) -> float:
     """Exact match = 1.0; partial credit for topologically adjacent entities;
@@ -217,7 +230,7 @@ def entity_localization_score(predicted_ids: List[str], gt: GroundTruth,
         return 0.0
 
     def _rollup(eid: str) -> str:
-        return find_service_ancestor(eid, topology) or eid
+        return _scoring_rollup(eid, topology)
 
     undirected = topology.to_undirected(as_view=True)
     best = 0.0
@@ -523,7 +536,7 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     _first = (result.predicted_entity_ids or [None])[0]
     _tg = gt.target_entity_ids or []
     if _first and _tg:
-        _roll = lambda e: find_service_ancestor(e, topology) or e
+        _roll = lambda e: _scoring_rollup(e, topology)
         report["rcl_strict"] = 1.0 if _roll(_first) in {_roll(t) for t in _tg} else 0.0
         report["rcl_exact"] = 1.0 if _first in set(_tg) else 0.0
     else:

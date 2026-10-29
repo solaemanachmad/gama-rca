@@ -286,6 +286,22 @@ def unavailability_is_a_state():
     assert u == {"cart": True, "checkout": False, "frontend": False}, u
 
 
+@test
+def scoring_does_not_roll_a_node_up_to_a_service():
+    import networkx as nx
+    from schema import Entity
+    from evaluation.scoring import entity_localization_score
+    g = nx.DiGraph()
+    for eid, et in (("svc", "apm.service"), ("inst", "apm.instance"), ("pod", "k8s.pod"), ("node", "k8s.node")):
+        g.add_node(eid, entity=Entity(entity_id=eid, entity_type=et, name=eid))
+    g.add_edge("svc", "inst"); g.add_edge("pod", "inst"); g.add_edge("node", "pod")
+
+    class GT:
+        target_entity_ids, target_entity_names = ["svc"], []
+    assert entity_localization_score(["inst"], GT, g) == 1.0                 # an instance of the service: same logical entity
+    assert entity_localization_score(["node"], GT, g) == 0.125               # the hosting node: adjacent (3 hops), not the service
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:
