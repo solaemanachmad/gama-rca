@@ -70,7 +70,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             sensor = make_sensor(llm, sensor_log, notes)
     if v4:                                                       # v4 (pipeline/belief_v4.py; parts from V4_PARTS)
         from pipeline.belief_v4 import diagnose_v4
-        res = diagnose_v4(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
+        res = diagnose_v4(db, callees, texts, sensor=sensor, budget=budget, alert=alert, case=case)
     else:
         res = diagnose_belief(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
     stats = {"v3_alert_service": alert, "v3_answer_p": round(res["p"], 4), "v3_p_h0": round(res["p_h0"], 4),

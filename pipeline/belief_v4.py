@@ -12,6 +12,13 @@ the `parts` argument (environment variable V4_PARTS, default all):
              replicaScaleDown  + key svc_avail_drop (availability / available replicas fall), + sup svc_request_drop
              memoryPressure    + sup svc_cpu_rise (garbage collection under memory pressure burns CPU)
              cpuDeadLoop       + sup svc_request_drop (a pinned core starves the process: fewer requests complete)
+v4.1 parts (DEVLOG_V4.md "Case timelines"; mechanisms seen in raw timelines of dev cases):
+  peer     common-mode rejection: z re-standardised against the same signal of the other entities of the kind, per window
+  rnull    Efron's empirical null by central matching (median / MAD of the pseudo-window scores): the history contains earlier injected
+           faults, whose extreme scores would otherwise sit in the null
+  prop     an absent symptom at an entity the hypothesis could reach is uninformative (partial propagation: some replicas, callers)
+  events   Kubernetes events count only when their occurrence rate in the window exceeds their own long-run rate (Poisson test)
+  avail    availability as a state: available replicas < desired, or availability < full, in the window and not chronically
 Nothing here reads labels."""
 from __future__ import annotations
 
@@ -25,9 +32,9 @@ import numpy as np
 
 from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
-from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS
+from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
-ALL_PARTS = ("score", "open", "twostage", "fp")
+ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail")
 ANOM = "ANOMALY"
 SVC_CONT = [s for s, _, _ in V4_SVC_SIGNALS] + ["op_request_rise"]
 NODE_CONT = [s for s, _, _ in NODE_SIGNALS]
@@ -45,6 +52,8 @@ def fingerprints_v4(parts) -> Dict:
         fp["F036-replicaScaleDown"]["sup"].append("svc_request_drop")
         fp["F007-memoryPressure"]["sup"].append("svc_cpu_rise")
         fp["F012-cpuDeadLoop"]["sup"].append("svc_request_drop")
+    if "avail" in parts:
+        fp["F036-replicaScaleDown"]["key"].append("svc_unavailable")
     return fp
 
 
@@ -119,12 +128,21 @@ class Model:
             return max(bd.THETA_P, base)
         return base
 
+    def propagated(self, o, h, expl, hosts):
+        s, e = o["signal"], o["entity"]
+        if h["type"] is None or e == h["entity"]:
+            return False
+        return (s in bd.SYMPTOMS and e in expl and h["entity"] in expl[e]) or \
+               (s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []))
+
     def log_likelihood(self, obs, H, bg, expl, db):
         hosts = db.get("hosts", {})
         ll = np.zeros(len(H))
         for o in obs:
             for i, h in enumerate(H):
                 p = self.p_holds(o, h, bg, expl, hosts, db)
+                if "prop" in self.parts and not o["holds"] and self.propagated(o, h, expl, hosts):
+                    p = self.p_holds(o, H[-1], bg, expl, hosts, db)      # partial propagation: an absent symptom is uninformative
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll
 
@@ -169,12 +187,18 @@ def _fallback_type(model, ent, level, sig):
     return best or ("F026-nodeCpuHigh" if level == "node" else "F011-codeDefect")
 
 
-def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8, alert=None, parts=None) -> Dict:
+def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8, alert=None, parts=None, case=None) -> Dict:
     parts = set(parts) if parts is not None else parts_from_env()
     model = Model(parts)
+    if "events" in parts and case is not None:
+        new_events(case, db, B_SPAN * (db["w1"] - db["w0"]).total_seconds())
     if "score" in parts:
-        calibrate_v4(db)
+        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts)
     obs = bd.observations(db)
+    if "avail" in parts:
+        for s_, bad in unavailability(db).items():
+            obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
+                        "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
     H = model.testable(model.hypotheses(db), obs)
     bg = bd.background(obs, db)
     if alert and alert in db["services"]:

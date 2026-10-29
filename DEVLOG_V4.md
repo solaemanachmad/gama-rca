@@ -51,3 +51,16 @@ Mechanisms seen in the raw timelines (5-minute medians), not guessed from scores
    the coverage rule makes it untestable, although "available < desired" is unavailability by definition and needs no history.
 5. memoryPressure vs CPU/GC types: inventory shows heap, GC, thread, CPU (to 97% of limit) and latency rising together; the CPU of
    its host nodes rises too, which the LOAD_TYPES rule credits to the CPU types. Overlapping mechanisms; no fix proposed from these cases.
+
+## v4.1 (from the case timelines; synthetic tests in tests/test_v4.py, 18/18)
+| Part | Change | Test |
+|---|---|---|
+| peer | common-mode rejection: per window, z re-standardised against the same signal of the other entities of the kind (median, MAD, floor 1) | common_mode_load_step_cancels_with_peers |
+| rnull | Efron's empirical null by central matching (normal fitted to the median and MAD of the pseudo-window scores) | earlier_fault_in_history_does_not_mask_the_real_one |
+| prop | absent symptom at a reachable entity = uninformative (partial propagation) | absent_symptoms_do_not_penalise_a_wide_hypothesis |
+| events | an event counts only if its window rate exceeds its own long-run rate (Poisson, alpha 0.05) | chronic_events_are_not_new_but_fresh_ones_are |
+| avail | svc_unavailable: available < desired or availability < full in the window, not chronic; key of replicaScaleDown | unavailability_is_a_state |
+Not changed: memoryPressure vs CPU/GC types (overlapping mechanisms; left to the text probes, reported as a limitation).
+
+**Stopping rule (agreed before the run):** v4.1 gets ONE more development run on RCA100 (CPU arms, no LLM). After it, v4 is frozen
+whatever the result; no further changes are motivated by RCA100 labels. Final claims rest on the frozen method.

@@ -20,8 +20,9 @@ New signals (v4): svc_request_drop (request count falls: starvation, a silent or
 availability / available replicas fall). Uses only the case's telemetry; never reads answer_key/."""
 from __future__ import annotations
 
+import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from statistics import median
 from typing import Dict, List, Optional, Tuple
 
@@ -114,7 +115,7 @@ def _family_z(series_map, fams, direction, windows, span, key_name, key_metric):
     return out, len(sel), desc
 
 
-def calibrate_v4(db) -> Dict:
+def calibrate_v4(db, peer: bool = False, robust_null: bool = False) -> Dict:
     """Fills db["_cal"] in the format of fault_calibrated._calibrate (so entity_signals() and the v3 belief code read it unchanged)."""
     w0, w1 = db["w0"], db["w1"]
     L = w1 - w0
@@ -128,14 +129,12 @@ def calibrate_v4(db) -> Dict:
             for name, fams, d in sigs:
                 sc, m, desc = _family_z(pr["series"], fams, d, wins, span, kn, km)
                 if m and sc[0] is not None:
-                    raw[ent][name] = {"kind_pool": (kind, name), "z": sc[0], "pseudo": [x for x in sc[1:] if x is not None],
-                                      "n_series": m, "ev": desc}
+                    raw[ent][name] = {"kind_pool": (kind, name), "zs": list(sc), "n_series": m, "ev": desc}
     for ent, pr in db["services"].items():                 # hot operation (trafficHotspot)
         ops = {(k, m): v for (k, m), v in pr["ops"].items()}
         sc, m, desc = _family_z(ops, ("request",), "up", wins, span, lambda k: k[0], lambda k: k[1])
         if m and sc[0] is not None:
-            raw[ent]["op_request_rise"] = {"kind_pool": ("op", "op_request_rise"), "z": sc[0], "pseudo": [x for x in sc[1:] if x is not None],
-                                           "n_series": m, "ev": desc}
+            raw[ent]["op_request_rise"] = {"kind_pool": ("op", "op_request_rise"), "zs": list(sc), "n_series": m, "ev": desc}
     nw = db["win_bins"]                                     # log-keyword counts per 30 s bin (zero-filled), as in v3 but scored by size
     for ent, pr in db["services"].items():
         for f, _ in _TEXT_FAMILIES:
@@ -151,8 +150,13 @@ def calibrate_v4(db) -> Dict:
             real = z_of(binv(0, nw), binv(-LOG_B_SPAN * nw, 0))
             pseudo = [z_of(binv(-j * nw, -(j - 1) * nw), binv(-(j + LOG_B_SPAN) * nw, -j * nw)) for j in range(1, LOG_K + 1)
                       if db["log_base_bins"] >= (j + LOG_B_SPAN) * nw]
-            raw[ent][f"log_{f}_rise"] = {"kind_pool": ("log", "log"), "z": real, "pseudo": pseudo, "n_series": 1,
+            raw[ent][f"log_{f}_rise"] = {"kind_pool": ("log", "log"), "zs": [real] + pseudo, "n_series": 1,
                                          "ev": f"'{f}' log lines in window={int(sum(binv(0, nw)))}, previous window={int(sum(binv(-nw, 0)))}"}
+    if peer:
+        peer_adjust(raw)
+    for ent, sigs in raw.items():
+        for r in sigs.values():
+            r["z"], r["pseudo"] = r["zs"][0], [x for x in r["zs"][1:] if x is not None]
     null, kind_all = defaultdict(list), defaultdict(list)
     for ent, sigs in raw.items():
         for r in sigs.values():
@@ -167,7 +171,153 @@ def calibrate_v4(db) -> Dict:
                 r["pool"] = "kind"
             r["n_null"] = len(nl)
             r["raw"] = -r["z"]                              # v3 convention: smaller raw = more anomalous
-            r["p"] = (1 + sum(1 for x in nl if x >= r["z"])) / (len(nl) + 1)
+            if robust_null and len(nl) >= MIN_POOL:
+                # Efron's empirical null (central matching): the pseudo-window scores may contain earlier injected faults (their
+                # tail is contaminated), so the null is the normal fitted to their CENTRE (median, MAD), not their full distribution
+                mu = median(nl)
+                sd = max(1.4826 * median(abs(x - mu) for x in nl), 1e-9)
+                r["p"] = 0.5 * math.erfc((r["z"] - mu) / sd / math.sqrt(2.0))
+                r["null"] = "central"
+            else:
+                r["p"] = (1 + sum(1 for x in nl if x >= r["z"])) / (len(nl) + 1)
             cal[ent][name] = r
-    db["_cal"], db["_null"] = cal, null
+    db["_cal"], db["_null"], db["_v4_peer"] = cal, null, peer
     return cal
+
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# v4.1 (DEVLOG_V4.md, "Case timelines"): peer-relative scores, new-event rule, availability as a state
+# ------------------------------------------------------------------------------------------------------------------------------
+PEER_FLOOR = 1.0          # robust scale floor of the cross-sectional z distribution (one robust SD of a single series)
+MIN_PEERS = 3
+EVENT_ALPHA = 0.05
+
+
+def peer_adjust(raw: Dict) -> None:
+    """Common-mode rejection: in every window (real and pseudo alike), each entity's z is re-standardised against the z of the other
+    entities of the same kind for the same signal: z' = (z - median) / max(1.4826 MAD, PEER_FLOOR). A load step or a shared drift moves
+    all entities together and cancels; a fault at one entity stands out. Applied identically to real and pseudo windows, so the
+    empirical calibration stays valid."""
+    by_pool = defaultdict(list)
+    for ent, sigs in raw.items():
+        for name, r in sigs.items():
+            by_pool[r["kind_pool"]].append(r)
+    for pool, rs in by_pool.items():
+        n_w = max(len(r["zs"]) for r in rs)
+        for i in range(n_w):
+            vals = [r["zs"][i] for r in rs if i < len(r["zs"]) and r["zs"][i] is not None]
+            if len(vals) < MIN_PEERS:
+                continue
+            med = median(vals)
+            sc = max(1.4826 * median(abs(v - med) for v in vals), PEER_FLOOR)
+            for r in rs:
+                if i < len(r["zs"]) and r["zs"][i] is not None:
+                    r["zs"][i] = (r["zs"][i] - med) / sc
+
+
+def new_events(case, db, horizon_s: float) -> None:
+    """Replaces db's event counts by NEW occurrences only. Kubernetes events are cumulative objects (count, firstTimestamp,
+    lastTimestamp, re-exported as they repeat). For each (object, reason): increments inside the window are tested against the
+    object's own long-run rate before the window (one-sided Poisson test, EVENT_ALPHA); an event that has repeated at the same rate for
+    weeks (e.g. EvictionThresholdMet x247,000) is not evidence of a fault starting now. An object first seen within the history horizon
+    has a long-run rate of ~0, so any occurrence is new."""
+    import json as _json
+    from data.loader import event_time_bounds, _parse_ts_iso
+    from pipeline.fault_fingerprint import _owner, _naive, _EVENT_FAMILIES
+    from pipeline.log_preprocess import poisson_sf
+    w0, w1 = db["w0"], db["w1"]
+    services, nodes = list(db["services"]), db["nodes"]
+    rows = defaultdict(list)
+    for o in case.observations.get("events", []):
+        p = o.payload or {}
+        try:
+            e = _json.loads(p.get("eventId")) if isinstance(p.get("eventId"), str) else (p.get("eventId") or {})
+        except Exception:
+            continue
+        f_, l_ = event_time_bounds(e)
+        first, last = _naive(_parse_ts_iso(f_)), _naive(_parse_ts_iso(l_))
+        if first is None or last is None or last > w1:
+            continue
+        io = e.get("involvedObject") or {}
+        key = (io.get("kind", ""), io.get("name") or p.get("pod_name") or p.get("hostname") or "", str(e.get("reason", "")))
+        rows[key].append((last, int(e.get("count") or 1), first, f"{e.get('reason', '')} {e.get('message', '')}"))
+    for pr in list(db["services"].values()) + list(db["nodes"].values()):
+        pr["events"] = defaultdict(Counter)
+    kept = 0
+    for (kind, name, reason), rs in rows.items():
+        rs.sort()
+        first = min(r[2] for r in rs)
+        win = [r for r in rs if r[0] >= w0]
+        if not win:
+            continue
+        before = [r for r in rs if r[0] < w0]
+        if before:
+            c0, t0 = before[-1][1], before[-1][0]
+        elif first >= w0 - _td(horizon_s):
+            c0, t0 = 0, None                                 # first seen within the horizon: no occurrence in the history
+        else:                                            # only window rows of an old object: the first one is the reference
+            c0, t0 = win[0][1], win[0][0]
+            win = win[1:]
+            if not win:
+                continue
+        inc = max(r[1] for r in win) - c0
+        if inc <= 0:
+            continue
+        if t0 is None:                                       # rate before the window: 0 occurrences over the history horizon
+            age, span = horizon_s, (w1 - w0).total_seconds()
+        else:                                                # long-run rate of this object, then the remaining window
+            age, span = max((t0 - first).total_seconds(), 60.0), max((w1 - t0).total_seconds(), 1.0)
+        lam = (c0 + 0.5) / age * span
+        if poisson_sf(inc, lam) > EVENT_ALPHA:
+            continue
+        prof = nodes.get(name) if (kind == "Node" or name in nodes) else db["services"].get(_owner(name, services) or "")
+        if prof is None:
+            continue
+        txt = win[-1][3]
+        for f, rx in _EVENT_FAMILIES:
+            if rx.search(txt):
+                prof["events"][f][reason] += inc
+                kept += 1
+    db["_v4_new_events"] = kept
+
+
+def unavailability(db) -> Dict[str, bool]:
+    """Availability as a state (no history needed): a service is unavailable in the window when its deployment's available replicas
+    fall below the desired replicas, or its availability rate falls below full, at any window sample; and it was NOT so for more than
+    half of its own history samples (a chronic state is not a new fault). Series that exist only inside the window (sparse export)
+    still count."""
+    w0, w1 = db["w0"], db["w1"]
+    out = {}
+    for s, pr in db["services"].items():
+        ser = {k.split(":")[-1]: sorted(v) for k, v in pr["series"].items() if k.startswith("k8s.deployment:")}
+        avail, desired, rate = ser.get("deployment_available_replicas", []), ser.get("deployment_desired_replicas", []), \
+            ser.get("deployment_availability_rate", [])
+        if not (avail or rate):
+            continue
+
+        def bad_at(t):
+            res = None
+            if avail:
+                a = [v for tt, v in avail if tt <= t][-1:] or [avail[0][1]]
+                d = [v for tt, v in desired if tt <= t][-1:] or ([desired[0][1]] if desired else [])
+                if d:
+                    res = a[0] < d[0]
+                elif a[0] == 0:
+                    res = True
+            if rate:
+                r = [v for tt, v in rate if tt <= t][-1:] or [rate[0][1]]
+                full = 1.0 if max(v for _, v in rate) <= 1.0 else 100.0
+                res = bool(res) or r[0] < 0.999 * full
+            return bool(res)
+        times = sorted({t for t, _ in avail + rate})
+        win_bad = any(bad_at(t) for t in times if w0 <= t <= w1)
+        hist = [bad_at(t) for t in times if t < w0]
+        chronic = bool(hist) and sum(hist) > 0.5 * len(hist)
+        out[s] = win_bad and not chronic
+    db["_v4_unavail"] = out
+    return out
+
+
+def _td(seconds):
+    import datetime as _dt
+    return _dt.timedelta(seconds=seconds)

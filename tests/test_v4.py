@@ -43,7 +43,7 @@ def series(c, eset, name, m, f, n_base=110, keep=1.0, seed=0):
 def run(c, parts=b4.ALL_PARTS, alert="frontend"):
     db = compute_signal_db(c, T0)
     assert "error" not in db, db
-    return b4.diagnose_v4(db, CALLEES, {}, sensor=None, budget=0, alert=alert, parts=parts), db
+    return b4.diagnose_v4(db, CALLEES, {}, sensor=None, budget=0, alert=alert, parts=parts, case=c), db
 
 
 @test
@@ -171,7 +171,7 @@ def v3_engine_untouched_when_v4_unused():
 def ablation_parts_switch_independently():
     c = make_case()
     metric(c, "apm.service.legacy", "cart", "rt", 0.1, 0.9, seed=12)
-    for parts in ([], ["score"], ["open"], ["twostage"], ["fp"], ["score", "open", "twostage", "fp"]):
+    for parts in ([], ["score"], ["open"], ["twostage"], ["fp"], ["score", "peer"], ["score", "rnull"], ["prop"], ["events"], ["avail"], list(b4.ALL_PARTS)):
         r, _ = run(c, parts=parts, alert="cart")
         assert r["parts"] == sorted(parts) and r["type"] is not None, (parts, r)
 
@@ -192,9 +192,98 @@ def end_to_end_v4_with_stub_llm():
         wspan(c, "checkout", i, err=True, code="429", msg="Too Many Requests")
     r = run_case(c, SensorStub(), budget=5, narrate=True, v4=True)
     assert r.predicted_fault_type == "F016-rateLimiting" and r.reasoning_chain, (r.predicted_fault_type, r.retrieval_stats)
-    assert r.retrieval_stats["v4_parts"] == "fp,open,score,twostage", r.retrieval_stats
+    assert r.retrieval_stats["v4_parts"] == ",".join(sorted(b4.ALL_PARTS)), r.retrieval_stats
     r0 = run_case(c, None, budget=0, narrate=False, v4=True)
     assert r0.predicted_fault_type == "F016-rateLimiting" and r0.reasoning_chain
+
+
+def raw_event(c, kind, name, reason, first, last, count, msg=""):
+    import json
+    from schema import Observation
+    e = {"involvedObject": {"kind": kind, "name": name}, "reason": reason, "message": msg, "count": count,
+         "firstTimestamp": first.isoformat() + "Z", "lastTimestamp": last.isoformat() + "Z"}
+    c.observations["events"].append(Observation(None, last, "events", "", {"eventId": json.dumps(e)}))
+
+
+@test
+def common_mode_load_step_cancels_with_peers():
+    c = make_case()
+    for i in range(8):                                                   # every service: CPU x3 in the window (load step)
+        series(c, "apm.service.legacy", f"svc{i}", "cpu", lambda k, i=i: (0.1 + 0.002 * (k % 3)) * (3 if k >= 110 else 1), seed=i)
+    for s in ("cart", "checkout", "frontend"):
+        series(c, "apm.service.legacy", s, "cpu", lambda k: (0.1 + 0.002 * (k % 3)) * (3 if k >= 110 else 1))
+    series(c, "k8s.node", "node-a", "node_cpu_usage_rate", lambda k: 0.3 + 0.01 * (k % 3) if k < 110 else 0.95)
+    db = compute_signal_db(c, T0)
+    no_peer = calibrate_v4(db)["svc0"]["svc_cpu_rise"]["p"]
+    db = compute_signal_db(c, T0)
+    with_peer = calibrate_v4(db, peer=True)["svc0"]["svc_cpu_rise"]["p"]
+    assert no_peer <= 0.05 < with_peer, (no_peer, with_peer)
+    r, _ = run(c, alert="cart")
+    assert (r["entity"], r["type"]) == ("node-a", "F026-nodeCpuHigh"), r["top"]
+
+
+@test
+def earlier_fault_in_history_does_not_mask_the_real_one():
+    c = make_case()
+    for i in range(8):                                                   # three other nodes had a 100% CPU episode in the history
+        series(c, "k8s.node", f"node-x{i}", "node_cpu_usage_rate",
+               lambda k, i=i: (0.95 if (i < 3 and 30 + 20 * i <= k < 42 + 20 * i) else 0.2 + 0.005 * (k % 3)), seed=i)
+    series(c, "k8s.node", "node-a", "node_cpu_usage_rate", lambda k: 0.3 + 0.01 * (k % 3) if k < 110 else 0.95)
+    db = compute_signal_db(c, T0)
+    conformal = calibrate_v4(db)["node-a"]["node_cpu_rise"]["p"]
+    db = compute_signal_db(c, T0)
+    central = calibrate_v4(db, robust_null=True)["node-a"]["node_cpu_rise"]["p"]
+    assert central <= 0.05 and central < conformal, (conformal, central)
+
+
+@test
+def absent_symptoms_do_not_penalise_a_wide_hypothesis():
+    c = make_case()
+    series(c, "k8s.node", "node-a", "node_cpu_usage_rate", lambda k: 0.3 + 0.01 * (k % 3) if k < 110 else 0.95)
+    metric(c, "apm.service.legacy", "frontend", "rt", 0.1, 0.1, seed=13)            # frontend (on node-a) shows no symptom
+    lls = {}
+    for parts in (("score",), ("score", "prop")):
+        db = compute_signal_db(c, T0)
+        m = b4.Model(parts)
+        calibrate_v4(db)
+        obs = bd.observations(db)
+        H = m.testable(m.hypotheses(db), obs)
+        i = next(j for j, h in enumerate(H) if h["entity"] == "node-a" and h["type"] == "F026-nodeCpuHigh")
+        lls[parts] = m.log_likelihood(obs, H, bd.background(obs, db), bd.explainers(db, CALLEES), db)[i]
+    assert lls[("score", "prop")] > lls[("score",)], lls
+
+
+@test
+def chronic_events_are_not_new_but_fresh_ones_are():
+    from pipeline.fault_v4 import new_events
+    c = make_case()
+    month = dt.timedelta(days=28)
+    for j in range(12):                                                 # node-b: eviction pressure every 30 s for four weeks
+        t = W0 - dt.timedelta(minutes=30) + dt.timedelta(minutes=3 * j)
+        raw_event(c, "Node", "node-b", "EvictionThresholdMet", W0 - month, t, int((t - (W0 - month)).total_seconds() // 30))
+    raw_event(c, "Pod", "cart-7d9f8c6b5d-x2x9k", "OOMKilling", W0 + dt.timedelta(minutes=1), W0 + dt.timedelta(minutes=2), 2,
+              "Memory cgroup out of memory")
+    db = compute_signal_db(c, T0)
+    assert db["nodes"]["node-b"]["events"].get("evicted"), "precondition: v3 counts the chronic event"
+    new_events(c, db, 4 * (db["w1"] - db["w0"]).total_seconds())
+    assert not db["nodes"]["node-b"]["events"].get("evicted"), dict(db["nodes"]["node-b"]["events"])
+    assert db["services"]["cart"]["events"].get("oom"), dict(db["services"]["cart"]["events"])
+
+
+@test
+def unavailability_is_a_state():
+    from pipeline.fault_v4 import unavailability
+    c = make_case()
+    series(c, "k8s.deployment", "cart", "deployment_desired_replicas", lambda k: 3.0)
+    for k in range(110, 122):                                            # quote-like: exported only inside the window, value 0
+        c.observations["metrics"].append(_obs(W0 + dt.timedelta(seconds=30 * (k - 110)), "k8s.deployment", "cart",
+                                              "deployment_available_replicas", 0.0))
+    series(c, "k8s.deployment", "checkout", "deployment_desired_replicas", lambda k: 3.0)
+    series(c, "k8s.deployment", "checkout", "deployment_available_replicas", lambda k: 2.0)       # chronically degraded
+    series(c, "k8s.deployment", "frontend", "deployment_desired_replicas", lambda k: 3.0)
+    series(c, "k8s.deployment", "frontend", "deployment_available_replicas", lambda k: 3.0)
+    u = unavailability(compute_signal_db(c, T0))
+    assert u == {"cart": True, "checkout": False, "frontend": False}, u
 
 
 if __name__ == "__main__":
