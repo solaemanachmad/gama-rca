@@ -195,3 +195,20 @@ Known, not changed: the narrator's evidence tables (v1 code) state a legacy wind
 | V4.4 without retry | **17** | 46 | **23** | 40 | 0.544 | 0.501 |
 retry does not help (-2 joint). The recommendation attractor persists (22-24 cases). Seminar charts: results-2/grafik_seminar
 (5 PNGs; numbers from runs 1-5, labelled as development results).
+
+## Dev run 6 — V4 + local LLM (GPU, Qwen3-8B, commit 999d665, parts incl. retry)
+
+Same parts as V4_RULE in results-2, so the pair is matched (only the LLM differs).
+
+| | Joint | EL | FI | RP(nodes) | Final(nodes) | s/case |
+|---|---|---|---|---|---|---|
+| V4_RULE (CPU) | 15 | 55.5 | 20.4 | 72.4 | 50.0 | 88 |
+| V4 + LLM (GPU) | 19 | 53.8 | 22.3 | 73.9 | 50.4 | 193 |
+
+- Joint +4 (t027, t041, t051, t071), none lost. Final Δ +0.4, Wilcoxon p = 0.31 (not significant).
+- LLM typing v2: accepted 99/103, changed 22: 5 wrong→right, 2 right→wrong (t049, t088: F004→F006).
+  17 of the 22 changes are F012 cpuDeadLoop → F034 cpuFullLoad (near-duplicate classes); 3 correct.
+- Text sensor probed in 31 cases; moved the entity in 4 cases, all worse (t020, t026, t046, t076) → EL −1.7.
+- Cost: 2.3 LLM calls, ~8.5k tokens per case.
+- Takeaway: the LLM helps typing slightly and never broke a joint hit, but the gain is within noise.
+  The statistical core carries the result. Pending: V4_NOLLMTYPE (sensor+narrator only) to separate the two LLM roles.
