@@ -166,3 +166,24 @@ Observations:
   - The evidence summary rarely contains what separates the true type.
 - Log probes ran in 31 cases and changed the entity in 3 (2 of those for the worse). Narration gives the same node-match RP as the
   rule chain (0.71).
+
+## Audit before run 5 (2026-10-30) and v4.4
+Bugs found by rendering every v4 prompt on a synthetic case (not from labels):
+1. **The v4 narrator was never called.** Its prompt was built but generate_json sat in the v3 branch only. GPU run 4 therefore used
+   the rule chain, so its RP equals the CPU arm's. Fixed; test v4_narrator_is_called_and_rule_chain_skips_the_alert.
+2. **rule_chain listed the alert pseudo-observation** as a propagation step's evidence. Fixed.
+3. **A single new event never counted.** new_events tested a first-seen object against a pseudo-rate of 0.5/horizon, so one occurrence
+   gave p = 0.12; one-off OOM kills were dropped. Now an object first seen within the horizon is new by definition; objects with a
+   history keep the Poisson test. Test a_single_new_event_counts.
+4. LLM typing v1 offered all types of the level and told the LLM to prefer events and messages (dev run 4: 12 restart answers that
+   were consequences). Replaced by v2: a shortlist of the 5 most probable statistical types, an onset for every signal line, and
+   explicit guidance that events, codes and messages are often consequences.
+v4.4 parts:
+- conseq: restart / probe-failure / OOM events get the role 'may' (explained when present, uninformative when absent) for the
+  resource types. The OOM kill no longer excludes memoryPressure / fullGC. resourceLimitMisconfig loses the memory-rise support
+  (it is OOM at normal usage).
+- retry: a request rise at a reachable entity is a propagated symptom.
+Tests 31/31. Each new part has a test that fails without it: restarts_after_cpu_saturation_are_cpu_types (without conseq:
+podRestartFlapping, the run-4 error), oom_and_restarts_after_memory_growth_are_memory_pressure, and
+retry_request_rise_upstream_is_explained_by_the_failing_callee.
+Known, not changed: the narrator's evidence tables (v1 code) state a legacy window description; they are narrative context only.

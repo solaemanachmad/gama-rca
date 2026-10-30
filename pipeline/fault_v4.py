@@ -271,13 +271,12 @@ def new_events(case, db, horizon_s: float) -> None:
         inc = max(r[1] for r in win) - c0
         if inc <= 0:
             continue
-        if t0 is None:                                       # rate before the window: 0 occurrences over the history horizon
-            age, span = horizon_s, (w1 - w0).total_seconds()
-        else:                                                # long-run rate of this object, then the remaining window
+        if t0 is not None:                                   # an object with a history: its long-run rate, then the remaining window
             age, span = max((t0 - first).total_seconds(), 60.0), max((w1 - t0).total_seconds(), 1.0)
-        lam = (c0 + 0.5) / age * span
-        if poisson_sf(inc, lam) > EVENT_ALPHA:
-            continue
+            if poisson_sf(inc, (c0 + 0.5) / age * span) > EVENT_ALPHA:
+                continue
+        # else: first seen within the history horizon and never before the window -> new by definition (a single OOM kill counts;
+        # fix 2026-10-30: v4.1 tested it against a pseudo-rate of 0.5 / horizon, so one occurrence (p = 0.12) was always dropped)
         prof = nodes.get(name) if (kind == "Node" or name in nodes) else db["services"].get(_owner(name, services) or "")
         if prof is None:
             continue

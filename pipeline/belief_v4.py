@@ -28,6 +28,11 @@ v4.3 parts:
   llmtype  LLM typing stage (pipeline/llm_typing.py): after the entity is chosen, the LLM picks its fault type from all types of the
            entity's level, given the entity's evidence summary and the statistical ranking; accepted only with a valid type and a
            verbatim quote of the summary
+v4.4 parts (consequence-aware evidence; DEVLOG_V4.md "Dev run 4"):
+  conseq   restart / probe-failure / OOM-kill events can be explained (support) by the resource types that cause them; an OOM kill no
+           longer excludes memory pressure / full GC
+  retry    a request-count rise at a service the root can reach is a propagated symptom (retry amplification after failures), not
+           only the key of trafficSurge at that service
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
 Nothing here reads labels."""
 from __future__ import annotations
@@ -44,7 +49,7 @@ from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
-ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype")
+ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype", "conseq", "retry")
 DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops"))   # rnull (run 2) and ops (run 3) did not help; opt-in only
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
 PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
@@ -69,6 +74,21 @@ def fingerprints_v4(parts) -> Dict:
         #  (memory pressure, DB latency, full load) and made cpuDeadLoop win 17 of 34 entity-right / type-wrong dev cases)
     if "avail" in parts:
         fp["F036-replicaScaleDown"]["key"].append("svc_unavailable")
+    if "conseq" in parts:
+        # v4.4: restarts, probe failures and OOM kills are often CONSEQUENCES of resource exhaustion. A resource hypothesis may explain
+        # them (support), and an OOM kill no longer excludes memory pressure / full GC (the taxonomy: memory pressure "causing ...
+        # eviction risk"; an OOM kill is where pressure ends).
+        # Role 'may' (M): explained when present (THETA_U), uninformative when absent; a plain support would cost every case without
+        # a restart log((1 - THETA_U) / (1 - ALPHA)).
+        for t in ("F007-memoryPressure", "F022-fullGC"):
+            fp[t]["con"] = [c for c in fp[t]["con"] if c != "ev_oom"]
+        fp["F007-memoryPressure"]["may"] = ["ev_oom", "ev_restart", "ev_unhealthy"]
+        fp["F022-fullGC"]["may"] = ["ev_oom", "ev_unhealthy", "ev_restart"]
+        for t in ("F034-cpuFullLoad", "F012-cpuDeadLoop", "F002-threadExhaustion"):
+            fp[t]["may"] = ["ev_unhealthy", "ev_restart"]
+        # resourceLimitMisconfig = OOM kills / throttling at a limit set too low for NORMAL usage: an abnormal memory rise is what
+        # memory pressure predicts, so it no longer supports the misconfiguration (it tied the two types whenever memory grew)
+        fp["F039-resourceLimitMisconfig"]["sup"] = [x for x in fp["F039-resourceLimitMisconfig"]["sup"] if x != "svc_mem_rise"]
     if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)
         fp["F014-httpError5xx"]["key"].append("op_error_rise")
         for t in ("F011-codeDefect", "F023-nullPointerException", "F016-rateLimiting"):
@@ -85,8 +105,8 @@ class Model:
         self.roles = {}
         for t, f in self.fp.items():
             r = {}
-            for role, key in (("C", "con"), ("U", "sup"), ("K", "key")):
-                for expr in f[key]:
+            for role, key in (("M", "may"), ("C", "con"), ("U", "sup"), ("K", "key")):
+                for expr in f.get(key, []):
                     for a in _atoms(expr):
                         r[a] = role
             self.roles[t] = r
@@ -98,7 +118,7 @@ class Model:
 
     @property
     def symptoms(self):
-        return bd.SYMPTOMS | (set(OP_CONT) if "ops" in self.parts else set())
+        return bd.SYMPTOMS | (set(OP_CONT) if "ops" in self.parts else set()) | ({"svc_request_rise"} if "retry" in self.parts else set())
 
     @property
     def own_symptoms(self):
@@ -148,12 +168,15 @@ class Model:
             role = self.role(h, s)
             if role is None and s in self.own_symptoms:
                 return max(bd.THETA_P, base)
-            return {"K": h.get("q", bd.THETA_K), "U": bd.THETA_U, "C": bd.ALPHA_C}.get(role, base)
+            return {"K": h.get("q", bd.THETA_K), "U": bd.THETA_U, "C": bd.ALPHA_C, "M": bd.THETA_U}.get(role, base)
         if s in self.symptoms and e in expl and h["entity"] in expl[e]:
             return max(bd.THETA_P, base)
         if s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []):
             return max(bd.THETA_P, base)
         return base
+
+    def may(self, o, h):
+        return h["type"] not in (None, ANOM) and o["entity"] == h["entity"] and self.role(h, o["signal"]) == "M"
 
     def propagated(self, o, h, expl, hosts):
         s, e = o["signal"], o["entity"]
@@ -168,8 +191,8 @@ class Model:
         for o in obs:
             for i, h in enumerate(H):
                 p = self.p_holds(o, h, bg, expl, hosts, db)
-                if "prop" in self.parts and not o["holds"] and self.propagated(o, h, expl, hosts):
-                    p = self.p_holds(o, H[-1], bg, expl, hosts, db)      # partial propagation: an absent symptom is uninformative
+                if not o["holds"] and (("prop" in self.parts and self.propagated(o, h, expl, hosts)) or self.may(o, h)):
+                    p = self.p_holds(o, H[-1], bg, expl, hosts, db)      # partial propagation / possible consequence: absence is uninformative
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll
 
@@ -187,6 +210,8 @@ class Model:
                         n_abs[i] += 1
                     continue
                 p = self.p_holds(o, h, bg, expl, hosts, db)
+                if not o["holds"] and self.may(o, h):
+                    p = self.p_holds(o, H[-1], bg, expl, hosts, db)
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll, n_hold, n_abs
 

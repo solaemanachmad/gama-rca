@@ -407,12 +407,97 @@ def llm_typing_needs_a_candidate_and_a_verbatim_line():
 
         def generate_json(self, prompt, system=None):
             return self.ans
-    good = llm_type(L({"fault_type": "F039-resourceLimitMisconfig", "evidence_line": lines[0]}), db, r, {})
-    assert good["accepted"] and good["llm_type"] == "F039-resourceLimitMisconfig", good
-    bad_quote = llm_type(L({"fault_type": "F039-resourceLimitMisconfig", "evidence_line": "made up evidence line here"}), db, r, {})
+    from pipeline.llm_typing import shortlist
+    sl = shortlist(r)
+    assert r["type"] in sl and 2 <= len(sl) <= 5, sl
+    alt = next(t for t in sl if t != r["type"])
+    good = llm_type(L({"fault_type": alt, "evidence_line": lines[0]}), db, r, {})
+    assert good["accepted"] and good["changed"] and good["llm_type"] == alt, good
+    bad_quote = llm_type(L({"fault_type": alt, "evidence_line": "made up evidence line here"}), db, r, {})
     assert not bad_quote["accepted"], bad_quote
-    bad_type = llm_type(L({"fault_type": "F026-nodeCpuHigh", "evidence_line": lines[0]}), db, r, {})
-    assert not bad_type["accepted"], bad_type                           # a node type is not a candidate for a service
+    outside = next(t for t in r["candidate_types"] if t not in sl)
+    bad_type = llm_type(L({"fault_type": outside, "evidence_line": lines[0]}), db, r, {})
+    assert not bad_type["accepted"], bad_type                           # outside the statistical shortlist
+
+
+@test
+def v4_narrator_is_called_and_rule_chain_skips_the_alert():
+    from pipeline.belief_rca import run_case, rule_chain
+    from test_hypothesis_rca import case as v2case, Stub
+    from test_calibrated import wspan
+
+    class Rec(Stub):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.prompts = []
+
+        def generate_json(self, prompt, system=None):
+            self.prompts.append(prompt)
+            if "Which ONE category" in prompt:
+                return {"category": "ratelimit", "quote": "Too Many Requests"}
+            return super().generate_json(prompt, system)
+    c = v2case()
+    for i in range(6):
+        wspan(c, "checkout", i, err=True, code="429", msg="Too Many Requests")
+    llm = Rec()
+    run_case(c, llm, budget=5, narrate=True, v4=True)
+    assert any("Task: write the causal chain" in p for p in llm.prompts), [p[:60] for p in llm.prompts]
+    res = {"entity": "cart", "type": "F029-redisUnavailable",
+           "evidence": [{"entity": "frontend", "signal": "alert", "holds": True, "ev": "the alert fired on this service"}]}
+    assert rule_chain(res, ["cart", "checkout", "frontend"], "frontend::GET") == ["cause: cart F029-redisUnavailable",
+                                                                                "propagation: checkout", "propagation: frontend",
+                                                                                "impact: frontend::GET"]
+
+
+@test
+def oom_and_restarts_after_memory_growth_are_memory_pressure():
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "mem", 0.5, 800)
+    series(c, "apm.service.legacy", "cart", "mem", lambda k: 0.5 + 0.005 * (k % 3) if k < 110 else 0.95)
+    c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "OOMKilling", "Memory cgroup out of memory: Killed process", when=W0 + dt.timedelta(minutes=2))
+    c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "Killing", "Container cart failed liveness probe, will be restarted", when=W0 + dt.timedelta(minutes=3))
+    r, _ = run(c, alert="cart")
+    assert (r["entity"], r["type"]) == ("cart", "F007-memoryPressure"), r["top"]
+    r0, _ = run(c, parts=tuple(p for p in b4.DEFAULT_PARTS if p != "conseq"), alert="cart")
+    assert r0["type"] != "F007-memoryPressure", r0["top"]               # without 'conseq' the OOM kill excludes memory pressure
+
+
+@test
+def restarts_after_cpu_saturation_are_cpu_types():
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "cpu", 0.2, 820)
+    series(c, "apm.service.legacy", "cart", "cpu", lambda k: 0.2 + 0.004 * (k % 3) if k < 110 else 0.98)
+    c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "Unhealthy", "Liveness probe failed: timeout", when=W0 + dt.timedelta(minutes=2))
+    c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "Killing", "Container cart failed liveness probe, will be restarted", when=W0 + dt.timedelta(minutes=3))
+    r, _ = run(c, alert="cart")
+    assert r["entity"] == "cart" and r["type"] in ("F034-cpuFullLoad", "F012-cpuDeadLoop"), r["top"]
+    r0, _ = run(c, parts=tuple(p for p in b4.DEFAULT_PARTS if p != "conseq"), alert="cart")
+    assert r0["type"] == "F052-podRestartFlapping", r0["top"]          # the dev-run-4 error this part removes
+
+
+@test
+def retry_request_rise_upstream_is_explained_by_the_failing_callee():
+    """cart fails (errors); checkout (its caller) sees more requests (retries). Without 'retry' that rise is trafficSurge evidence at
+    checkout; with it, it is a propagated symptom of the cart fault."""
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "workload", 100.0, 840)
+    ordinary(c, "apm.service.legacy", "error", 1.0, 860, noise=0.5)
+    series(c, "apm.service.legacy", "cart", "error", lambda k: 1.0 if k < 110 else 30.0)
+    series(c, "apm.service.legacy", "checkout", "workload", lambda k: 100.0 + (k % 3) if k < 110 else 180.0)
+    surge = lambda r: sum(t["p"] for t in r["top"] if t["entity"] == "checkout" and t["type"] == "F006-trafficSurge")
+    r, _ = run(c, alert="checkout")
+    r0, _ = run(c, parts=tuple(p for p in b4.DEFAULT_PARTS if p != "retry"), alert="checkout")
+    assert r["entity"] == "cart" and surge(r) < surge(r0), (r["top"], r0["top"])
+
+
+@test
+def a_single_new_event_counts():
+    from pipeline.fault_v4 import new_events
+    c = make_case()
+    c.event("Pod", "cart-7d9f8c6b5d-x2x9k", "OOMKilling", "Memory cgroup out of memory", when=W0 + dt.timedelta(minutes=2))
+    db = compute_signal_db(c, T0)
+    new_events(c, db, 4 * (db["w1"] - db["w0"]).total_seconds())
+    assert db["services"]["cart"]["events"].get("oom"), dict(db["services"]["cart"]["events"])
 
 
 if __name__ == "__main__":

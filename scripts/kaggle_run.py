@@ -66,7 +66,7 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
-          "llmtype")                                                                                # = belief_v4.ALL_PARTS
+          "llmtype", "conseq", "retry")                                                             # = belief_v4.ALL_PARTS
 V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops"))                                  # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},

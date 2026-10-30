@@ -128,6 +128,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
                   "metric_name=value using the window value the evidence shows (e.g. node_cpu_usage_rate=0.95, error_count=412, "
                   "latency=2.8), copied exactly; do not write test statistics, p-values or ratios.\n"
                   'Respond as JSON: {"reasoning_chain": ["cause: ...", "propagation: ...", "impact: ..."]}')
+    if narrate and llm is not None:          # (fix 2026-10-30: the v4 prompt was built but never sent; V4 GPU run 4 had no narrator)
         out = llm.generate_json(prompt, system=NARRATOR_SYSTEM)
         chain = [str(x) for x in (out.get("reasoning_chain") or [])] if isinstance(out, dict) else []
         if chain:
@@ -208,7 +209,7 @@ def rule_chain(res, path, op_name):
     own symptom evidence, impact at the alerted operation."""
     ev = {}
     for e in res.get("evidence", []):
-        if e["holds"] and e["entity"] not in ev:
+        if e["holds"] and e["entity"] not in ev and e["signal"] != "alert":     # the alert itself is not evidence of a step
             ev[e["entity"]] = f"{e['signal']} ({e['ev']})" if e.get("ev") else e["signal"]
     root = res["entity"]
     chain = [f"cause: {root} {res['type']} " + ev.get(root, "")]
