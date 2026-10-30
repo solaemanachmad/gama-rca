@@ -187,3 +187,11 @@ Tests 31/31. Each new part has a test that fails without it: restarts_after_cpu_
 podRestartFlapping, the run-4 error), oom_and_restarts_after_memory_growth_are_memory_pressure, and
 retry_request_rise_upstream_is_explained_by_the_failing_callee.
 Known, not changed: the narrator's evidence tables (v1 code) state a legacy window description; they are narrative context only.
+
+## Dev run 5, CPU part (commit 999d665; V4_RULE_NOCONSEQ and the GPU arms pending)
+| Arm | joint | entity | type | group | EL | final (node-match) |
+|---|---|---|---|---|---|---|
+| V4.4 V4_RULE | 15 | 47 | 21 | 39 | 0.555 | 0.500 |
+| V4.4 without retry | **17** | 46 | **23** | 40 | 0.544 | 0.501 |
+retry does not help (-2 joint). The recommendation attractor persists (22-24 cases). Seminar charts: results-2/grafik_seminar
+(5 PNGs; numbers from runs 1-5, labelled as development results).
