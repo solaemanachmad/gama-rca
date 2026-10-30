@@ -325,6 +325,21 @@ def _chain_overlap_score(pred_chain: List[str], gt_chain: List[str]) -> float:
     return sum(scores) / len(scores)
 
 
+def chain_node_match(pred_chain: List[str], gt_chain: List[str]) -> float:
+    """Causal-chain NODE match rate (the benchmark paper's definition of the chain part of the process score): the share of
+    ground-truth chain targets (entity / operation names after 'step_type:') that the predicted chain names. Added 2026-10-30 next to
+    the word-Jaccard proxy (_chain_overlap_score), which rewards terse steps: a step that also names its evidence ('cause: payment
+    error_count=8829') scores lower than 'cause: payment' although it names the same node."""
+    if not pred_chain or not gt_chain:
+        return 0.0
+    text = " | ".join(_stringify_chain_step(p) for p in pred_chain).lower()
+    targets = [g.split(":", 1)[1].strip().lower() if ":" in g else g.strip().lower() for g in gt_chain]
+    targets = [t for t in targets if t]
+    if not targets:
+        return 0.0
+    return sum(1 for t in targets if t in text) / len(targets)
+
+
 _COMPARATORS = {
     ">=": lambda a, b: a >= b,
     "<=": lambda a, b: a <= b,
@@ -503,6 +518,11 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
         report["rp_checkpoint_hit_rate"] = round(_hits / len(gt.checkpoints), 4)
     else:
         report["rp_checkpoint_hit_rate"] = 0.0
+    report["rp_chain_nodes"] = round(chain_node_match(result.reasoning_chain, gt.reasoning_chain), 4)
+    report["reasoning_process_nodes"] = round(0.5 * report["rp_chain_nodes"] + 0.5 * report.get("rp_checkpoint_hit_rate", 0.0), 4)
+    report["final_score_nodes"] = round(config.WEIGHT_ENTITY_LOCALIZATION * report["entity_localization"]
+                                        + config.WEIGHT_FAULT_IDENTIFICATION * report["fault_identification"]
+                                        + config.WEIGHT_REASONING_PROCESS * report["reasoning_process_nodes"], 4)
     # Stricter evaluation-only variant: checkpoint satisfied by a value the agent
     # itself wrote in its reasoning chain (not merely present in retrieved evidence).
     _chain_texts = [str(x) for x in (result.reasoning_chain or [])]

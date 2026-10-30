@@ -106,3 +106,23 @@ The benchmark's chain is cause -> propagation -> impact, the impact step naming 
 v4 now gives the narrator the alerted operation and the topology call path (root -> ... -> alerted service) and asks for one step
 per path entity; without an LLM, rule_chain builds the same chain deterministically. v3 prompts unchanged.
 Test: chain_follows_the_topology_path_to_the_alerted_operation.
+
+## Dev run 3 (CPU, no LLM, 103 cases, commit cec8b9d, four notebooks; corrected EL scorer)
+| Arm | joint | entity | type | group | EL | RP (Jaccard proxy) | Final |
+|---|---|---|---|---|---|---|---|
+| V3_RULE (run 1) | 6 | 32 | 9 | 28 | (old scorer) | 0.470 | - |
+| V4.1 without rnull (run 2) | 9 | 34 | 16 | 34 | (old scorer) | 0.475 | - |
+| **V4.2** | 13 | 46 | 19 | 42 | 0.539 | 0.427 | 0.399 |
+| V4.2 without onset | 11 | 44 | 17 | 40 | 0.522 | 0.426 | 0.386 |
+| V4.2 without em | 9 | 34 | 15 | 30 | 0.423 | 0.423 | 0.340 |
+| **V4.2 without ops** | **14** | **48** | **20** | **46** | **0.565** | 0.426 | **0.412** |
+Observations:
+- The EM propagation probability is the largest contributor (removing it: joint 13 -> 9, entity 46 -> 34).
+- Onset precedence adds 2 joint and 2 entity.
+- Operation-level evidence (ops) does not help: one case fewer on every measure.
+- Joint accuracy has doubled from V3_RULE (6 -> 13/14 of 103). The answer is no longer a single node: the most frequent
+  predicted entity is now inventory, which is also the most frequent ground-truth entity.
+- The RP proxy fell from 0.475 to 0.427 because the new rule chain names evidence in every step. The repo's chain part was a
+  word-Jaccard against "type: target", which penalises extra words. The benchmark paper defines it as a node match rate, so
+  evaluation/scoring.py now also reports rp_chain_nodes / reasoning_process_nodes / final_score_nodes (node match + checkpoint hit
+  rate). The Jaccard columns are kept for continuity.

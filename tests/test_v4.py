@@ -362,6 +362,17 @@ def chain_follows_the_topology_path_to_the_alerted_operation():
         and ch[2] == "propagation: frontend" and ch[-1] == "impact: frontend::POST /api/checkout", ch
 
 
+@test
+def chain_node_match_counts_named_nodes_not_word_overlap():
+    from evaluation.scoring import chain_node_match, _chain_overlap_score
+    gt = ["cause: payment", "propagation: checkout", "impact: checkout::/oteldemo.CheckoutService/PlaceOrder"]
+    terse = ["cause: payment", "propagation: checkout"]
+    rich = ["cause: payment error_count=8829 error_rate=0.6", "propagation: checkout error_count=8828",
+            "impact: checkout::/oteldemo.CheckoutService/PlaceOrder"]
+    assert chain_node_match(rich, gt) == 1.0 and abs(chain_node_match(terse, gt) - 2 / 3) < 1e-9
+    assert _chain_overlap_score(rich, gt) < 1.0          # the word-Jaccard proxy penalises the evidence words
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:
