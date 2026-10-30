@@ -343,7 +343,7 @@ def failing_operation_is_seen_when_the_service_total_is_diluted():
     db = compute_signal_db(c, T0)
     cal = calibrate_v4(db, ops_level=True)
     assert cal["checkout"]["op_error_rise"]["p"] <= 0.05, cal["checkout"]["op_error_rise"]
-    r, _ = run(c, alert="checkout")
+    r, _ = run(c, parts=b4.DEFAULT_PARTS + ("ops",), alert="checkout")          # ops is opt-in since dev run 3
     assert (r["entity"], r["type"]) == ("checkout", "F014-httpError5xx"), r["top"]
 
 
@@ -371,6 +371,48 @@ def chain_node_match_counts_named_nodes_not_word_overlap():
             "impact: checkout::/oteldemo.CheckoutService/PlaceOrder"]
     assert chain_node_match(rich, gt) == 1.0 and abs(chain_node_match(terse, gt) - 2 / 3) < 1e-9
     assert _chain_overlap_score(rich, gt) < 1.0          # the word-Jaccard proxy penalises the evidence words
+
+
+@test
+def volatile_entity_loses_to_one_that_changed_now():
+    """svc0 swings x3 in every window of its history (a noisy service); cart rises x2 only now. With selfnorm cart's request rise is
+    the stronger, calibrated signal."""
+    from pipeline.fault_v4 import calibrate_v4 as cal4
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "workload", 100.0, 760)
+    c.observations["metrics"] = [o for o in c.observations["metrics"] if not (o.payload["metric"] == "workload" and o.payload["entity_name"] == "svc0")]
+    series(c, "apm.service.legacy", "svc0", "workload", lambda k: 100.0 * (3 if (k // 12) % 2 else 1) + (k % 3))
+    series(c, "apm.service.legacy", "cart", "workload", lambda k: 100.0 + (k % 3) if k < 110 else 200.0)
+    db = compute_signal_db(c, T0)
+    plain = cal4(db)
+    db = compute_signal_db(c, T0)
+    normed = cal4(db, selfnorm=True)
+    assert normed["cart"]["svc_request_rise"]["p"] <= 0.05, normed["cart"]["svc_request_rise"]
+    assert normed["svc0"]["svc_request_rise"]["p"] > plain["svc0"]["svc_request_rise"]["p"] or normed["svc0"]["svc_request_rise"]["p"] > 0.05
+
+
+@test
+def llm_typing_needs_a_candidate_and_a_verbatim_line():
+    from pipeline.llm_typing import llm_type, evidence_lines
+    c = make_case()
+    series(c, "apm.metric.jvm", "cart", "arms_jvm_mem_used_bytes", lambda k: 4e8 + 2e7 * (k % 4) if k < 110 else 9.5e8)
+    ordinary(c, "apm.service.legacy", "mem", 0.5, 780)
+    r, db = run(c, alert="cart")
+    lines = evidence_lines(db, r["entity"], {})
+    assert lines, "evidence summary is empty"
+
+    class L:
+        def __init__(self, ans):
+            self.ans = ans
+
+        def generate_json(self, prompt, system=None):
+            return self.ans
+    good = llm_type(L({"fault_type": "F039-resourceLimitMisconfig", "evidence_line": lines[0]}), db, r, {})
+    assert good["accepted"] and good["llm_type"] == "F039-resourceLimitMisconfig", good
+    bad_quote = llm_type(L({"fault_type": "F039-resourceLimitMisconfig", "evidence_line": "made up evidence line here"}), db, r, {})
+    assert not bad_quote["accepted"], bad_quote
+    bad_type = llm_type(L({"fault_type": "F026-nodeCpuHigh", "evidence_line": lines[0]}), db, r, {})
+    assert not bad_type["accepted"], bad_type                           # a node type is not a candidate for a service
 
 
 if __name__ == "__main__":

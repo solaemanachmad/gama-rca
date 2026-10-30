@@ -119,7 +119,7 @@ def _family_z(series_map, fams, direction, windows, span, key_name, key_metric):
     return out, len(sel), desc, onset
 
 
-def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: bool = False) -> Dict:
+def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: bool = False, selfnorm: bool = False) -> Dict:
     """Fills db["_cal"] in the format of fault_calibrated._calibrate (so entity_signals() and the v3 belief code read it unchanged)."""
     w0, w1 = db["w0"], db["w1"]
     L = w1 - w0
@@ -158,6 +158,8 @@ def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: b
                       if db["log_base_bins"] >= (j + LOG_B_SPAN) * nw]
             raw[ent][f"log_{f}_rise"] = {"kind_pool": ("log", "log"), "zs": [real] + pseudo, "n_series": 1,
                                          "ev": f"'{f}' log lines in window={int(sum(binv(0, nw)))}, previous window={int(sum(binv(-nw, 0)))}"}
+    if selfnorm:
+        self_adjust(raw)
     if peer:
         peer_adjust(raw)
     for ent, sigs in raw.items():
@@ -356,3 +358,28 @@ def onset_time(pts, a: float, b: float, span: float, direction: str, counts: boo
         if zs[i] >= Z_ON and zs[i + 1] >= Z_ON:
             return seq[i][0]
     return None
+
+
+SELF_FLOOR = 1.0
+
+
+def self_adjust(raw: Dict) -> None:
+    """v4.3 volatile-entity normalisation: each entity's z per signal is re-standardised against the same entity's own pseudo-window z
+    (median, MAD, floor 1). An entity that is 'anomalous' in every window of its history (a noisy service) no longer outranks one that
+    changed only now. Pseudo windows use leave-one-out statistics (the other pseudo windows), so real and pseudo scores are on the same
+    footing for calibration. Needs >= 3 other pseudo scores; otherwise the score is left unchanged."""
+    for sigs in raw.values():
+        for r in sigs.values():
+            zs = r["zs"]
+            pseudo = [(i, z) for i, z in enumerate(zs) if i > 0 and z is not None]
+            new = list(zs)
+            for i, z in enumerate(zs):
+                if z is None:
+                    continue
+                ref = [v for j, v in pseudo if j != i]
+                if len(ref) < 3:
+                    continue
+                med = median(ref)
+                sc = max(1.4826 * median(abs(v - med) for v in ref), SELF_FLOOR)
+                new[i] = (z - med) / sc
+            r["zs"] = new

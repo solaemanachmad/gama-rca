@@ -23,7 +23,12 @@ v4.2 parts (ideas 1-3 of the development plan):
   onset    temporal precedence: a root starts no later than the entities it explains (onset = first sample at >= 3 robust SDs, twice)
   em       propagation probability estimated per case by EM (replaces the all-or-nothing choice between v4.0 and 'prop')
   ops      operation-level evidence: the most affected operation's error count / rate and latency (the alert is an apm.operation)
-'rnull' is opt-in (it hurt in dev run 2); V4_PARTS=all means DEFAULT_PARTS.
+v4.3 parts:
+  selfnorm volatile-entity normalisation: z re-standardised against the entity's own pseudo-window z (leave-one-out)
+  llmtype  LLM typing stage (pipeline/llm_typing.py): after the entity is chosen, the LLM picks its fault type from all types of the
+           entity's level, given the entity's evidence summary and the statistical ranking; accepted only with a valid type and a
+           verbatim quote of the summary
+'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
 Nothing here reads labels."""
 from __future__ import annotations
 
@@ -39,8 +44,8 @@ from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
-ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p != "rnull")   # rnull hurt on every measure in dev run 2 (DEVLOG_V4.md); opt-in only
+ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops"))   # rnull (run 2) and ops (run 3) did not help; opt-in only
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
 PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
 OP_CONT = ["op_error_rise", "op_latency_rise"]
@@ -60,7 +65,8 @@ def fingerprints_v4(parts) -> Dict:
         fp["F036-replicaScaleDown"]["key"].append("svc_avail_drop")
         fp["F036-replicaScaleDown"]["sup"].append("svc_request_drop")
         fp["F007-memoryPressure"]["sup"].append("svc_cpu_rise")
-        fp["F012-cpuDeadLoop"]["sup"].append("svc_request_drop")
+        # (v4.0 also added svc_request_drop as support of cpuDeadLoop; removed in v4.3: a request drop accompanies many faults
+        #  (memory pressure, DB latency, full load) and made cpuDeadLoop win 17 of 34 entity-right / type-wrong dev cases)
     if "avail" in parts:
         fp["F036-replicaScaleDown"]["key"].append("svc_unavailable")
     if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)
@@ -231,7 +237,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if "events" in parts and case is not None:
         new_events(case, db, B_SPAN * (db["w1"] - db["w0"]).total_seconds())
     if "score" in parts:
-        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts, ops_level="ops" in parts)
+        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts, ops_level="ops" in parts, selfnorm="selfnorm" in parts)
     obs = bd.observations(db)
     if "avail" in parts:
         for s_, bad in unavailability(db).items():
@@ -305,6 +311,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         ent = max(marg, key=marg.get)
         own = [i for i in order if H[i]["entity"] == ent and H[i]["type"] not in (None, ANOM)]
         level = next(h["level"] for h in H if h["entity"] == ent)
+        type_rank = [(H[i]["type"], round(float(post[i]) / max(marg[ent], 1e-12), 4)) for i in own]
         if own:
             best = own[0]
             typ, p_type = H[best]["type"], float(post[best]) / max(marg[ent], 1e-12)
@@ -316,6 +323,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         best = next(i for i in order if H[i]["type"] not in (None, ANOM))
         ent, level, typ = H[best]["entity"], H[best]["level"], H[best]["type"]
         p_ent, p_type = float(post[best]), None
+        type_rank = [(H[i]["type"], round(float(post[i]), 4)) for i in order if H[i]["entity"] == ent and H[i]["type"] not in (None, ANOM)]
     top = [{"entity": H[i]["entity"], "type": H[i]["type"], "p": round(float(post[i]), 4)} for i in order[:5]]
     hb = {**H[best], "type": typ if typ in model.fp else H[best]["type"]}
     if hb["type"] == ANOM:
@@ -330,7 +338,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     contrib.sort(key=lambda x: -abs(x["log_bf"]))
     return {"entity": ent, "level": level, "type": typ, "p": p_ent, "p_type": p_type, "p_h0": float(post[-1]),
             "entropy_bits": round(bd.entropy(post), 3), "top": top, "probes": log, "n_obs": len(obs), "n_hyp": len(H),
-            "evidence": contrib[:12], "parts": sorted(parts), "pi": pi,
+            "evidence": contrib[:12], "parts": sorted(parts), "pi": pi, "type_rank": type_rank[:8],
+            "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
             "onset_root": onsets.get(ent), "n_onsets": len(onsets)}
 
 

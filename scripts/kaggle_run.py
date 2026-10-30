@@ -65,8 +65,9 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
-V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops")   # = belief_v4.ALL_PARTS
-V4_DEFAULT = tuple(p for p in V4_ALL if p != "rnull")                                               # = belief_v4.DEFAULT_PARTS
+V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
+          "llmtype")                                                                                # = belief_v4.ALL_PARTS
+V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops"))                                  # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -108,7 +109,9 @@ ARMS = {                                                          # name -> extr
     "V3_RULE": {"_SYSTEM": "belief_rule", "ALERT_T0_MODE": "window"},                                      # no LLM at all (CPU)
     # v4 (pipeline/belief_v4.py; design claude/RCA_v4_design.md). RCA100 is DEVELOPMENT data for v4 (labels seen in V3_RAWLOG).
     "V4": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template", "V4_PARTS": "all"},          # GPU
-    "V4_B0": {"_SYSTEM": "belief_v4_b0", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                               # GPU (narrator)
+    "V4_B0": {"_SYSTEM": "belief_v4_b0", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                               # GPU (typing + narrator, no log sensor)
+    "V4_NOLLMTYPE": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                     "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != "llmtype")},                                  # GPU (does the typing stage help?)
     "V4_RULE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                           # CPU
     **{f"V4_RULE_NO{p.upper()}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                                   "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != p)}

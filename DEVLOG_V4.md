@@ -126,3 +126,24 @@ Observations:
   word-Jaccard against "type: target", which penalises extra words. The benchmark paper defines it as a node match rate, so
   evaluation/scoring.py now also reports rp_chain_nodes / reasoning_process_nodes / final_score_nodes (node match + checkpoint hit
   rate). The Jaccard columns are kept for continuity.
+
+## Audit of runs 1-3 (2026-10-30) and v4.3
+Audit (V4.2 without ops, 103 cases):
+- **Ground-truth concentration:** inventory is the root cause in 59 of 103 cases (57%). A trivial "always inventory" answer would
+  localise 57%, more than V4.2 (48/103). Entity accuracy alone is therefore a weak measure on RCA100. Joint accuracy (entity AND
+  type) is the primary outcome, and the paper reports this baseline. The alerted service is the root cause in 31 cases
+  ("answer = alerted service" baseline: 31).
+- Of the 34 entity-right / type-wrong cases, 17 are cpuDeadLoop answers, caused by the v4.0 support "request drop". In 19 of the 34,
+  the right type is not among the top five statistical candidates.
+- New attractor: recommendation is the answer in 25 cases (16 of them inventory ground truth), mostly as trafficSurge. It is a volatile
+  service (its workload and CPU swing in normal periods).
+- Joint accuracy is fragile across variants: 15 cases are joint-correct in at least one V4.2 arm, 5 in all four.
+- Never joint-correct so far in any run: 21 of the 28 types (all K8s-lifecycle types, slowSQL, NPE, trafficHotspot, ...).
+- The posterior is not calibrated as a confidence: joint 13/72 when p_type >= 0.5.
+v4.3:
+- fp: the cpuDeadLoop + svc_request_drop support is removed.
+- selfnorm: each entity's z is normalised against its own pseudo-window z (leave-one-out).
+- llmtype: an LLM typing stage (pipeline/llm_typing.py) picks the type for the chosen entity from all types of its level, given the
+  evidence summary and the statistical ranking. It is accepted only with a candidate type and a verbatim evidence line.
+- ops is opt-in.
+Tests 26/26: volatile_entity_loses_to_one_that_changed_now, llm_typing_needs_a_candidate_and_a_verbatim_line.

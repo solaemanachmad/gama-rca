@@ -71,14 +71,29 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
     if v4:                                                       # v4 (pipeline/belief_v4.py; parts from V4_PARTS)
         from pipeline.belief_v4 import diagnose_v4
         res = diagnose_v4(db, callees, texts, sensor=sensor, budget=budget, alert=alert, case=case)
+        if llm is not None and "llmtype" in res.get("parts", []):   # v4.3 LLM typing stage (pipeline/llm_typing.py)
+            from pipeline.llm_typing import llm_type
+            ttexts = texts
+            if not ttexts:
+                from pipeline.log_preprocess import preprocess_texts
+                ttexts, _n, _s = preprocess_texts(case, db)
+            ty = llm_type(llm, db, res, ttexts)
+            stats_llmtype = {"v4_type_bayes": res["type"], "v4_type_llm": ty["llm_type"], "v4_type_llm_accepted": ty["accepted"],
+                             "v4_type_llm_changed": ty["changed"], "v4_typing_prompt_chars": ty["prompt_chars"]}
+            if ty["accepted"]:
+                res["type"] = ty["llm_type"]
+        else:
+            stats_llmtype = {}
     else:
+        stats_llmtype = {}
         res = diagnose_belief(db, callees, texts, sensor=sensor, budget=budget, alert=alert)
     stats = {"v3_alert_service": alert, "v3_answer_p": round(res["p"], 4), "v3_p_h0": round(res["p_h0"], 4),
              "v3_entropy_bits": res["entropy_bits"], "v3_n_obs": res["n_obs"], "v3_n_hyp": res["n_hyp"], "v3_probes": len(res["probes"]),
              "v3_probe_log": "|".join(f"{p['probe']}:{p['category']}:{p['eig_bits']}" for p in res["probes"]),
              "v3_sensor_quote_ok": sum(1 for s in sensor_log if s["quote_ok"]), "v3_top": "|".join(f"{t['entity']}:{t['type']}:{t['p']}" for t in res["top"]),
              "v3_budget": budget, "v4_parts": ",".join(res.get("parts", [])), "v4_p_type": res.get("p_type"), "v3_log_mode": log_mode if budget > 0 and llm is not None else "",
-             "v3_text_entities": len(texts), "v3_sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats}
+             "v3_text_entities": len(texts), "v3_sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats,
+             **stats_llmtype}
     ev_lines = [f"- {e['entity']} {e['signal']} {'holds' if e['holds'] else 'absent'} (log Bayes factor {e['log_bf']}): {e['ev']}"
                 for e in res["evidence"]]
     chain = []
