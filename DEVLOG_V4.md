@@ -147,3 +147,22 @@ v4.3:
   evidence summary and the statistical ranking. It is accepted only with a candidate type and a verbatim evidence line.
 - ops is opt-in.
 Tests 26/26: volatile_entity_loses_to_one_that_changed_now, llm_typing_needs_a_candidate_and_a_verbatim_line.
+
+## Dev run 4 (commit 6b1d853): v4.3 on CPU and the first GPU run (Qwen3-8B)
+| Arm | joint | entity | type | group | final (node-match RP) | s/case |
+|---|---|---|---|---|---|---|
+| V4_RULE without selfnorm (CPU) | **16** | 44 | **22** | 44 | 0.492 | ~78 |
+| V4_RULE (CPU) | 15 | 42 | 21 | 37 | 0.481 | 78 |
+| **V4 (GPU: log probes + LLM typing + narrator)** | 13 | 40 | 17 | 38 | 0.463 | 158 |
+Observations:
+- Removing the cpuDeadLoop request-drop support helped (+2 joint, +2 type). selfnorm did not: the recommendation attractor
+  stays at 25 cases. recommendation's request count genuinely rises during these faults (retries / load), and the model reads it
+  as trafficSurge.
+- **LLM typing stage (Qwen3-8B, no thinking): net harmful.** It changed 37 of 103 types: 5 right -> wrong, 1 wrong -> right,
+  31 wrong -> other wrong. The frequent changes are cpuFullLoad / cpuDeadLoop -> podRestartFlapping (12) and trafficSurge ->
+  dnsResolutionFailure (4).
+  - The prompt told the LLM to prefer direct mechanism evidence (events, messages). Restart events, which are consequences, then
+    win.
+  - The evidence summary rarely contains what separates the true type.
+- Log probes ran in 31 cases and changed the entity in 3 (2 of those for the worse). Narration gives the same node-match RP as the
+  rule chain (0.71).
