@@ -108,6 +108,26 @@ def ordinary(c, eset, m, base, seed0, noise=0.05):
 
 
 @test
+def ratio_signals_separate_load_from_cpu_fault():
+    """v5 'ratio': load entering at frontend flows down to checkout (requests x3, CPU x3: CPU per request flat, request share flat);
+    cart burns 4x CPU at flat load (a CPU fault). Only cart's CPU per request rises; checkout's request share does not."""
+    c = make_case()
+    ordinary(c, "apm.service.legacy", "workload", 100.0, 520)
+    ordinary(c, "apm.service.legacy", "cpu", 0.2, 560)
+    for name, w_win, cpu_win, seed in (("frontend", 300.0, 0.6, 1), ("checkout", 300.0, 0.6, 2), ("cart", 100.0, 0.8, 3)):
+        metric(c, "apm.service.legacy", name, "workload", 100.0, w_win, seed=600 + seed)
+        metric(c, "apm.service.legacy", name, "cpu", 0.2, cpu_win, seed=700 + seed)
+    r, db = run(c, parts=list(b4.DEFAULT_PARTS) + ["ratio"], alert="frontend")
+    cal = db["_cal"]
+    p = lambda e, s_: cal.get(e, {}).get(s_, {}).get("p", 1.0)
+    assert p("cart", "svc_cpu_per_req_rise") <= 0.05, p("cart", "svc_cpu_per_req_rise")
+    assert p("checkout", "svc_cpu_per_req_rise") > 0.05 and p("checkout", "svc_cpu_rise") <= 0.05
+    assert p("checkout", "svc_req_share_rise") > 0.05 and p("checkout", "svc_request_rise") <= 0.05
+    assert p("frontend", "svc_req_share_rise") <= 0.05                    # entry service: its own request rise is its share
+    assert (r["entity"], r["type"]) in (("cart", "F034-cpuFullLoad"), ("cart", "F012-cpuDeadLoop")), r["top"]
+
+
+@test
 def silent_scaled_down_callee_beats_its_caller():
     c = make_case()
     ordinary(c, "k8s.deployment", "deployment_available_replicas", 3.0, 500, noise=0.0)

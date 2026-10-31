@@ -91,3 +91,17 @@ its svc_request_rise, op_request_rise and svc_cpu_rise observations get backgrou
 expected under no fault there); fingerprint roles for that entity are unchanged. No new constant.
 Runs: V4_RULE_LOADX and V4_RULE_MM_LOADX on DEV_ODD, compared with V4_RULE and V4_RULE_MM. Risk stated in advance: genuine
 trafficSurge / hotspot faults injected through the entry service may lose evidence. VAL_EVEN once for the best odd-half variant.
+
+## Amendment 3 (2026-11-01, before any run of `ratio`): relational signals
+
+Motivation (odd-case traces): 6 of the 8 recommendation errors are trafficSurge decisions driven by a request rise that flows down
+from the entry; raw rises cannot tell load from fault. Disclosure: the per-type list of true root entities (all 103 cases) was also
+looked at when checking which services are genuine load-fault roots.
+
+Part `ratio` (pipeline/fault_v4.ratio_signals; fixed before any run, no new constant): three continuous signals, scored and calibrated
+like all others: svc_cpu_per_req_rise = CPU / (requests + 1); svc_err_rate_rise = errors / (requests + 1);
+svc_req_share_rise = requests / (sum of callers' requests + 1), equal to the own request rise for services without caller series.
+Fingerprints with `ratio`: cpuFullLoad and cpuDeadLoop key = CPU per request (raw CPU rise becomes support); trafficSurge key =
+request share (raw request rise becomes support); httpError5xx and codeDefect gain error rate as support.
+Runs: V4_RULE_RATIO and V4_RULE_MM_RATIO on DEV_ODD; compared with V4_RULE, V4_RULE_MM, V4_RULE_LOADX, V4_RULE_MM_LOADX on the same
+cases. Only the best odd-half variant is run once on VAL_EVEN.

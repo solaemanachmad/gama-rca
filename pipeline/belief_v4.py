@@ -43,6 +43,8 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
            (the extra load comes from upstream, e.g. the user-facing entry). Such observations get background THETA_P instead of
            ALPHA under every hypothesis whose fingerprint does not name them for that entity (amendment 2, from the odd-case traces:
            recommendation / ad show request + CPU rises in 29-36 of 52 incidents).
+  ratio    relational signals (amendment 3): CPU per request, error rate, and request share relative to the callers; cpuFullLoad /
+           cpuDeadLoop are keyed by CPU per request and trafficSurge by the request share (raw rises become support)
   xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
            modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
@@ -62,8 +64,8 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard", "loadx")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx"))   # rnull/ops did not help; v5 parts opt-in
+             "conseq", "retry", "mm", "xcard", "loadx", "ratio")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio"))   # rnull/ops did not help; v5 opt-in
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
 THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
@@ -104,6 +106,16 @@ def fingerprints_v4(parts) -> Dict:
         # resourceLimitMisconfig = OOM kills / throttling at a limit set too low for NORMAL usage: an abnormal memory rise is what
         # memory pressure predicts, so it no longer supports the misconfiguration (it tied the two types whenever memory grew)
         fp["F039-resourceLimitMisconfig"]["sup"] = [x for x in fp["F039-resourceLimitMisconfig"]["sup"] if x != "svc_mem_rise"]
+    if "ratio" in parts:
+        # v5 relational signals (pipeline/fault_v4.ratio_signals): a CPU fault burns more CPU PER REQUEST; a traffic surge at a service
+        # is more load than its callers send it; the raw rises remain as support
+        for t in ("F034-cpuFullLoad", "F012-cpuDeadLoop"):
+            fp[t]["key"] = ["svc_cpu_per_req_rise"]
+            fp[t]["sup"] = list(dict.fromkeys(fp[t]["sup"] + ["svc_cpu_rise"]))
+        fp["F006-trafficSurge"]["key"] = ["svc_req_share_rise"]
+        fp["F006-trafficSurge"]["sup"] = list(dict.fromkeys(fp["F006-trafficSurge"]["sup"] + ["svc_request_rise"]))
+        for t in ("F014-httpError5xx", "F011-codeDefect"):
+            fp[t]["sup"] = list(dict.fromkeys(fp[t]["sup"] + ["svc_err_rate_rise"]))
     if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)
         fp["F014-httpError5xx"]["key"].append("op_error_rise")
         for t in ("F011-codeDefect", "F023-nullPointerException", "F016-rateLimiting"):
@@ -279,7 +291,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if "events" in parts and case is not None:
         new_events(case, db, B_SPAN * (db["w1"] - db["w0"]).total_seconds())
     if "score" in parts:
-        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts, ops_level="ops" in parts, selfnorm="selfnorm" in parts)
+        calibrate_v4(db, peer="peer" in parts, robust_null="rnull" in parts, ops_level="ops" in parts, selfnorm="selfnorm" in parts,
+                     ratio="ratio" in parts, callees=callees)
     obs = bd.observations(db)
     if "avail" in parts:
         for s_, bad in unavailability(db).items():

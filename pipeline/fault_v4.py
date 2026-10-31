@@ -119,7 +119,79 @@ def _family_z(series_map, fams, direction, windows, span, key_name, key_metric):
     return out, len(sel), desc, onset
 
 
-def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: bool = False, selfnorm: bool = False) -> Dict:
+RATIO_SIGNALS = ("svc_cpu_per_req_rise", "svc_err_rate_rise", "svc_req_share_rise")
+
+
+def _pick(series_map, fam):
+    """The series of a family used for a ratio: APM series first (one consistent source), then the one with most samples."""
+    c = [(k, v) for k, v in series_map.items() if _series_ok(k) and family_v4(k.split(":")[-1]) == fam]
+    if not c:
+        return None
+    k, v = max(c, key=lambda kv: (kv[0].startswith("apm."), len(kv[1])))
+    return {t.timestamp(): float(x) for t, x in v}
+
+
+def _ratio_series(num, den, add=1.0, num_default=None):
+    """(t, num(t) / (den(t) + add)) at the timestamps of den; num missing at t -> num_default (None: skip t)."""
+    out = []
+    for t, d in sorted(den.items()):
+        n = num.get(t, num_default)
+        if n is not None:
+            out.append((t, n / (max(d, 0.0) + add)))
+    return out
+
+
+def ratio_signals(db, raw, wins, span, callees=None) -> None:
+    """v5 'ratio' (PREREGISTRATION_V5.md amendment 3): relational signals that separate mechanisms the raw rises cannot.
+      svc_cpu_per_req_rise  CPU / requests rises: the service burns more CPU per request (a CPU fault, not more load);
+      svc_err_rate_rise     errors / requests rises: more failing requests, not just more requests;
+      svc_req_share_rise    requests / callers' requests rises: the service gets more load than its callers send (a surge or hotspot
+                            at the service, not load flowing down from the entry). Entry services (no caller series) keep their own
+                            request rise as share (all their load is external).
+    Scored like every continuous signal (robust shift over the window and the pseudo-windows, same calibration). If the request series
+    is missing, the CPU signal falls back to the raw CPU rise (so the type stays testable)."""
+    req = {e: _pick(pr["series"], "request") for e, pr in db["services"].items()}
+    callers = defaultdict(set)
+    for a_, bs in (callees or {}).items():
+        for b_ in bs:
+            callers[b_].add(a_)
+
+    def score(ent, name, pts, fallback=None):
+        if len(pts) >= 3:
+            zs = [shift_z(pts, a.timestamp(), b.timestamp(), span, "up", closed_end=(i == 0)) for i, (a, b) in enumerate(wins)]
+            if zs[0] is not None:
+                a_, b_ = wins[0][0].timestamp(), wins[0][1].timestamp()
+                base = sorted(v for t, v in pts if a_ - span <= t < a_)
+                win = [v for t, v in pts if a_ <= t <= b_]
+                desc = (f"{name.replace('_rise', '')}: baseline median={_fmt(base[len(base) // 2])}, window max={_fmt(max(win))} "
+                        f"(robust shift {zs[0]:.2g})") if base and win else None
+                raw[ent][name] = {"kind_pool": ("service", name), "zs": zs, "n_series": 1, "ev": desc,
+                                  "onset": onset_time(pts, a_, b_, span, "up")}
+                return
+        if fallback and fallback in raw.get(ent, {}):
+            raw[ent][name] = {**raw[ent][fallback], "kind_pool": ("service", name), "zs": list(raw[ent][fallback]["zs"])}
+
+    for ent, pr in db["services"].items():
+        r = req.get(ent)
+        cpu, err = _pick(pr["series"], "cpu"), _pick(pr["series"], "error")
+        if r and cpu:
+            score(ent, "svc_cpu_per_req_rise", _ratio_series(cpu, r), "svc_cpu_rise")
+        elif "svc_cpu_rise" in raw.get(ent, {}):
+            score(ent, "svc_cpu_per_req_rise", [], "svc_cpu_rise")
+        if r:
+            score(ent, "svc_err_rate_rise", _ratio_series(err or {}, r, num_default=0.0))
+            up = {}
+            for c in callers.get(ent, ()):
+                for t, v in (req.get(c) or {}).items():
+                    up[t] = up.get(t, 0.0) + v
+            if up:
+                score(ent, "svc_req_share_rise", _ratio_series(r, up))
+            else:
+                score(ent, "svc_req_share_rise", [], "svc_request_rise")
+
+
+def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: bool = False, selfnorm: bool = False,
+                 ratio: bool = False, callees=None) -> Dict:
     """Fills db["_cal"] in the format of fault_calibrated._calibrate (so entity_signals() and the v3 belief code read it unchanged)."""
     w0, w1 = db["w0"], db["w1"]
     L = w1 - w0
@@ -158,6 +230,8 @@ def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: b
                       if db["log_base_bins"] >= (j + LOG_B_SPAN) * nw]
             raw[ent][f"log_{f}_rise"] = {"kind_pool": ("log", "log"), "zs": [real] + pseudo, "n_series": 1,
                                          "ev": f"'{f}' log lines in window={int(sum(binv(0, nw)))}, previous window={int(sum(binv(-nw, 0)))}"}
+    if ratio:
+        ratio_signals(db, raw, wins, span, callees)
     if selfnorm:
         self_adjust(raw)
     if peer:
