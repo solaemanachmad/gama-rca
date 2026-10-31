@@ -1,0 +1,15 @@
+\begin{table*}[t]
+\centering\small
+\caption{Diagnosis results on RCA100.}\label{tab:main}
+\begin{tabular}{llrrrrrrr}
+\toprule
+Model & LLM & EL & FI & RP & Final [95\% CI] & Entity exact & Type exact & Time / case \\
+\midrule
+Majority-Entity baseline$^a$ & -- & $\geq$ 57.3 & 0.0 & 0.0 & $\geq$ 22.9 & 59 & 0 & 0 s \\
+Alert-Service baseline$^a$ & -- & $\geq$ 30.1 & 0.0 & 0.0 & $\geq$ 12.0 & 31 & 0 & 0 s \\
+GAMA-RCA (statistical core) & none & 55.5 & 20.4 & 72.4 & 50.0 [45.2, 55.1] & 47 & 21 & 88 s \\
+GAMA-RCA + LLM & Qwen3-8B & 53.8 & 22.3 & 73.9 & 50.4 [45.3, 56.0] & 45 & 23 & 193 s \\
+\bottomrule
+\end{tabular}
+\par\smallskip\footnotesize RCA100, 103 cases. EL, FI, RP, Final on a 0--100 scale; Final = 0.4$\cdot$EL + 0.3$\cdot$FI + 0.3$\cdot$RP. EL gives 1.0 for the exact entity and 0.5$^h$ at h hops; FI requires the exact fault type (28 classes); RP = 0.5$\cdot$chain node-match + 0.5$\cdot$checkpoint hit rate. Entity exact, Type exact = number of cases (of 103). CI: percentile bootstrap over cases (5,000 resamples). Core vs + LLM on Final: Wilcoxon signed-rank p = 0.31. Time: mean wall-clock on Kaggle (CPU / one T4 GPU). $^a$ Majority-Entity always outputs the most frequent root-cause entity (inventory); Alert-Service outputs the service named in the alert. Their EL and Final are lower bounds (exact matches only, no hop credit); they output no fault type or chain. Development results: RCA100 labels were inspected during design.
+\end{table*}

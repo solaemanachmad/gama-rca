@@ -1,0 +1,5 @@
+Model,LLM,EL,FI,RP,Final [95% CI],Entity exact,Type exact,Time / case
+Majority-Entity baselineᵃ,–,≥ 57.3,0.0,0.0,≥ 22.9,59,0,0 s
+Alert-Service baselineᵃ,–,≥ 30.1,0.0,0.0,≥ 12.0,31,0,0 s
+GAMA-RCA (statistical core),none,55.5,20.4,72.4,"50.0 [45.2, 55.1]",47,21,88 s
+GAMA-RCA + LLM,Qwen3-8B,53.8,22.3,73.9,"50.4 [45.3, 56.0]",45,23,193 s
