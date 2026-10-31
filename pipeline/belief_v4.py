@@ -38,6 +38,11 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
            generic symptoms excluded) holds in >= 2 different modalities (metrics, events, traces, logs) gains log(THETA_M / beta_M);
            beta_M = share of the case's specific hypotheses with such corroboration (Beta-shrunk, floor MM_B0). Absence is uninformative.
            Rationale: noise of a volatile entity tends to stay in one modality; a real fault leaves aligned traces in several.
+  loadx    load flows downstream: a request-count rise (and the CPU rise that comes with it) at a service is EXPECTED, not
+           evidence of a fault there, when the service's own request count rises AND one of its callers' request count rises too
+           (the extra load comes from upstream, e.g. the user-facing entry). Such observations get background THETA_P instead of
+           ALPHA under every hypothesis whose fingerprint does not name them for that entity (amendment 2, from the odd-case traces:
+           recommendation / ad show request + CPU rises in 29-36 of 52 incidents).
   xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
            modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
@@ -57,8 +62,9 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard"))   # rnull/ops did not help; mm/xcard: v5, opt-in
+             "conseq", "retry", "mm", "xcard", "loadx")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx"))   # rnull/ops did not help; v5 parts opt-in
+LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
 THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
 PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
@@ -171,6 +177,8 @@ class Model:
                 return bd.ALPHA_ALERT
             return bd.THETA_P if (h["entity"] == e or h["entity"] in expl.get(e, ())) else bd.ALPHA_ALERT
         base = bd.ALPHA if o["kind"] == "cont" else bg.get((s, e in db["nodes"]), bd.ALPHA)
+        if (e, s) in db.get("_load_explained", ()):              # v5 'loadx': load that came from upstream
+            base = max(base, bd.THETA_P)
         if h["type"] is None:
             return base
         if e == h["entity"]:
@@ -282,6 +290,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if alert and alert in db["services"]:
         obs.append({"entity": alert, "signal": "alert", "holds": True, "kind": "alert", "ev": "the alert fired on this service"})
     expl = bd.explainers(db, callees)
+    db["_load_explained"] = load_explained(obs, callees) if "loadx" in parts else set()
     extra, mm_beta, mm_k = np.zeros(len(H)), None, None
     if "mm" in parts:
         extra, mm_beta, mm_k = mm_loglik(model, H, obs)
@@ -378,6 +387,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             "evidence": contrib[:12], "parts": sorted(parts), "pi": pi, "type_rank": type_rank[:8],
             "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
             "onset_root": onsets.get(ent), "n_onsets": len(onsets), "onsets": onsets,
+            "load_explained": sorted({e for e, _ in db["_load_explained"]}),
             "mm_beta": mm_beta, "mm_k": int(mm_k[best]) if mm_k is not None else None,
             "mm_n_corroborated": int((mm_k >= 2).sum()) if mm_k is not None else None,
             "holding": [{"entity": o["entity"], "signal": o["signal"], "ev": o["ev"]} for o in obs if o["holds"]]}
@@ -430,3 +440,17 @@ def mm_loglik(model, H, obs):
     beta = max((n2 + MM_W * MM_B0) / (len(spec) + MM_W), MM_B0)
     out = np.where(k >= 2, math.log(THETA_M / beta), 0.0)
     return out, beta, k
+
+
+def load_explained(obs, callees) -> set:
+    """v5 'loadx': {(service, signal)} for the load signals of services whose request count rises together with a caller's."""
+    rise = {o["entity"] for o in obs if o["holds"] and o["signal"] in ("svc_request_rise", "op_request_rise")}
+    callers = defaultdict(set)
+    for a, bs in callees.items():
+        for b_ in bs:
+            callers[b_].add(a)
+    out = set()
+    for e in rise:
+        if callers.get(e, set()) & rise:
+            out |= {(e, sg) for sg in LOAD_SIGNALS}
+    return out

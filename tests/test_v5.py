@@ -147,6 +147,28 @@ def xcard_signature_text():
     assert "http429 [traces]" in signature_card(fp, "F016-rateLimiting")
 
 
+@test
+def load_from_upstream_is_explained():
+    from pipeline import belief_v4 as b4
+    callees = {"frontend": ["recommendation", "ad", "cart"], "cart": ["redis"]}
+    obs = [{"entity": "frontend", "signal": "op_request_rise", "holds": True},
+           {"entity": "recommendation", "signal": "svc_request_rise", "holds": True},
+           {"entity": "recommendation", "signal": "svc_cpu_rise", "holds": True},
+           {"entity": "cart", "signal": "svc_cpu_rise", "holds": True},              # CPU without its own request rise: NOT explained
+           {"entity": "redis", "signal": "svc_request_rise", "holds": True}]         # caller cart has no request rise: NOT explained
+    le = b4.load_explained(obs, callees)
+    assert ("recommendation", "svc_request_rise") in le and ("recommendation", "svc_cpu_rise") in le
+    assert not any(e in ("cart", "redis", "frontend") for e, _ in le), le
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["loadx"])
+    db = {"nodes": {}, "_load_explained": le}
+    o = {"entity": "recommendation", "signal": "svc_cpu_rise", "holds": True, "kind": "cont"}
+    h0 = {"entity": None, "level": None, "type": None}
+    hs = {"entity": "recommendation", "level": "service", "type": "F006-trafficSurge", "q": 0.8}
+    assert m.p_holds(o, h0, {}, {}, {}, db) == 0.6                 # expected under no fault at recommendation
+    assert m.p_holds({**o, "signal": "svc_request_rise"}, hs, {}, {}, {}, db) == 0.8   # still the key of trafficSurge there
+    assert m.p_holds(o, h0, {}, {}, {}, {"nodes": {}}) == 0.05      # without loadx: the usual alpha
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -74,3 +74,20 @@ without per-case inspection, and are not changed after the odd-case run except t
 - Runs: V4_RULE_MM on DEV_ODD (compare with V4_RULE, results-2, same cases). If mm helps on the odd half, V4_RULE_MM on VAL_EVEN
   once; acceptance as in section 4 (>= +2.0 Final on VAL_EVEN, one-sided Wilcoxon p < 0.05). V4_MM_XCARD / V4_XCARD (GPU) follow the
   same protocol against V4 (dev run 6).
+
+## Result of the odd-case run of `mm` and Amendment 2 (2026-11-01)
+
+V4_RULE_MM on DEV_ODD (commit ae9d3a7) vs V4_RULE (configuration A, same 52 cases): EL 56.4 -> 57.9, FI 15.4 -> 19.2,
+RP 71.6 -> 71.6, Final 48.7 -> 50.4; 3 cases changed (2 better: t053, t071; 1 unchanged score: t011; 0 worse); Wilcoxon p = 0.60.
+`mm` is safe but rarely decisive; it does not remove the recommendation attractor (8 of the odd-case entity errors).
+
+Odd-case trace analysis (decision trails, odd cases only): recommendation shows svc_cpu_rise in 32/52 and svc_request_rise in 29/52
+incidents, ad svc_request_rise in 34/52, frontend op_request_rise in 36/52. The extra load enters at the user-facing services and
+flows DOWNSTREAM to their callees (the opposite direction of error propagation), and matches the load fingerprints (trafficSurge,
+cpuFullLoad, cpuDeadLoop, trafficHotspot) of the callees.
+
+Part `loadx` (fixed before any run): for a service whose own request count rises AND one of whose callers' request count rises,
+its svc_request_rise, op_request_rise and svc_cpu_rise observations get background THETA_P = 0.6 instead of ALPHA (they are
+expected under no fault there); fingerprint roles for that entity are unchanged. No new constant.
+Runs: V4_RULE_LOADX and V4_RULE_MM_LOADX on DEV_ODD, compared with V4_RULE and V4_RULE_MM. Risk stated in advance: genuine
+trafficSurge / hotspot faults injected through the entry service may lose evidence. VAL_EVEN once for the best odd-half variant.

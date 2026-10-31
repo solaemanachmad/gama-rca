@@ -96,7 +96,9 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
              "v3_budget": budget, "v4_parts": ",".join(res.get("parts", [])), "v4_p_type": res.get("p_type"), "v3_log_mode": log_mode if budget > 0 and llm is not None else "",
              "v3_text_entities": len(texts), "v3_sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats,
              "v4_pi": round(res["pi"], 4) if res.get("pi") is not None else None, "v4_onset_root": res.get("onset_root"),
-             "v4_n_onsets": res.get("n_onsets"), **stats_llmtype}
+             "v4_n_onsets": res.get("n_onsets"), "v5_mm_k": res.get("mm_k"), "v5_mm_beta": res.get("mm_beta"),
+             "v5_mm_n_corroborated": res.get("mm_n_corroborated"), "v5_load_explained": "|".join(res.get("load_explained") or []),
+             **stats_llmtype}
     ev_lines = [f"- {e['entity']} {e['signal']} {'holds' if e['holds'] else 'absent'} (log Bayes factor {e['log_bf']}): {e['ev']}"
                 for e in res["evidence"]]
     chain = []
