@@ -44,6 +44,15 @@ def evidence_lines(db, entity: str, texts: Dict[str, List[str]]) -> List[str]:
     return lines[:MAX_LINES]
 
 
+def signature_card(fp: Dict, t: str) -> str:
+    """v5 'xcard': the expected cross-modal signature of a fault type, read from its fingerprint (each signal with its modality)."""
+    from pipeline.belief_v4 import modality
+    f = fp.get(t, {})
+    tag = lambda exprs: ", ".join(f"{e} [{'+'.join(sorted({modality(a) for a in e.replace('|', '&').split('&')}))}]" for e in exprs) or "-"
+    return (f"expected: one of {tag(f.get('key', []))}; often with {tag(f.get('sup', []))}; possible consequences "
+            f"{tag(f.get('may', []))}; unlikely with {tag(f.get('con', []))}")
+
+
 def shortlist(res: Dict, k: int = SHORTLIST) -> List[str]:
     cands = [t for t, _ in res.get("type_rank", [])][:k]
     if res.get("type") and res["type"] not in cands:
@@ -60,7 +69,15 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     if len(cands) < 2 or not lines:
         return out
     probs = dict(res.get("type_rank", []))
-    cand_txt = "\n".join(f"- {t} (statistical probability {probs.get(t, 0.0):.2f}): {FAULT_DEFINITIONS.get(t, '')}" for t in cands)
+    xcard = "xcard" in (res.get("parts") or [])
+    if xcard:                                             # v5: modality tags and expected cross-modal signatures
+        from pipeline.belief_v4 import Model, modality
+        fp = Model(res.get("parts") or []).fp
+        lines = [f"[{modality(l.split(' ')[1].rstrip(':'))}] {l}" if len(l.split(' ')) > 1 else l for l in lines]
+        cand_txt = "\n".join(f"- {t} (statistical probability {probs.get(t, 0.0):.2f}): {FAULT_DEFINITIONS.get(t, '')}\n  "
+                             f"{signature_card(fp, t)}" for t in cands)
+    else:
+        cand_txt = "\n".join(f"- {t} (statistical probability {probs.get(t, 0.0):.2f}): {FAULT_DEFINITIONS.get(t, '')}" for t in cands)
     prompt = (f"Component: {ent} ({level} level). It has been localised as the root cause of the incident.\n\n"
               "Evidence observed for it in the incident window (each line: entity, signal, values; continuous signals also show when "
               "their change started relative to the window start):\n" + "\n".join(f"- {l}" for l in lines)
@@ -70,6 +87,8 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
               "dependency problem; they identify the mechanism only when nothing else changed before them.\n"
               "- The root mechanism is the one whose signal changes FIRST and that explains the other changes.\n"
               "- Keep the most probable candidate unless the evidence clearly favours another one.\n"
+              + ("- Prefer the candidate whose expected signature is matched in more modalities (metrics, events, traces, logs) "
+                 "of this component, in an order consistent with the mechanism.\n" if xcard else "") +
               'Respond as JSON: {"fault_type": "<one candidate id exactly as listed>", "evidence_line": "<one evidence line above, '
               'copied verbatim, that supports it>"}')
     out["prompt_chars"] = len(prompt)

@@ -33,6 +33,13 @@ v4.4 parts (consequence-aware evidence; DEVLOG_V4.md "Dev run 4"):
            longer excludes memory pressure / full GC
   retry    a request-count rise at a service the root can reach is a propagated symptom (retry amplification after failures), not
            only the key of trafficSurge at that service
+v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even cases):
+  mm       multimodal corroboration: a hypothesis (e*, type) whose MECHANISM evidence at e* (key / support / may signals of the type,
+           generic symptoms excluded) holds in >= 2 different modalities (metrics, events, traces, logs) gains log(THETA_M / beta_M);
+           beta_M = share of the case's specific hypotheses with such corroboration (Beta-shrunk, floor MM_B0). Absence is uninformative.
+           Rationale: noise of a volatile entity tends to stay in one modality; a real fault leaves aligned traces in several.
+  xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
+           modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
 Nothing here reads labels."""
 from __future__ import annotations
@@ -49,8 +56,10 @@ from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
-ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype", "conseq", "retry")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops"))   # rnull (run 2) and ops (run 3) did not help; opt-in only
+ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
+             "conseq", "retry", "mm", "xcard")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard"))   # rnull/ops did not help; mm/xcard: v5, opt-in
+THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
 PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
 OP_CONT = ["op_error_rise", "op_latency_rise"]
@@ -273,13 +282,16 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if alert and alert in db["services"]:
         obs.append({"entity": alert, "signal": "alert", "holds": True, "kind": "alert", "ev": "the alert fired on this service"})
     expl = bd.explainers(db, callees)
+    extra, mm_beta, mm_k = np.zeros(len(H)), None, None
+    if "mm" in parts:
+        extra, mm_beta, mm_k = mm_loglik(model, H, obs)
     pi = None
     if "em" in parts:
         # propagation probability pi (P(a symptom shows at an entity the root can reach)) is a per-case nuisance parameter, estimated by
         # EM from the case itself (no labels): E-step = posterior over hypotheses; M-step = posterior-weighted share of reachable
         # symptoms that hold. A wide hypothesis then pays for every reachable entity that stays quiet, at the rate this case shows.
         ll0, nh, na = model.ll_parts(obs, H, bg, expl, db)
-        pr_ = model.prior(H)
+        pr_ = model.prior(H) + extra
         pi = 0.5
         for _ in range(EM_ITERS):
             lp = pr_ + ll0 + nh * math.log(pi) + na * math.log(1 - pi)
@@ -292,7 +304,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             pi = new_pi
         logp = pr_ + ll0 + nh * math.log(pi) + na * math.log(1 - pi)
     else:
-        logp = model.prior(H) + model.log_likelihood(obs, H, bg, expl, db)
+        logp = model.prior(H) + extra + model.log_likelihood(obs, H, bg, expl, db)
     onsets = {}
     if "onset" in parts:
         cal = db.get("_cal", {})
@@ -366,6 +378,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             "evidence": contrib[:12], "parts": sorted(parts), "pi": pi, "type_rank": type_rank[:8],
             "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
             "onset_root": onsets.get(ent), "n_onsets": len(onsets), "onsets": onsets,
+            "mm_beta": mm_beta, "mm_k": int(mm_k[best]) if mm_k is not None else None,
+            "mm_n_corroborated": int((mm_k >= 2).sum()) if mm_k is not None else None,
             "holding": [{"entity": o["entity"], "signal": o["signal"], "ev": o["ev"]} for o in obs if o["holds"]]}
 
 
@@ -384,3 +398,35 @@ def onset_loglik(H, onsets, expl) -> np.ndarray:
             ok = t >= onsets[r] - ONSET_TOL
             out[i] += math.log((THETA_T if ok else 1 - THETA_T) / 0.5)
     return out
+
+
+def modality(signal: str) -> str:
+    """Telemetry modality of an observation (v5 'mm'): events = Kubernetes events; traces = status codes and span outcomes;
+    logs = log-template rises and log / span messages; everything else is a metric (incl. availability state)."""
+    if signal.startswith("ev_"):
+        return "events"
+    if signal.startswith(("log_", "msg_")) or signal == "message":
+        return "logs"
+    if signal.startswith("http") or signal == "error_spans" or signal.split("_")[0] in ("db", "redis", "queue"):
+        return "traces"
+    return "metrics"
+
+
+def mm_loglik(model, H, obs):
+    """v5 multimodal corroboration term (see the module docstring, part 'mm'). Returns (log-lik vector, beta_M, k per hypothesis)."""
+    hold = defaultdict(set)
+    for o in obs:
+        if o["holds"] and o["kind"] != "alert":
+            hold[o["entity"]].add(o["signal"])
+    k = np.zeros(len(H))
+    spec = []
+    for i, h in enumerate(H):
+        if h["type"] in (None, ANOM):
+            continue
+        spec.append(i)
+        mods = {modality(sg) for sg in hold.get(h["entity"], ()) if sg not in bd.SYMPTOMS and model.role(h, sg) in ("K", "U", "M")}
+        k[i] = len(mods)
+    n2 = sum(1 for i in spec if k[i] >= 2)
+    beta = max((n2 + MM_W * MM_B0) / (len(spec) + MM_W), MM_B0)
+    out = np.where(k >= 2, math.log(THETA_M / beta), 0.0)
+    return out, beta, k

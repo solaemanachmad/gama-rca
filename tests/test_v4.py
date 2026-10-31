@@ -418,6 +418,16 @@ def llm_typing_needs_a_candidate_and_a_verbatim_line():
     outside = next(t for t in r["candidate_types"] if t not in sl)
     bad_type = llm_type(L({"fault_type": outside, "evidence_line": lines[0]}), db, r, {})
     assert not bad_type["accepted"], bad_type                           # outside the statistical shortlist
+    # v5 'xcard': same rules; the prompt carries modality tags and signatures, and a quote copied WITH the tag is still grounded
+    seen = {}
+
+    class LP(L):
+        def generate_json(self, prompt, system=None):
+            seen["p"] = prompt
+            return self.ans
+    rx = {**r, "parts": list(r.get("parts", [])) + ["xcard"]}
+    g2 = llm_type(LP({"fault_type": alt, "evidence_line": "[metrics] " + lines[0]}), db, rx, {})
+    assert g2["accepted"] and "expected: one of" in seen["p"] and "[metrics] " in seen["p"], g2
 
 
 @test

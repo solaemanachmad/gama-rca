@@ -56,3 +56,21 @@ H2 the Final scores of V4 across backbones lie within 3 points of each other (th
 Metrics: EL, FI, RP (node-match), Final = 0.4 EL + 0.3 FI + 0.3 RP; cases with exact entity / exact type. 95% percentile bootstrap
 intervals (5,000 resamples). Paired Wilcoxon signed-rank tests; Holm correction within each family of comparisons. All runs are
 reported, including negative ones.
+
+## Amendment 1 (2026-10-31, before any run of these parts): multimodal alignment
+
+Disclosure: the motivation (recommendation predicted 22 times and never the true root; 26 entity-right / type-wrong cases) came from
+an aggregate error analysis of the v4 run over all 103 cases. The FORM and the CONSTANTS below were fixed from the mechanism only,
+without per-case inspection, and are not changed after the odd-case run except through a further dated amendment.
+
+- Part `mm` (pipeline/belief_v4.py: modality, mm_loglik). Modalities: metrics, events (ev_*), traces (http*, error_spans, db/redis/
+  queue span outcomes), logs (log_*_rise, msg_*). For a specific hypothesis (e*, type), k = number of modalities in which a
+  key / support / may signal of the type holds at e* (generic symptoms excluded). If k >= 2 the log-posterior gains
+  log(THETA_M / beta_M), THETA_M = 0.6, beta_M = max((n2 + 10 * 0.1) / (n + 10), 0.1) over the case's specific hypotheses
+  (n2 of them with k >= 2). k < 2 is uninformative. Unspecified-anomaly and null hypotheses are unaffected.
+- Part `xcard` (pipeline/llm_typing.py): each evidence line in the typing prompt is tagged with its modality; each shortlisted type
+  shows its expected cross-modal signature read from the fingerprint; one guidance line asks to prefer the candidate matched in more
+  modalities in a mechanism-consistent order. Acceptance rules (shortlist + verbatim quote) unchanged.
+- Runs: V4_RULE_MM on DEV_ODD (compare with V4_RULE, results-2, same cases). If mm helps on the odd half, V4_RULE_MM on VAL_EVEN
+  once; acceptance as in section 4 (>= +2.0 Final on VAL_EVEN, one-sided Wilcoxon p < 0.05). V4_MM_XCARD / V4_XCARD (GPU) follow the
+  same protocol against V4 (dev run 6).

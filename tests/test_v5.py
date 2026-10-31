@@ -114,6 +114,39 @@ def llm_calls_are_traced_as_json_lines():
         assert json.load(open(p))["trail"]["pi"] == 0.4
 
 
+@test
+def multimodal_corroboration():
+    from pipeline import belief_v4 as b4
+    assert [b4.modality(x) for x in ("svc_mem_rise", "ev_oom", "http429", "redis_err", "log_npe_rise", "msg_dns", "svc_unavailable",
+                                     "message")] == ["metrics", "events", "traces", "traces", "logs", "logs", "metrics", "logs"]
+    model = b4.Model(list(b4.DEFAULT_PARTS) + ["mm"])
+    H = [{"entity": "inventory", "level": "service", "type": "F007-memoryPressure"},
+         {"entity": "recommendation", "level": "service", "type": "F034-cpuFullLoad"},
+         {"entity": "recommendation", "level": "service", "type": b4.ANOM},
+         {"entity": "checkout", "level": "service", "type": "F014-httpError5xx"},
+         {"entity": None, "level": None, "type": None}]
+    obs = [{"entity": "inventory", "signal": "svc_mem_rise", "holds": True, "kind": "cont"},
+           {"entity": "inventory", "signal": "ev_oom", "holds": True, "kind": "cat"},          # memory (metrics) + OOM kill (events)
+           {"entity": "recommendation", "signal": "svc_cpu_rise", "holds": True, "kind": "cont"},
+           {"entity": "recommendation", "signal": "svc_mem_rise", "holds": True, "kind": "cont"},   # noisy, but metrics only
+           {"entity": "checkout", "signal": "http5xx", "holds": True, "kind": "cat"},             # generic symptoms do not corroborate
+           {"entity": "checkout", "signal": "svc_error_rise", "holds": True, "kind": "cont"}]
+    out, beta, k = b4.mm_loglik(model, H, obs)
+    assert list(k) == [2, 1, 0, 0, 0] and out[0] > 0 and list(out[1:]) == [0, 0, 0, 0]
+    assert abs(out[0] - __import__("math").log(b4.THETA_M / beta)) < 1e-9 and beta >= b4.MM_B0
+    assert "mm" not in b4.DEFAULT_PARTS and "xcard" not in b4.DEFAULT_PARTS
+
+
+@test
+def xcard_signature_text():
+    from pipeline import belief_v4 as b4
+    from pipeline.llm_typing import signature_card
+    fp = b4.Model(list(b4.DEFAULT_PARTS) + ["xcard"]).fp
+    c = signature_card(fp, "F007-memoryPressure")
+    assert "svc_mem_rise [metrics]" in c and "ev_oom [events]" in c
+    assert "http429 [traces]" in signature_card(fp, "F016-rateLimiting")
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

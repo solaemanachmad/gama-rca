@@ -72,8 +72,8 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
-          "llmtype", "conseq", "retry")                                                             # = belief_v4.ALL_PARTS
-V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops"))                                  # = belief_v4.DEFAULT_PARTS
+          "llmtype", "conseq", "retry", "mm", "xcard")                                              # = belief_v4.ALL_PARTS
+V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard"))                   # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -122,6 +122,12 @@ ARMS = {                                                          # name -> extr
     **{f"V4_RULE_NO{p.upper()}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                                   "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != p)}
        for p in V4_DEFAULT},                                                                                              # CPU ablations
+    # v5 multimodal alignment (PREREGISTRATION_V5.md amendment 1): run on DEV_ODD while designing, VAL_EVEN once at the end
+    "V4_RULE_MM": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("mm",))},             # CPU
+    "V4_MM_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                    "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "xcard"))},                                                          # GPU
+    "V4_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                 "V4_PARTS": ",".join(V4_DEFAULT + ("xcard",))},                                                                  # GPU
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
     "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},      # v5 baseline: the LLM decides
                                                                                                             # from GAMA-RCA's evidence (GPU, 1 call)
