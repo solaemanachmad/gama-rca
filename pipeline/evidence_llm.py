@@ -87,7 +87,8 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
         low = {k.lower(): v for k, v in ids.items()}
         eid = low.get(name.lower(), name or None)
     stats = {"total_pipeline_time_s": round(time.time() - t0, 1), "evidence_prompt_chars": len(prompt),
-             "evidence_entities": len(ev), "evidence_answer_entity": name, **llm.usage_stats()}
+             "evidence_entities": len(ev), "evidence_answer_entity": name, **llm.usage_stats(),
+             "_trace": {"alert_service": alert, "alert_operation": op_name, "evidence_by_entity": ev, "answer": out}}
     return RCAResult(case_id=case_id, predicted_entity_ids=[eid] if eid else [],
                      predicted_fault_type=str(out.get("predicted_fault_type", "unknown")),
                      reasoning_chain=[str(x) for x in (out.get("reasoning_chain") or [])],

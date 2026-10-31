@@ -144,6 +144,7 @@ ARM = "A1rT_fixed_ABS_KP"
 MODEL = "qwen25_7b"           # a key of MODELS (Cell 3)
 CASES = DEV30                 # DEV30 | SUBSET8 | HELDOUT | ALL_IDS | DEV_ODD | VAL_EVEN
 SHARD = None                  # None, or (k, n): run every n-th case starting at k (0-based), e.g. (0, 3) for notebook 1 of 3
+WANDB = False                 # True: log scores live + upload the trace folder to W&B (needs the WANDB_API_KEY secret)
 TAG = {"qwen25_7b": "7B"}.get(MODEL, MODEL)   # "7B" keeps the file names of earlier runs
 if SHARD:
     CASES = [c for i, c in enumerate(CASES) if i % SHARD[1] == SHARD[0]]
@@ -163,6 +164,12 @@ env = {**clean, **BASE, **MODELS[MODEL], **{k: v for k, v in ARMS[ARM].items() i
 out = f"/kaggle/working/{name}.csv"
 open(f"/kaggle/working/{name}.commit.txt", "w").write(COMMIT + "\n")
 cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", SYSTEM, "--save_path", out]   # resume ON
+# traces (prompts, outputs, decision trails) go to /kaggle/working/<name>_trace/ in any case; W&B is optional:
+# Add-ons > Secrets > WANDB_API_KEY, then WANDB = True in Cell 4. Keep the W&B project PRIVATE (RCA100 is CC BY-NC-SA).
+if globals().get("WANDB"):
+    from kaggle_secrets import UserSecretsClient
+    env["WANDB_API_KEY"] = UserSecretsClient().get_secret("WANDB_API_KEY")
+    cmd += ["--wandb", "--wandb_project", "gama-rca", "--wandb_group", f"{ARM}_{MODEL}"]
 log = open(f"/kaggle/working/{name}.log", "a")
 p = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
 t0 = time.time()

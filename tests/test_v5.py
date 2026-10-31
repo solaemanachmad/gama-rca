@@ -82,6 +82,38 @@ def agent_code_never_reads_labels():
     assert not bad, bad
 
 
+@test
+def llm_calls_are_traced_as_json_lines():
+    import json, tempfile
+    from agents.trace import install_llm_trace, write_case_trace, stage_of
+    from pipeline.semantic_probes import SENSOR_SYSTEM
+    from pipeline.llm_typing import TYPING_SYSTEM
+    from pipeline.belief_rca import NARRATOR_SYSTEM
+    from pipeline.evidence_llm import EVIDENCE_SYSTEM
+    assert [stage_of(x) for x in (SENSOR_SYSTEM, TYPING_SYSTEM, NARRATOR_SYSTEM, EVIDENCE_SYSTEM, "x")] == \
+        ["sensor", "typing", "narrator", "evidence_llm", "other"]
+
+    class Fake:
+        total_tokens_used, total_calls = 0, 0
+
+        def generate(self, prompt, system=None, json_mode=False):
+            self.total_tokens_used += 7
+            self.total_calls += 1
+            return '{"category": "redis", "quote": "ERR"}'
+
+        def generate_json(self, prompt, system=None):
+            return json.loads(self.generate(prompt, system=system, json_mode=True))
+    with tempfile.TemporaryDirectory() as td:
+        llm = Fake()
+        install_llm_trace(llm, f"{td}/llm_calls.jsonl")
+        llm.trace_ctx = {"case_id": "t001", "system": "belief_v4"}
+        assert llm.generate_json("messages ...", system=SENSOR_SYSTEM)["category"] == "redis"
+        rec = json.loads(open(f"{td}/llm_calls.jsonl").read().splitlines()[0])
+        assert rec["case_id"] == "t001" and rec["stage"] == "sensor" and rec["prompt"] == "messages ..." and rec["tokens_total_delta"] == 7
+        p = write_case_trace(td, "t001", "belief_v4", {"pi": 0.4}, {"final_score_nodes": 0.5})
+        assert json.load(open(p))["trail"]["pi"] == 0.4
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

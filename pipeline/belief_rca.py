@@ -68,6 +68,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             from pipeline.log_preprocess import preprocess_texts
             texts, notes, pre_stats = preprocess_texts(case, db)
             sensor = make_sensor(llm, sensor_log, notes)
+    typing_trail = None
     if v4:                                                       # v4 (pipeline/belief_v4.py; parts from V4_PARTS)
         from pipeline.belief_v4 import diagnose_v4
         res = diagnose_v4(db, callees, texts, sensor=sensor, budget=budget, alert=alert, case=case)
@@ -78,6 +79,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
                 from pipeline.log_preprocess import preprocess_texts
                 ttexts, _n, _s = preprocess_texts(case, db)
             ty = llm_type(llm, db, res, ttexts)
+            typing_trail = ty
             stats_llmtype = {"v4_type_bayes": res["type"], "v4_type_llm": ty["llm_type"], "v4_type_llm_accepted": ty["accepted"],
                              "v4_type_llm_changed": ty["changed"], "v4_typing_prompt_chars": ty["prompt_chars"]}
             if ty["accepted"]:
@@ -146,6 +148,15 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
         if alert and alert != res["entity"]:
             chain.append(f"impact: {alert}")
     stats["reasoning_chain"] = " || ".join(chain)                 # saved for the paper's appendix (propagation examples)
+    stats["_trace"] = {                                           # decision trail (agents/trace.py); popped by main.py, never a column
+        "alert_text": case.alert.alert_text, "alert_service": alert, "alert_operation": op_name, "parts": res.get("parts"),
+        "n_observations": res.get("n_obs"), "n_hypotheses": res.get("n_hyp"), "holding_observations": res.get("holding"),
+        "pi": res.get("pi"), "onsets": res.get("onsets"), "top_hypotheses": res.get("top"), "type_rank": res.get("type_rank"),
+        "decided": {"entity": res.get("entity"), "level": res.get("level"), "type": res.get("type"), "p_entity": res.get("p"),
+                    "p_type": res.get("p_type")},
+        "evidence_by_bayes_factor": res.get("evidence"), "text_probes": res.get("probes"), "sensor_calls": sensor_log,
+        "log_preprocessing": pre_stats, "typing": typing_trail, "call_path": path, "chain": chain,
+        "grounding": {k: stats.get(k) for k in ("v3_grounded", "v3_numbers")}}
     ids = _ids(case.topology)
     eid = ids.get(res["entity"], res["entity"])
     stats["total_pipeline_time_s"] = round(time.time() - t0, 1)

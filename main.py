@@ -137,6 +137,11 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     _no_llm = {"hypothesis_rule", "belief_rule", "belief_v4_rule"}
     llm = None if set(systems) <= _no_llm else get_llm_client()
     hybrid_pipeline = GraphRAGPipeline(llm=llm) if "proposed_hybrid" in systems else None
+    # v5 traces (agents/trace.py): every LLM call (prompt as sent, output, tokens) and every case's decision trail, as JSON next to the CSV
+    from agents.trace import install_llm_trace, write_case_trace, log_to_wandb
+    trace_dir = (str(save_path).rsplit(".", 1)[0] + "_trace") if os.environ.get("TRACE", "1") == "1" else None
+    if trace_dir and llm is not None:
+        install_llm_trace(llm, os.path.join(trace_dir, "llm_calls.jsonl"))
 
     # Resolved once per run (backend/model don't change mid-run) and
     # stamped onto every row below -- see _current_model_name()'s docstring.
@@ -190,12 +195,21 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         for system_name in pending_systems:
             case_pbar.write(f"  -> {system_name}")
             try:
+                if llm is not None and hasattr(llm, "trace_ctx"):
+                    llm.trace_ctx = {"case_id": case_id, "system": system_name}
                 if system_name == "proposed_hybrid":
                     result = hybrid_pipeline.run(case_id)
                 else:
                     fn = BASELINE_REGISTRY[system_name]
                     result = fn(case_id, llm)
+                trail = result.retrieval_stats.pop("_trace", None)          # never a CSV column
                 report = full_case_report(result, gt, case.topology, evidence_items=result.evidence_items)
+                if trace_dir:
+                    write_case_trace(trace_dir, case_id, system_name, trail, {
+                        "predicted_entity_ids": result.predicted_entity_ids, "predicted_fault_type": result.predicted_fault_type,
+                        "reasoning_chain": result.reasoning_chain,
+                        **{k: report.get(k) for k in ("gt_fault_type", "gt_target_entity_ids", "entity_localization",
+                                                      "fault_identification_exact", "reasoning_process_nodes", "final_score_nodes")}})
                 report["system"] = system_name
                 report["llm_backend"] = llm_backend
                 report["llm_model"] = llm_model
@@ -291,6 +305,11 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
                     wandb_run.summary[f"{system_name}/{metric}_mean"] = value
 
     if wandb_run:
+        if trace_dir and os.path.isdir(trace_dir):
+            try:
+                log_to_wandb(wandb_run, trace_dir, os.path.basename(str(save_path)).rsplit(".", 1)[0])
+            except Exception as e:
+                print(f"[wandb] trace upload failed: {e!r}")
         wandb_run.finish()
 
     return df

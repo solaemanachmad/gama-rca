@@ -55,7 +55,8 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     ent, level = res["entity"], res["level"]
     cands = shortlist(res)
     lines = evidence_lines(db, ent, texts)
-    out = {"llm_type": None, "accepted": False, "changed": False, "n_lines": len(lines), "prompt_chars": 0, "quote_ok": False}
+    out = {"llm_type": None, "accepted": False, "changed": False, "n_lines": len(lines), "prompt_chars": 0, "quote_ok": False,
+           "candidates": cands, "evidence_line": None}
     if len(cands) < 2 or not lines:
         return out
     probs = dict(res.get("type_rank", []))
@@ -77,6 +78,7 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     t = str(ans.get("fault_type", "")).strip()
     q = str(ans.get("evidence_line", "")).strip().lstrip("- ").lower()
     out["llm_type"] = t
+    out["evidence_line"] = q
     grounded = len(q) >= 10 and any(q in l.lower() or l.lower() in q for l in lines)
     out["quote_ok"] = grounded
     if t in cands and grounded:

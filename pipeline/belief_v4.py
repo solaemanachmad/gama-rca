@@ -365,7 +365,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             "entropy_bits": round(bd.entropy(post), 3), "top": top, "probes": log, "n_obs": len(obs), "n_hyp": len(H),
             "evidence": contrib[:12], "parts": sorted(parts), "pi": pi, "type_rank": type_rank[:8],
             "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
-            "onset_root": onsets.get(ent), "n_onsets": len(onsets)}
+            "onset_root": onsets.get(ent), "n_onsets": len(onsets), "onsets": onsets,
+            "holding": [{"entity": o["entity"], "signal": o["signal"], "ev": o["ev"]} for o in obs if o["holds"]]}
 
 
 def onset_loglik(H, onsets, expl) -> np.ndarray:
