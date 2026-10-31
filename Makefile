@@ -9,5 +9,6 @@ test:        ## prompt-equivalence check for every retained arm (no data or mode
 	@python tests/test_belief.py | tail -1
 	@python tests/test_logpre.py | tail -1
 	@python tests/test_v4.py | tail -1
+	@python tests/test_v5.py | tail -1
 lint:        ## unused imports / variables
 	python -m pyflakes $$(git ls-files '*.py')

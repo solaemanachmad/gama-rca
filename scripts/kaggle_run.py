@@ -58,6 +58,12 @@ MODELS = {
     "qwen25_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen2.5-14B-Instruct", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
     "qwen3_14b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-14B", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
     "qwen3_32b_4bit": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-32B", "KAGGLE_USE_4BIT": "1", "KAGGLE_DTYPE": "float16"},
+    # v5 multi-backbone study (PREREGISTRATION_V5.md): same prompts, greedy decoding, bfloat16, thinking off. Attach each model via
+    # Add Input > Models and put its mounted folder in KAGGLE_MODEL_LOCAL_PATH (Llama and Gemma are gated on Hugging Face).
+    "qwen25_7b_v5": {"KAGGLE_MODEL_LOCAL_PATH": "/kaggle/input/models/qwen-lm/qwen2.5/transformers/7b-instruct/1"},
+    "llama31_8b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "meta-llama/Llama-3.1-8B-Instruct"},
+    "gemma2_9b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "google/gemma-2-9b-it"},
+    "qwen3_4b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-4B"},
 }
 FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_ALL_ENTITIES", "SPEC_CHAIN_SEGMENTS",
          "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "USE_KNOWLEDGE_POS", "USE_LLM_SPECIALIST_AGENTS", "GROUNDED_FAULT",
@@ -117,6 +123,8 @@ ARMS = {                                                          # name -> extr
                                   "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != p)}
        for p in V4_DEFAULT},                                                                                              # CPU ablations
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
+    "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},      # v5 baseline: the LLM decides
+                                                                                                            # from GAMA-RCA's evidence (GPU, 1 call)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},
     "A1rT_fixed_ABS_KP_COV_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1", "SPEC_CHAIN_SEGMENTS": "1"},
@@ -126,12 +134,15 @@ DEV30 = ["t004","t005","t012","t014","t015","t018","t026","t028","t029","t030","
 SUBSET8 = ["t005","t036","t082","t092","t065","t076","t078","t100"]   # node + replica cases, for a quick mechanics check
 ALL_IDS = [l.strip() for l in open(os.path.join(DATA, "manifest.txt")) if l.strip()]
 HELDOUT = [c for c in ALL_IDS if c not in DEV30]
+# v5 protocol (PREREGISTRATION_V5.md): new changes are designed on the ODD cases only; the EVEN cases are run once, after the design is frozen
+DEV_ODD = [c for c in ALL_IDS if int(c[1:]) % 2 == 1]
+VAL_EVEN = [c for c in ALL_IDS if int(c[1:]) % 2 == 0]
 
 # %% Cell 4 -- settings
 import torch
 ARM = "A1rT_fixed_ABS_KP"
 MODEL = "qwen25_7b"           # a key of MODELS (Cell 3)
-CASES = DEV30                 # DEV30 | SUBSET8 | HELDOUT | ALL_IDS
+CASES = DEV30                 # DEV30 | SUBSET8 | HELDOUT | ALL_IDS | DEV_ODD | VAL_EVEN
 SHARD = None                  # None, or (k, n): run every n-th case starting at k (0-based), e.g. (0, 3) for notebook 1 of 3
 TAG = {"qwen25_7b": "7B"}.get(MODEL, MODEL)   # "7B" keeps the file names of earlier runs
 if SHARD:

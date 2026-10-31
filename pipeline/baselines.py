@@ -337,5 +337,7 @@ BASELINE_REGISTRY = {
         "pipeline.belief_rca", fromlist=["belief_v4_b0"]).belief_v4_b0(case_id, llm, cases_dir),
     "belief_v4_rule": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
         "pipeline.belief_rca", fromlist=["belief_v4_rule"]).belief_v4_rule(case_id, llm, cases_dir),
+    "evidence_llm": lambda case_id, llm, cases_dir=config.CASES_DIR: __import__(
+        "pipeline.evidence_llm", fromlist=["evidence_llm"]).evidence_llm(case_id, llm, cases_dir),
     # "proposed_hybrid" is run via pipeline.GraphRAGPipeline, not this registry
 }

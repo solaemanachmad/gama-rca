@@ -57,6 +57,31 @@ def _is_gemma4_unified(identifier: Optional[str]) -> bool:
     return "gemma-4" in identifier or "gemma4" in identifier
 
 
+
+def merge_system(messages):
+    """Chat templates without a system role (Gemma 2) reject {"role": "system"}: prepend its text to the first user turn instead."""
+    sys_txt = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    rest = [dict(m) for m in messages if m["role"] != "system"]
+    if sys_txt and rest:
+        rest[0]["content"] = f"{sys_txt}\n\n{rest[0]['content']}"
+    return rest
+
+
+def render_chat(tok, messages, enable_thinking):
+    """apply_chat_template with the same prompt for every backbone; falls back to merging the system message for templates
+    that do not support one. The fallback is recorded on the tokenizer object (system_merged = True)."""
+    try:
+        return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+    except Exception as e:                                   # jinja2 TemplateError: "System role not supported"
+        if not any(m["role"] == "system" for m in messages):
+            raise
+        try:
+            setattr(tok, "system_merged", True)
+        except Exception:
+            pass
+        return tok.apply_chat_template(merge_system(messages), tokenize=False, add_generation_prompt=True,
+                                       enable_thinking=enable_thinking)
+
 class KaggleTransformersClient:
     def __init__(self, model_handle: str = None, local_path: str = None,
                  temperature: float = config.LLM_TEMPERATURE,
@@ -134,16 +159,10 @@ class KaggleTransformersClient:
         messages.append({"role": "user", "content": prompt})
 
         if self.processor is not None:
-            text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
-                enable_thinking=self.enable_thinking,
-            )
+            text = render_chat(self.processor, messages, self.enable_thinking)
             inputs = self.processor(text=text, return_tensors="pt").to(self.model.device)
         else:
-            text = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
-                enable_thinking=self.enable_thinking,      # Qwen3 templates default to thinking ON; other templates ignore this kwarg
-            )
+            text = render_chat(self.tokenizer, messages, self.enable_thinking)   # Qwen3: thinking flag; others ignore it
             inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
 
         input_len = inputs["input_ids"].shape[-1]
@@ -247,7 +266,7 @@ class KaggleTransformersClient:
                 return None
             ids.append(t[0])
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=self.enable_thinking)
+        text = render_chat(self.tokenizer, messages, self.enable_thinking)
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
         max_in = int(os.environ.get("MAX_INPUT_TOKENS", "9000"))
         if inputs["input_ids"].shape[-1] > max_in:
