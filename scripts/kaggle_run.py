@@ -224,7 +224,8 @@ while p.poll() is None:
     except Exception:
         _done, _last = 0, []
     print(f"{(time.time() - t0) / 60:.0f} min, {_done}/{len(CASES)} cases done | {(_last or [''])[0][-160:]}", flush=True)
-print("rc =", p.poll()); print(subprocess.run(f"tail -c 1500 /kaggle/working/{name}.log", shell=True, capture_output=True, text=True).stdout)
+print("rc =", p.poll())
+print(open(f"/kaggle/working/{name}.log", "rb").read()[-1500:].decode("utf-8", errors="replace"))   # a cut multi-byte character is replaced, not fatal
 
 # %% Cell 6 -- health + sanity (dev-30 is for debugging only; this is not a verdict)
 import pandas as pd
