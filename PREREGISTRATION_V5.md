@@ -167,3 +167,19 @@ Part `torigin3` (= torigin2 + caller-to-callee attribution; no new constant): a 
 message, is attributed to its callee: the service named in the span name or attributes (longest known service name, normalised,
 other than its own), or for a timeout with children, the longest child. Otherwise the span's own service keeps the origin. Counts
 of moved origins are stored (v5_relayed). Run: V4_RULE_MM_T3_OMSG on DEV_ODD vs V4_RULE_MM_T2_OMSG.
+
+## Amendment 8 (2026-11-01, before any run of these parts): fault-type identification
+
+Odd-case analysis of mm+torigin2+omsg (entity right in 29 cases, type right in 7): (a) the load types (cpuFullLoad, cpuDeadLoop,
+trafficSurge, trafficHotspot) alone explained a node_cpu_rise at each host of the root, one THETA_P factor per host, so memory,
+GC, thread and application faults that also raise CPU lost (t057, t061, t047: memoryPressure -> CPU types); (b) an error origin
+with HTTP 5xx at the root counted equally for every type, so CPU types beat application types (t029, t035, t083:
+nullPointerException -> cpuDeadLoop); (c) cpuFullLoad and cpuDeadLoop are often EXACTLY tied (0.444 / 0.444) and an unstable sort
+picked either (t027, t041, t071, t093).
+Parts (no new constants): `hostcpu`: a host node_cpu_rise is explained by any hypothesis at a root whose own svc_cpu_rise holds;
+`errclass`: an error origin at the root is expected only for types whose fingerprint names an error signal (http*, msg_*,
+error_spans, svc_error_rise, *_err), background for the others (slow origins unchanged; node rule unchanged); `tiebreak`: stable
+sort, so an exact tie goes to the type listed first (the general cpuFullLoad before its special case cpuDeadLoop).
+Disclosure: (c) uses the fingerprint order, which lists the general type first; cpuFullLoad is also the more frequent type in
+RCA100 (seen in the labels), which favours this rule on this benchmark.
+Runs: V4_RULE_MM_T3_OMSG_FI on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG; V4_MM_T3_OMSG_FI (GPU, + xcard LLM typing) afterwards.

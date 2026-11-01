@@ -309,6 +309,33 @@ def unreachable_callee_takes_the_origin_from_its_caller():
     assert ("shipping", "trace_err_origin") in v3["holds"]
 
 
+@test
+def hostcpu_errclass_tiebreak():
+    import numpy as np
+    from pipeline import belief_v4 as b4
+    hosts, db = {"inventory": ["node-a"]}, {"nodes": {"node-a": {}}}
+    o_node = {"entity": "node-a", "signal": "node_cpu_rise", "holds": True, "kind": "cont"}
+    h_mem = {"entity": "inventory", "level": "service", "type": "F007-memoryPressure", "q": 0.8}
+    h_cpu = {"entity": "inventory", "level": "service", "type": "F034-cpuFullLoad", "q": 0.8}
+    m0, m1 = b4.Model(list(b4.DEFAULT_PARTS)), b4.Model(list(b4.DEFAULT_PARTS) + ["hostcpu"])
+    m1.cpu_up = {"inventory"}
+    assert m0.p_holds(o_node, h_mem, {}, {}, hosts, db) == 0.05 and m0.p_holds(o_node, h_cpu, {}, {}, hosts, db) == 0.6
+    assert m1.p_holds(o_node, h_mem, {}, {}, hosts, db) == 0.6          # memory pressure with a CPU rise also heats the host
+    m1.cpu_up = set()
+    assert m1.p_holds(o_node, h_mem, {}, {}, hosts, db) == 0.05
+    m2 = b4.Model(list(b4.DEFAULT_PARTS) + ["torigin2", "errclass"])
+    o_err = {"entity": "inventory", "signal": "trace_err_origin", "holds": True, "kind": "cat"}
+    h_npe = {"entity": "inventory", "level": "service", "type": "F023-nullPointerException", "q": 0.8}
+    bg = {("trace_err_origin", False): 0.05}
+    assert m2.p_holds(o_err, h_npe, bg, {}, hosts, db) == 0.6 and m2.p_holds(o_err, h_cpu, bg, {}, hosts, db) == 0.05
+    o_slow = {**o_err, "signal": "trace_slow_origin"}
+    assert m2.p_holds(o_slow, h_cpu, {("trace_slow_origin", False): 0.05}, {}, hosts, db) == 0.6
+    post = np.array([0.1, 0.4, 0.4, 0.1])
+    assert list(np.argsort(-post, kind="stable"))[:2] == [1, 2]                  # tie: the first listed wins
+    order = list(b4.Model(list(b4.DEFAULT_PARTS)).fp)
+    assert order.index("F034-cpuFullLoad") < order.index("F012-cpuDeadLoop")
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -53,6 +53,14 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
   torigin3 trace structure v3 (amendment 7) = torigin2 + a deepest failing CLIENT span that could not reach its callee (refused /
            unavailable / no such host, no child span) or timed out waiting for it is attributed to the callee (named in the span
            name / attributes, or the longest child for a timeout), not to the caller
+  hostcpu  (amendment 8) the CPU of a node rises with the CPU of the services it hosts: a node_cpu_rise at a host of e* is explained
+           by ANY hypothesis at e* whose own svc_cpu_rise holds, not only by the load types (which gained up to one THETA_P factor per
+           host and outranked memory / GC / application faults that also burn CPU)
+  errclass (amendment 8) an ERROR origin at e* is expected only for types whose fingerprint names an error signal (status codes,
+           error-span messages, error spans / rates, failing dependency calls); for resource types (CPU, memory, disk, traffic) it is
+           unrelated evidence (background). Slow origins stay expected for every type.
+  tiebreak (amendment 8) exactly tied types are resolved by fingerprint order (the general type before its special case: cpuFullLoad
+           before cpuDeadLoop) through a stable sort, instead of an arbitrary one
   omsg     origin messages (amendment 6; needs torigin or torigin2): the status message / HTTP code of a service's ORIGIN spans and
            the log lines linked to its origin traces by trace id -> omsg_<category>, ohttp<code>; role 'may' of every type whose
            fingerprint names the same message category or status code (present: support; absent: uninformative)
@@ -77,8 +85,9 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3")
-V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3")
+             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
+             "errclass", "tiebreak")
+V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak")
 DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops") + V5_PARTS)      # rnull/ops did not help; v5 parts opt-in
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
@@ -154,6 +163,7 @@ class Model:
     def __init__(self, parts):
         self.parts = set(parts)
         self.origin_nodes = set()                                # v5 'torigin2' (set per case in diagnose_v4)
+        self.cpu_up = set()                                      # v5 'hostcpu': entities whose svc_cpu_rise holds (per case)
         self.fp = fingerprints_v4(self.parts)
         self.roles = {}
         for t, f in self.fp.items():
@@ -228,14 +238,28 @@ class Model:
             return {"K": h.get("q", bd.THETA_K), "U": bd.THETA_U, "C": bd.ALPHA_C, "M": bd.THETA_U}.get(role, base)
         if s in self.symptoms and e in expl and h["entity"] in expl[e]:
             return max(bd.THETA_P, base)
-        if s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []):
+        if s == "node_cpu_rise" and self.host_cpu(h) and e in hosts.get(h["entity"], []):
             return max(bd.THETA_P, base)
         return base
+
+    def host_cpu(self, h):
+        return h["type"] in bd.LOAD_TYPES or ("hostcpu" in self.parts and h["type"] is not None and h["entity"] in self.cpu_up)
+
+    def error_type(self, t):
+        """v5 'errclass': the type's fingerprint names an error signal."""
+        if t not in self.fp:
+            return True
+        f = self.fp[t]
+        atoms = {a for k in f.get("key", []) + f.get("sup", []) for a in _atoms(k)}
+        return any(a.startswith(("http", "msg_")) or a in ("error_spans", "svc_error_rise", "svc_err_rate_rise")
+                   or a.endswith("_err") for a in atoms)
 
     def trace_own(self, o, h, hosts):
         if h["type"] is None:
             return False
         if o["entity"] == h["entity"]:
+            if "errclass" in self.parts and o["signal"] == "trace_err_origin" and h["type"] != ANOM:
+                return self.error_type(h["type"])
             return True
         if h["entity"] not in (hosts or {}).get(o["entity"], ()):
             return False
@@ -251,7 +275,7 @@ class Model:
         if h["type"] is None or e == h["entity"]:
             return False
         return (s in self.symptoms and e in expl and h["entity"] in expl[e]) or \
-               (s == "node_cpu_rise" and h["type"] in bd.LOAD_TYPES and e in hosts.get(h["entity"], []))
+               (s == "node_cpu_rise" and self.host_cpu(h) and e in hosts.get(h["entity"], []))
 
     def log_likelihood(self, obs, H, bg, expl, db):
         hosts = db.get("hosts", {})
@@ -343,6 +367,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
                                   v3="torigin3" in parts)
         if "torigin2" in parts or "torigin3" in parts:
             model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
+    if "hostcpu" in parts:
+        model.cpu_up = {o["entity"] for o in obs if o["signal"] == "svc_cpu_rise" and o["holds"]}
     H = model.testable(model.hypotheses(db), obs)
     bg = bd.background(obs, db)
     if alert and alert in db["services"]:
@@ -407,7 +433,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         log.append({"probe": e, "eig_bits": round(g, 3), "category": cat, "max_belief_before": round(before, 3),
                     "max_belief_after": round(float(bd.posterior(logp).max()), 3)})
     post = bd.posterior(logp)
-    order = np.argsort(-post)
+    order = np.argsort(-post, kind="stable") if "tiebreak" in parts else np.argsort(-post)
     if "twostage" in parts:
         marg = defaultdict(float)
         for h, p in zip(H[:-1], post[:-1]):

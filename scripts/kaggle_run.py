@@ -73,9 +73,9 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
           "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec",
-          "torigin3")                                                                               # = belief_v4.ALL_PARTS
+          "torigin3", "hostcpu", "errclass", "tiebreak")                                            # = belief_v4.ALL_PARTS
 V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg",
-                                                  "cpuspec", "torigin3"))                           # = belief_v4.DEFAULT_PARTS
+                                                  "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak"))   # = DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -144,6 +144,10 @@ ARMS = {                                                          # name -> extr
                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "cpuspec"))},                                      # CPU
     "V4_RULE_MM_T3_OMSG": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                            "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg"))},                                        # CPU
+    "V4_RULE_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                              "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak"))},  # CPU
+    "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "xcard"))},  # GPU
     "V4_MM_T3_OMSG": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                       "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg"))},                                            # GPU
     "V4_RULE_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},   # CPU
