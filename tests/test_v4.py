@@ -552,6 +552,38 @@ def a_single_new_event_counts():
     assert db["services"]["cart"]["events"].get("oom"), dict(db["services"]["cart"]["events"])
 
 
+@test
+def depbase_db_slow_against_history_end_to_end():
+    """v5 'depbase': cart's database calls take 0.4 ms before the window and 5 s inside it (timeouts) while its server spans grow from
+    2 ms to 5 s too. The window-only test (DB spans vs the other window spans) cannot see it; the history test can, the slowSQL /
+    dbNetworkLatency hypotheses at cart gain, and entity_signals() reports the same value to the LLM typing step."""
+    from schema import Observation
+    c = make_case()
+    db0 = compute_signal_db(c, T0)
+    w0, w1 = db0["w0"], db0["w1"]
+    L = (w1 - w0).total_seconds()
+    def add(t, name, dur, attrs, i):
+        c.observations["traces"].append(Observation(None, t, "traces", "", {
+            "traceId": f"D{i}", "spanId": f"{name[:3]}{i}", "parentSpanId": "", "serviceName": "cart", "statusCode": "0",
+            "statusMessage": "", "attributes": attrs, "spanName": name, "duration": dur * 1e6}))
+    for i in range(200):                                                     # history: the B_SPAN window lengths before w0
+        t = w0 - dt.timedelta(seconds=(i + 1) * 4 * L / 201)
+        add(t, "SELECT cart.items", 0.4 + 0.1 * (i % 2), '{"db.system":"mysql"}', i)
+        add(t, "GET /cart", 2.0 + 0.1 * (i % 3), "{}", 1000 + i)
+    for i in range(6):
+        t = w0 + dt.timedelta(seconds=(i + 1) * L / 8)
+        add(t, "SELECT cart.items", 5000.0 + i, '{"db.system":"mysql"}', 2000 + i)
+        add(t, "GET /cart", 5003.0 + i, "{}", 3000 + i)
+    base = list(b4.DEFAULT_PARTS)
+    r0, db_a = run(c, parts=base, alert="frontend")
+    r1, db_b = run(c, parts=base + ["depbase"], alert="frontend")
+    o0 = [o for o in bd.observations(db_a) if o["entity"] == "cart" and o["signal"] == "db_slow"]
+    assert o0 and not o0[0]["holds"], o0                                     # window-only test misses it
+    assert entity_signals(db_b, "cart")["db_slow"]["p"] <= 0.05             # history test sees it, also for entity_signals()
+    p_dep = lambda r: sum(t["p"] for t in r["top"] if t["entity"] == "cart" and t["type"] in ("F010-slowSQL", "F018-dbNetworkLatency"))
+    assert r1["entity"] == "cart" and r1["type"] == "F010-slowSQL" and p_dep(r1) > p_dep(r0), (r0["top"], r1["top"])
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

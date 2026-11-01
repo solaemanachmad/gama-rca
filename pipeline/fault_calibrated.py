@@ -340,6 +340,10 @@ def entity_signals(db: Dict, ent: str) -> Dict:
         if p is not None:
             sig[f"{k}_slow"] = {"kind": "cont", "p": p, "ev": f"{k} spans max={_fmt(max(d))}ms vs the service's other spans median="
                                                                 f"{_fmt(sorted(other)[len(other) // 2])}ms in the window (p={p:.3g})"}
+    if db.get("_dep_override") is not None:              # v5 'depbase': the history test replaces the window-only one everywhere
+        for k in ("db_slow", "redis_slow", "queue_slow"):
+            sig.pop(k, None)
+        sig.update(db["_dep_override"].get(ent, {}))
     return sig
 
 

@@ -84,7 +84,7 @@ def dep_observations(case, db) -> List[Dict]:
         if r is None:
             continue
         holds, p, qw, qh = r
-        obs.append({"entity": s, "signal": f"{k}_slow", "holds": bool(holds), "kind": "cont",
+        obs.append({"entity": s, "signal": f"{k}_slow", "holds": bool(holds), "kind": "cont", "p": p,
                     "ev": f"{k} spans: slowest-10% mean {qw:.3g}ms in the window vs {qh:.3g}ms before it ({len(win)} vs {len(hist)} spans, "
                           f"rank test p={p:.3g})"})
     return obs

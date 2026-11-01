@@ -384,6 +384,10 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         from pipeline.dep_latency import dep_observations
         dep = dep_observations(case, db)
         obs = [o for o in obs if o["signal"] not in ("db_slow", "redis_slow", "queue_slow")] + dep
+        db["_dep_override"] = {}                         # the same values for entity_signals() (LLM typing, fallback type)
+        for o in dep:
+            db["_dep_override"].setdefault(o["entity"], {})[o["signal"]] = {"kind": "cont", "p": o["p"] if o["holds"] else 1.0,
+                                                                            "ev": o["ev"]}
     if "hostcpu" in parts:
         model.cpu_up = {o["entity"] for o in obs if o["signal"] == "svc_cpu_rise" and o["holds"]}
     H = model.testable(model.hypotheses(db), obs)
