@@ -586,6 +586,13 @@ def depbase_db_slow_against_history_end_to_end():
     assert entity_signals(db_c, "cart")["db_slow"]["p"] <= 0.05 and "share of request time" in entity_signals(db_c, "cart")["db_slow"]["ev"]
 
 
+@test
+def sigorder_runs_end_to_end():
+    c = make_case()
+    r, _ = run(c, parts=list(b4.DEFAULT_PARTS) + ["sigorder"], alert="frontend")
+    assert r["entity"] and r["type"]
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

@@ -76,6 +76,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            window (rank test + upper-quantile effect), connection-pool waits count as database calls (pipeline/dep_latency.py)
   depshare (amendment 11) with depbase: <dep>_slow also needs the share of the service's request time spent in those calls to rise
            (a starved service stretches its calls too, but spends the extra time in itself)
+  sigorder (amendment 12) inside the root, the key mechanism signal of the type (CPU / memory / GC / threads) must be among the
+           first to move (onset), else the type is penalised (THETA_T, as the between-entity onset rule)
 """
 from __future__ import annotations
 
@@ -93,9 +95,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare")
+            "depconseq", "depbase", "depshare", "sigorder")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
@@ -429,6 +431,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             if ts:
                 onsets[ent] = min(ts)
         logp = logp + onset_loglik(H, onsets, expl)
+    if "sigorder" in parts:                              # v5: inside the root, the mechanism of the fault moves first
+        logp = logp + sigorder_loglik(H, db.get("_cal", {}), model)
     log, probed, steps = [], set(), 0
     while sensor is not None and steps < budget:
         post = bd.posterior(logp)
@@ -518,6 +522,48 @@ def onset_loglik(H, onsets, expl) -> np.ndarray:
                 continue
             ok = t >= onsets[r] - ONSET_TOL
             out[i] += math.log((THETA_T if ok else 1 - THETA_T) / 0.5)
+    return out
+
+
+MECHANISM_SIGNALS = ("svc_cpu_rise", "svc_mem_rise", "svc_gc_rise", "svc_thread_rise")   # the resources a process consumes
+
+
+def first_movers(sigs: Dict):
+    """(signals with the earliest onset, holding signals without a measured onset, any onset?) among the MECHANISM_SIGNALS of one
+    entity's calibrated signals; ties at the sampling resolution are all first movers."""
+    on = {k: r["onset"] for k, r in sigs.items() if k in MECHANISM_SIGNALS and r.get("onset") is not None
+          and r.get("p") is not None and r["p"] <= bd.ALPHA}
+    non = {k for k, r in sigs.items() if k in MECHANISM_SIGNALS and r.get("onset") is None
+           and r.get("p") is not None and r["p"] <= bd.ALPHA}
+    if not on:
+        return set(), non, False
+    t0 = min(on.values())
+    return {k for k, t in on.items() if t == t0}, non, True
+
+
+def sigorder_loglik(H, cal: Dict, model) -> np.ndarray:
+    """v5 'sigorder' (amendment 12): within the root, the cause moves before its consequences. CPU, memory, GC and thread faults of
+    one process raise the same four signals; which one moved FIRST tells them apart (memory leak -> GC -> CPU; CPU saturation ->
+    GC / threads later). For h = (e*, type) whose key names one of the MECHANISM_SIGNALS, and when at least one of them has a
+    measured onset at e*: THETA_T if a key of the type is a first mover, neutral (0.5) if the key holds without a measured onset
+    (a gradual change: order unknown), 1 - THETA_T otherwise (the key moved later, or not at all). Other types: neutral. Same
+    constant and resolution as the between-entity onset rule; no new constants."""
+    out = np.zeros(len(H))
+    cache = {}
+    for i, h in enumerate(H):
+        if h["type"] in (None, ANOM) or h.get("level") != "service":
+            continue
+        keys = {a for k in model.fp.get(h["type"], {}).get("key", []) for a in _atoms(k)} & set(MECHANISM_SIGNALS)
+        if not keys:
+            continue
+        e = h["entity"]
+        if e not in cache:
+            cache[e] = first_movers(cal.get(e, {}))
+        first, non, any_on = cache[e]
+        if not any_on:
+            continue
+        p = THETA_T if keys & first else (0.5 if keys & non else 1 - THETA_T)
+        out[i] = math.log(p / 0.5)
     return out
 
 

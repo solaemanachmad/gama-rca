@@ -378,6 +378,29 @@ def depshare_separates_slow_dependency_from_starved_service():
     assert share_rise(1.0, 0.0, 1.0, 1.0) is None                                     # no request spans: no comparison
 
 
+@test
+def sigorder_first_mover_decides_among_jvm_types():
+    import math
+    from pipeline import belief_v4 as b4
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["sigorder"])
+    types = ["F034-cpuFullLoad", "F012-cpuDeadLoop", "F007-memoryPressure", "F022-fullGC", "F002-threadExhaustion", "F010-slowSQL"]
+    H = [{"entity": "inventory", "level": "service", "type": t, "q": 0.8} for t in types]
+    sig = lambda onset, p=0.01: {"p": p, "onset": onset}
+    cpu_first = {"inventory": {"svc_cpu_rise": sig(90), "svc_gc_rise": sig(120), "svc_thread_rise": sig(120)}}   # CPU saturation
+    ll = {t: round(float(v), 6) for t, v in zip(types, b4.sigorder_loglik(H, cpu_first, m))}
+    up, down = round(math.log(0.9 / 0.5), 6), round(math.log(0.1 / 0.5), 6)
+    assert ll["F034-cpuFullLoad"] == up and ll["F012-cpuDeadLoop"] == up
+    assert ll["F022-fullGC"] == down and ll["F007-memoryPressure"] == down and ll["F002-threadExhaustion"] == down
+    assert ll["F010-slowSQL"] == 0.0                                                     # not a mechanism type: neutral
+    leak = {"inventory": {"svc_cpu_rise": sig(60), "svc_gc_rise": sig(60), "svc_mem_rise": sig(None), "svc_thread_rise": sig(180)}}
+    ll = {t: round(float(v), 6) for t, v in zip(types, b4.sigorder_loglik(H, leak, m))}
+    assert ll["F007-memoryPressure"] == 0.0 and ll["F022-fullGC"] == up and ll["F002-threadExhaustion"] == down   # gradual: unknown
+    none = {"inventory": {"svc_cpu_rise": sig(None)}}
+    assert not any(b4.sigorder_loglik(H, none, m))                                       # no onset at all: neutral
+    notheld = {"inventory": {"svc_cpu_rise": sig(30, p=0.5), "svc_gc_rise": sig(60)}}    # a non-holding signal does not count
+    assert round(float(dict(zip(types, b4.sigorder_loglik(H, notheld, m)))["F022-fullGC"]), 6) == up
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -251,3 +251,26 @@ still typed memoryPressure, because four resource signals at inventory (memory, 
 Type changes vs T3_OMSG: +t007 threadExhaustion, +t047 / t057 / t061 memoryPressure; -t053 / t067 / t071 cpuFullLoad (-> fullGC /
 memoryPressure), -t091. CPU, memory, GC and dependency faults at the same JVM service raise the same set of signals; their counts do
 not separate them. Next: diagnostic scripts/diagnostics/signal_onsets_dev.py (which signal moves first, odd cases only).
+
+### Decision on amendments 9-11
+The diagnostic run of V4_RULE_MM_T3_OMSG_FI (signal_onsets_dev.py, same parts) types 11 odd cases right, as FI_DBS; FI_DBS also
+lost one entity (t039). Per the decision rule of amendment 11, the dependency parts (depconseq, depbase, depshare) are dropped from
+the configuration and reported as negative results (detection works, decision unchanged).
+
+## Amendment 12 (2026-11-02, before any run of this part): which mechanism signal moves first
+
+Diagnostic signal_onsets_dev.py (odd cases, labels read for the analysis only): at the true root, the onsets of the four resource
+signals of a process (CPU, memory, GC, threads; 30 s sampling) separate the JVM-type faults that share them:
+- cpuFullLoad (t027, t041, t053, t067, t071, t093): CPU moves first in all 6; GC 30-60 s later in all 6.
+- memoryPressure (t009, t063): memory and GC first, CPU later; (t047, t057, t061): memory holds without a measured onset (gradual),
+  CPU and GC tie.
+- dependency faults (t015, t021, t025, t085, t097): CPU (and latency) first, GC / threads later -> the rule cannot help them.
+Part `sigorder`: for h = (e*, type) whose key names one of MECHANISM_SIGNALS = (svc_cpu_rise, svc_mem_rise, svc_gc_rise,
+svc_thread_rise), when at least one of them has a measured onset at e*: THETA_T if a key of the type is among the first movers
+(earliest onset, ties included), 0.5 if the key holds without a measured onset, 1 - THETA_T otherwise. THETA_T = 0.9 as the
+between-entity onset rule; no new constants.
+Disclosure: before this amendment, the rule was simulated offline on the saved odd-case posteriors of FI_DBS / FI_DEPB (top-8 types
+at the decided entity, multiplied by the factor). FI_DBS: +5 types (t027, t053, t067, t071, t093 -> cpuFullLoad), -1 (t007
+threadExhaustion -> codeDefect: memory moved first). A variant that leaves types whose key does not hold neutral gained nothing and
+was not adopted. Even cases unseen.
+Runs: V4_RULE_MM_T3_OMSG_FI_ORD (CPU) on DEV_ODD; then V4_MM_T3_OMSG_FI_ORD (GPU, + xcard LLM typing).
