@@ -1,3 +1,4 @@
+# SIMPLER: scripts/kaggle_job.py runs any arm with one command (2 fixed notebook cells, see its docstring); this file keeps the definitions.
 # Kaggle runner. Paste each "# %% Cell N" block into its own notebook cell, in order (Cells 1-6, self-contained).
 # Needs: Secret GITHUB_TOKEN, the RCA100 dataset as input, Accelerator = GPU, Internet ON, a Qwen2.5 model attached (or HF download).
 # Cell 5 is resume-safe (progress is read from the dump files). Decoding is deterministic: temperature 0 and a fixed seed (see Cell 3).
