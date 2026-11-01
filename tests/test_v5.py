@@ -223,6 +223,33 @@ def trace_origin_is_own_evidence_and_absence_is_uninformative():
     assert m.may({**o, "holds": False}, h_cart, hosts) and not m.may({**o, "holds": False}, h_caller, hosts)
 
 
+@test
+def torigin2_node_needs_two_origin_services_and_counts():
+    from pipeline import belief_v4 as b4
+    from pipeline.trace_structure import analyse, origin_nodes
+    spans = []
+    for i in range(5):                                  # only 5 failing traces: an origin in v1 (>= 3), not in v2 (>= 10)
+        t = f"e{i}"
+        spans += [_sp(t, f"{t}a", None, "frontend", 0, 1.0, True), _sp(t, f"{t}b", f"{t}a", "cart", 0.1, 0.5, True)]
+    assert ("cart", "trace_err_origin") in analyse(spans)["holds"]
+    assert ("cart", "trace_err_origin") not in analyse(spans, 10, 5)["holds"]
+    hosts = {"cart": ["node-a"], "frontend": ["node-a"], "checkout": ["node-b"]}
+    one = [{"entity": "cart", "signal": "trace_err_origin", "holds": True}]
+    two = one + [{"entity": "frontend", "signal": "trace_slow_origin", "holds": True}]
+    assert origin_nodes(one, hosts) == set() and origin_nodes(two, hosts) == {"node-a"}
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["torigin2"])
+    o = {"entity": "cart", "signal": "trace_err_origin", "holds": True, "kind": "cat"}
+    h_node = {"entity": "node-a", "level": "node", "type": "F026-nodeCpuHigh", "q": 0.8}
+    h_cart = {"entity": "cart", "level": "service", "type": "F029-redisUnavailable", "q": 0.8}
+    bg, db = {("trace_err_origin", False): 0.05}, {"nodes": {"node-a": {}}}
+    m.origin_nodes = origin_nodes(one, hosts)
+    assert m.p_holds(o, h_node, bg, {}, hosts, db) == 0.05 and m.p_holds(o, h_cart, bg, {}, hosts, db) == 0.6
+    m.origin_nodes = origin_nodes(two, hosts)
+    assert m.p_holds(o, h_node, bg, {}, hosts, db) == 0.6
+    m1 = b4.Model(list(b4.DEFAULT_PARTS) + ["torigin"])                     # v1 unchanged: the hosting node always gets it
+    assert m1.p_holds(o, h_node, bg, {}, hosts, db) == 0.6
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -125,3 +125,17 @@ Also: data/dataset_profile.py collects the dataset-specific knowledge (metric fa
 status, entity types); the patterns are unchanged. EVIDENCE_LLM receives the trace origins too when 'torigin' is on.
 Runs: V4_RULE_MM_TORIGIN and V4_RULE_TORIGIN on DEV_ODD. Decision rule unchanged (section 4). This is the last design change before
 the VAL_EVEN run and the external benchmark.
+
+## Result of `torigin` (odd half) and Amendment 5 (2026-11-01): trace structure v2 / tier decision
+
+V4_RULE_MM_TORIGIN on DEV_ODD (commit a4b733c): EL 58.8, FI 17.3, RP 71.6, Final 50.2 (mm: 50.4); exact entities 26 (mm 25);
+vs mm 3 better (t001, t007 via large error origins: payment 1329/1500, inventory 763 traces; t065), 4 worse. Defects found:
+(1) a node received the origin of ANY hosted service, so a single small origin (t039: frontend-proxy, 37 traces) moved the answer to
+a node (t039, t099, t003); (2) origins from 2-3 traces were admitted; (3) cpuFullLoad / cpuDeadLoop have near-identical fingerprints,
+so small posterior changes flip between them (t067), independent of torigin.
+Decision: the user continues architecture development on the odd half (VAL_EVEN still unseen; it remains the confirmatory test,
+together with an external benchmark).
+
+Part `torigin2` (fixed before any run): as torigin with MIN_ERR_TRACES 10, MIN_SLOW_TRACES 5, and a node supported by trace origins
+only when >= 2 of the services it hosts are origins (a node fault hits co-located services together). torigin (v1) is unchanged.
+Run: V4_RULE_MM_TORIGIN2 on DEV_ODD; compared with V4_RULE_MM and V4_RULE_MM_TORIGIN.

@@ -23,6 +23,10 @@ from typing import Dict, List
 
 MIN_TRACES, ORIGIN_SHARE = 3, 0.3
 SLOW_Q, MIN_GROUP, SLOW_CONTRAST = 0.9, 10, 0.2
+# v2 ('torigin2', amendment 5): an origin share is unstable on a handful of traces -> absolute minimum counts; a NODE is supported by
+# trace origins only when >= NODE_MIN_SERVICES of the services it hosts are origins (a node fault hits its co-located services together;
+# one failing service on a node is that service's fault)
+MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2, NODE_MIN_SERVICES = 10, 5, 2
 SIGNALS = ("trace_err_origin", "trace_slow_origin")
 
 
@@ -40,7 +44,7 @@ def _union_len(iv):
     return tot
 
 
-def analyse(spans: List[Dict]) -> Dict:
+def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TRACES) -> Dict:
     """spans: dicts with traceId, spanId, parentSpanId, service, start (s), duration (s), error (bool). Returns per-service counts and
     the services that hold each signal, with a short evidence text."""
     by_trace = defaultdict(list)
@@ -88,18 +92,26 @@ def analyse(spans: List[Dict]) -> Dict:
     out = {"n_traces": len(by_trace), "n_err_traces": err_traces, "n_slow": n_slow, "err_origin": dict(err_origin),
            "slow_origin": dict(slow), "holds": {}}
     for svc, c in err_origin.items():
-        if err_traces and c >= MIN_TRACES and c / err_traces >= ORIGIN_SHARE:
+        if err_traces and c >= min_err and c / err_traces >= ORIGIN_SHARE:
             out["holds"][(svc, "trace_err_origin")] = f"errors start here in {c} of {err_traces} failing traces"
     if n_slow and n_rest:
         for svc, c in slow.items():
             contrast = c / n_slow - rest.get(svc, 0) / n_rest
-            if c >= MIN_TRACES and contrast >= SLOW_CONTRAST:
+            if c >= min_slow and contrast >= SLOW_CONTRAST:
                 out["holds"][(svc, "trace_slow_origin")] = (f"largest self time in {c} of {n_slow} slowest traces "
                                                             f"({100 * c / n_slow:.0f}% vs {100 * rest.get(svc, 0) / n_rest:.0f}% of the others)")
     return out
 
 
-def trace_observations(case, db) -> List[Dict]:
+def origin_nodes(obs: List[Dict], hosts: Dict) -> set:
+    """v2: nodes that host >= NODE_MIN_SERVICES services holding a trace origin."""
+    from collections import Counter as _C
+    origin_svcs = {o["entity"] for o in obs if o["signal"] in SIGNALS and o["holds"]}
+    cnt = _C(n for s_ in origin_svcs for n in set(hosts.get(s_, ())))
+    return {n for n, c in cnt.items() if c >= NODE_MIN_SERVICES}
+
+
+def trace_observations(case, db, v2: bool = False) -> List[Dict]:
     """Window spans of the case -> observations for the services of db (holds True / False for every service with spans)."""
     from pipeline.fault_fingerprint import _owner, _naive
     from data.dataset_profile import TRACE_ERROR_STATUS
@@ -121,7 +133,7 @@ def trace_observations(case, db) -> List[Dict]:
         spans.append({"traceId": p.get("traceId"), "spanId": p.get("spanId"), "parentSpanId": p.get("parentSpanId"), "service": svc,
                       "name": p.get("spanName"), "start": ts.timestamp(), "duration": du, "error": str(p.get("statusCode")) == TRACE_ERROR_STATUS})
         seen.add(svc)
-    res = analyse(spans)
+    res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2) if v2 else analyse(spans)
     db["_trace_structure"] = {k: v for k, v in res.items() if k != "holds"}
     obs = []
     for svc in sorted(seen):
