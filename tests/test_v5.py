@@ -353,6 +353,22 @@ def depconseq_jvm_signals_are_consequences_of_slow_dependencies():
     assert m1.p_holds(o, h, bg, {}, hosts, db) > m0.p_holds(o, h, bg, {}, hosts, db)
 
 
+@test
+def depbase_history_test_needs_rank_and_effect():
+    from pipeline.dep_latency import dep_kind, slow_test
+    assert dep_kind("SELECT inventory.inventory", '{"component.name":"mysql"}') == "db"
+    assert dep_kind("HikariDataSource.getConnection", '{"otel.scope.name":"io.opentelemetry.hikaricp"}') == "db"     # pool wait
+    assert dep_kind("HGET", '{"otel.scope.name":"OpenTelemetry.Instrumentation.StackExchangeRedis"}') == "redis"
+    assert dep_kind("orders receive", '{"messaging.system":"kafka"}') == "queue"
+    assert dep_kind("GET /api/cart", "{}") == "other"
+    hist = [0.4] * 4000 + [0.5] * 500
+    assert slow_test([5000.0, 5001.0, 5000.5, 5001.2], hist)[0]                         # timeouts: few spans, huge shift
+    assert slow_test([0.4] * 900 + [1.0] * 300, hist)[0]                                # upper tail doubles
+    tiny = slow_test([0.4] * 3500 + [0.5] * 600, [0.4] * 4000 + [0.5] * 400)           # large n, ~no change: rank test alone fires
+    assert tiny[1] <= 0.05 and not tiny[0]
+    assert slow_test([0.4, 0.5], hist) is None                                          # too few spans: no observation
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

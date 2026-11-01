@@ -199,3 +199,24 @@ help; when a resource fault ALSO slows DB calls, the dependency types may now wi
 Diagnostic (odd cases only): scripts/diagnostics/db_spans.py prints the DB-like spans of a service, how fault_calibrated
 classifies them, and the in-window duration test behind db_slow.
 Run: V4_RULE_MM_T3_OMSG_FI_DEP on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG_FI.
+
+## Amendment 10 (2026-11-01, before any run of this part): dependency latency against the service's own history
+
+Diagnostic scripts/diagnostics/db_spans.py on odd cases t015, t085, t021, t097 (dependency-type faults, all at inventory):
+- db_slow compared the window's DB spans with the service's OTHER window spans. A query span (median 0.4-0.5 ms) is much shorter
+  than the server span containing it (1.2-1.9 ms), so the test is weak by construction. t015 (DB calls time out at 5 s, only 4 DB
+  spans in the window): p = 0.36 today, p = 0.0003 against the same spans before the window. t097: holds today only through the tail.
+- HikariDataSource.getConnection (connection-pool wait, ~9,000 spans per case) was classified "other", i.e. it entered the comparison
+  group instead of the database group.
+- t085 (slowSQL): DB span durations are unchanged (0.4 / 0.4 ms) under both tests -> not detectable from traces; expected to stay wrong.
+- t085 cart redis spans: median and p90 unchanged, yet a rank test against history gives p = 1.9e-23 (12,000 vs 4,000 spans): a rank
+  test alone over-fires on large span counts -> an effect-size condition is required.
+- RCA100 records no redis client spans in most cases (t097: none) -> redis faults rely on messages / logs (unchanged).
+Part `depbase` (pipeline/dep_latency.py; no new constants): per service and dependency kind, <dep>_slow holds iff window durations >
+history durations (one-sided Mann-Whitney, p <= ALPHA) AND mean of the slowest 10% in the window >= (1 + SLOW_CONTRAST) x that of the
+history; history = the same kind of span of the same service in the B_SPAN window lengths before the window; connection-pool spans
+(hikari, c3p0, dbcp, druid, getConnection) count as database calls. It replaces db_slow / redis_slow / queue_slow; no observation
+without dependency spans. The tail-mean (not the 0.9 quantile) was chosen while writing the unit tests, because durations are
+recorded in 0.1 ms steps and a quantile jumps between steps.
+Disclosure: designed after inspecting four odd (development) cases with labels; even cases unseen.
+Run: V4_RULE_MM_T3_OMSG_FI_DEPB (= FI parts + depconseq + depbase) on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG_FI_DEP.
