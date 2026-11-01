@@ -241,3 +241,13 @@ extra time in itself. Same principle as the slow origin of amendment 4, applied 
 Run: V4_RULE_MM_T3_OMSG_FI_DBS (= FI parts + depbase + depshare, WITHOUT depconseq) on DEV_ODD (CPU), compared with
 V4_RULE_MM_T3_OMSG_FI (to be run as well: it separates the FI parts from the dependency parts). Decision rule: if FI_DBS does not
 improve over FI, the dependency parts are dropped and recorded as negative results.
+
+### Result of amendment 11 (V4_RULE_MM_T3_OMSG_FI_DBS, DEV_ODD, commit d0d89fe)
+Final 53.7 (shard 0 RP-nodes taken from T3_OMSG for identical entities; plain Final 45.0 vs 45.6, Wilcoxon p = 0.82) / EL 64.3 /
+FI 21.2 / group 44.2 (entities 29, types 11) vs V4_RULE_MM_T3_OMSG 54.5 / 66.0 / 21.2 / 44.2 (30, 11). The redis / queue sinks of
+depconseq are gone. depshare keeps db_slow at the DB faults (t015 share 99%+, t021 99% vs 20%) and removes most non-DB holdings, but
+still passes t031, t039, t055 (share 18-22% -> 22-25%). Detection is no longer the bottleneck: t015 and t021 hold db_slow and are
+still typed memoryPressure, because four resource signals at inventory (memory, CPU, GC, threads) outweigh one dependency key.
+Type changes vs T3_OMSG: +t007 threadExhaustion, +t047 / t057 / t061 memoryPressure; -t053 / t067 / t071 cpuFullLoad (-> fullGC /
+memoryPressure), -t091. CPU, memory, GC and dependency faults at the same JVM service raise the same set of signals; their counts do
+not separate them. Next: diagnostic scripts/diagnostics/signal_onsets_dev.py (which signal moves first, odd cases only).
