@@ -282,6 +282,33 @@ def cpu_deadloop_needs_starvation_evidence():
     assert "F012-cpuDeadLoop" in [h["type"] for h in T2]
 
 
+@test
+def unreachable_callee_takes_the_origin_from_its_caller():
+    """torigin3: shipping is scaled to zero, so checkout's client span fails with 'connection refused' and has no child span; the
+    origin is shipping (named in the span), not checkout. A timeout with a (slow, non-failing) child goes to that child."""
+    from pipeline.trace_structure import analyse, callee_of
+    svcs = ["frontend", "checkout", "shipping", "email", "product-catalog", "frontend-proxy"]
+    assert callee_of({"service": "checkout", "name": "oteldemo.ShippingService/GetQuote", "attrs": ""}, svcs) == "shipping"
+    assert callee_of({"service": "checkout", "name": "POST", "attrs": '"server.address":"product-catalog"'}, svcs) == "product-catalog"
+    assert callee_of({"service": "frontend-proxy", "name": "ingress", "attrs": ""}, svcs) == ""
+    spans = []
+    for i in range(12):
+        t = f"r{i}"
+        spans += [{**_sp(t, f"{t}a", None, "frontend", 0, 1.0, True), "msg": "rpc error"},
+                  {**_sp(t, f"{t}b", f"{t}a", "checkout", 0.1, 0.5, True, name="oteldemo.ShippingService/GetQuote"),
+                   "msg": "dial tcp 10.0.0.9:50051: connect: connection refused"}]
+    for i in range(12):
+        t = f"o{i}"
+        spans += [{**_sp(t, f"{t}a", None, "frontend", 0, 6.0, True), "msg": "context deadline exceeded"},
+                  {**_sp(t, f"{t}b", f"{t}a", "product-catalog", 0.1, 5.5, False, name="GetProduct"), "msg": ""}]
+    v2 = analyse(spans, 10, 5)
+    v3 = analyse(spans, 10, 5, services=svcs)
+    assert v2["err_origin"].get("checkout") == 12 and "shipping" not in v2["err_origin"]
+    assert v3["err_origin"].get("shipping") == 12 and "checkout" not in v3["err_origin"], v3["err_origin"]
+    assert v3["err_origin"].get("product-catalog") == 12 and v3["relayed_to_callee"] == {"shipping": 12, "product-catalog": 12}
+    assert ("shipping", "trace_err_origin") in v3["holds"]
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

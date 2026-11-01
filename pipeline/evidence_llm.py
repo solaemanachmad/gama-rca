@@ -73,9 +73,9 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
                     "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
     from pipeline.belief_v4 import parts_from_env                 # same evidence as GAMA-RCA: trace origins when 'torigin' is on
     _pe = parts_from_env()
-    if "torigin" in _pe or "torigin2" in _pe:
+    if {"torigin", "torigin2", "torigin3"} & set(_pe):
         from pipeline.trace_structure import trace_observations
-        obs += trace_observations(case, db, v2="torigin2" in _pe)
+        obs += trace_observations(case, db, v2=bool({"torigin2", "torigin3"} & set(_pe)), omsg="omsg" in _pe, v3="torigin3" in _pe)
     ev = {}
     for o in obs:
         if o["holds"]:

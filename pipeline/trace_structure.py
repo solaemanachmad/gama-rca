@@ -44,7 +44,41 @@ def _union_len(iv):
     return tot
 
 
-def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TRACES) -> Dict:
+_UNREACHABLE = None
+
+
+def _norm(x: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]", "", str(x or "").lower())
+
+
+def callee_of(span: Dict, services: List[str]) -> str:
+    """v3 ('torigin3'): the service a CLIENT span calls, read from its name and attributes (gRPC 'pkg.ShippingService/GetQuote',
+    server.address / peer.service / url.full ...): the longest known service name (normalised, 'service' suffix dropped) that occurs,
+    other than the span's own service. '' if none."""
+    text = _norm(span.get("name")) + " " + _norm(span.get("attrs"))
+    best = ""
+    for sv in services:
+        key = _norm(sv).replace("service", "")
+        if sv != span["service"] and len(key) >= 3 and key in text and len(key) > len(_norm(best)):
+            best = sv
+    return best
+
+
+def unreachable_kind(span: Dict) -> str:
+    """'unreachable' if the failure message says the callee could not be reached (refused / unavailable / no such host / no
+    endpoints), 'timeout' for timeouts, '' otherwise."""
+    import re
+    global _UNREACHABLE
+    _UNREACHABLE = _UNREACHABLE or (re.compile(r"connection refused|econnrefused|unavailable|no such host|could not resolve|"
+                                               r"name resolution|no healthy upstream|no endpoints|connection reset|"
+                                               r"upstream connect error", re.I),
+                                    re.compile(r"timeout|timed out|deadline exceeded", re.I))
+    m = span.get("msg") or ""
+    return "unreachable" if _UNREACHABLE[0].search(m) else ("timeout" if _UNREACHABLE[1].search(m) else "")
+
+
+def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TRACES, services: List[str] = None) -> Dict:
     """spans: dicts with traceId, spanId, parentSpanId, service, start (s), duration (s), error (bool). Returns per-service counts and
     the services that hold each signal, with a short evidence text."""
     by_trace = defaultdict(list)
@@ -54,6 +88,7 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
     err_traces, err_origin = 0, Counter()
     origin_spans = defaultdict(list)                    # service -> origin (deepest failing) spans, for 'omsg'
     origin_traces = defaultdict(set)                    # service -> traceIds where it is an origin
+    relayed = Counter()                                  # v3: origins moved from a caller to the callee it could not reach
     groups = defaultdict(list)                          # root operation -> [(trace duration, top self-time service)]
     for tid, ss in by_trace.items():
         ids = {s["spanId"]: s for s in ss}
@@ -65,11 +100,26 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
         if any(s["error"] for s in ss):
             err_traces += 1
             deepest = [s for s in ss if s["error"] and not any(c["error"] for c in kids.get(s["spanId"], []))]
-            for svc in {s["service"] for s in deepest}:
+            owners = []
+            for s in deepest:
+                own = s["service"]
+                if services is not None:                  # v3: a caller that could not reach / waited out its callee is not the origin
+                    kind, ch = unreachable_kind(s), kids.get(s["spanId"], [])
+                    if kind == "unreachable" and not ch:
+                        own = callee_of(s, services) or own
+                    elif kind == "timeout":
+                        if ch:
+                            own = max(ch, key=lambda c: c.get("duration") or 0.0)["service"]
+                        else:
+                            own = callee_of(s, services) or own
+                    if own != s["service"]:
+                        relayed[own] += 1
+                owners.append((own, s))
+            for svc in {o for o, _ in owners}:
                 err_origin[svc] += 1
                 origin_traces[svc].add(tid)
-            for s in deepest:
-                origin_spans[s["service"]].append(s)
+            for own, s in owners:
+                origin_spans[own].append(s)
         self_t = Counter()
         for s in ss:
             st, du = s.get("start") or 0.0, max(s.get("duration") or 0.0, 0.0)
@@ -95,7 +145,8 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
                 rest[svc] += 1
                 n_rest += 1
     out = {"n_traces": len(by_trace), "n_err_traces": err_traces, "n_slow": n_slow, "err_origin": dict(err_origin),
-           "slow_origin": dict(slow), "holds": {}, "origin_spans": origin_spans, "origin_traces": origin_traces}
+           "slow_origin": dict(slow), "holds": {}, "origin_spans": origin_spans, "origin_traces": origin_traces,
+           "relayed_to_callee": dict(relayed)}
     for svc, c in err_origin.items():
         if err_traces and c >= min_err and c / err_traces >= ORIGIN_SHARE:
             out["holds"][(svc, "trace_err_origin")] = f"errors start here in {c} of {err_traces} failing traces"
@@ -168,7 +219,7 @@ OMSG_SIGNALS = tuple([f"omsg_{f}" for f in ("npe", "ratelimit", "oom", "gc", "th
                                                 "queue", "cache", "lb", "netpol")] + ["ohttp429", "ohttp403", "ohttp503", "ohttp5xx"])
 
 
-def trace_observations(case, db, v2: bool = False, omsg: bool = False) -> List[Dict]:
+def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool = False) -> List[Dict]:
     """Window spans of the case -> observations for the services of db (holds True / False for every service with spans)."""
     from pipeline.fault_fingerprint import _owner, _naive
     from data.dataset_profile import TRACE_ERROR_STATUS
@@ -191,7 +242,12 @@ def trace_observations(case, db, v2: bool = False, omsg: bool = False) -> List[D
                       "name": p.get("spanName"), "start": ts.timestamp(), "duration": du, "error": str(p.get("statusCode")) == TRACE_ERROR_STATUS,
                       "msg": str(p.get("statusMessage") or ""), "attrs": p.get("attributes") if isinstance(p.get("attributes"), str) else ""})
         seen.add(svc)
-    res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2) if v2 else analyse(spans)
+    if v3:
+        res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2, services=services)
+    elif v2:
+        res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2)
+    else:
+        res = analyse(spans)
     om = {}
     if omsg:
         logs = []

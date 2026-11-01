@@ -223,3 +223,8 @@ Same parts as V4_RULE in results-2, so the pair is matched (only the LLM differs
 
 Trace analysis (odd cases): 19 of 20 entity errors have evidence at the true root -> attribution problem. Next: `torigin`
 (trace error origin / slow origin), the last design change before VAL_EVEN and the external benchmark.
+| A + mm + torigin (v1) | 58.8 | 17.3 | 71.6 | 50.2 | vs mm: 3 better, 4 worse (node got any hosted origin) |
+| A + mm + torigin2 + omsg | 66.0 | 17.3 | 72.3 | **53.3** | vs mm: 8 better, 5 worse; exact entities 25 -> 29 |
+| A + mm + torigin2 + omsg + cpuspec | 66.0 | 15.4 | 72.3 | 52.7 | cpuspec rejected (CPU stress also lowers throughput) |
+
+Next: torigin3 (a caller that cannot reach its callee is not the origin; 5 odd cases of 'connection refused' at checkout).

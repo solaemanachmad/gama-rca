@@ -50,6 +50,9 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
            is uninformative; never a propagated symptom
   torigin2 trace structure v2 (amendment 5): as torigin, with minimum counts (10 failing / 5 slow traces) and a node supported only
            when >= 2 of its hosted services are origins (tier decision: one failing service on a node is a service fault)
+  torigin3 trace structure v3 (amendment 7) = torigin2 + a deepest failing CLIENT span that could not reach its callee (refused /
+           unavailable / no such host, no child span) or timed out waiting for it is attributed to the callee (named in the span
+           name / attributes, or the longest child for a timeout), not to the caller
   omsg     origin messages (amendment 6; needs torigin or torigin2): the status message / HTTP code of a service's ORIGIN spans and
            the log lines linked to its origin traces by trace id -> omsg_<category>, ohttp<code>; role 'may' of every type whose
            fingerprint names the same message category or status code (present: support; absent: uninformative)
@@ -74,8 +77,8 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec")
-V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec")
+             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3")
+V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3")
 DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops") + V5_PARTS)      # rnull/ops did not help; v5 parts opt-in
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
@@ -236,7 +239,7 @@ class Model:
             return True
         if h["entity"] not in (hosts or {}).get(o["entity"], ()):
             return False
-        return "torigin2" not in self.parts or h["entity"] in self.origin_nodes      # v2: a node needs >= 2 origin services
+        return not ({"torigin2", "torigin3"} & self.parts) or h["entity"] in self.origin_nodes   # v2/v3: a node needs >= 2 origin services
 
     def may(self, o, h, hosts=None):
         if o["signal"] in TRACE_SIGNALS:                         # absence of a trace origin is uninformative
@@ -334,10 +337,11 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         for s_, bad in unavailability(db).items():
             obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
                         "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
-    if ("torigin" in parts or "torigin2" in parts) and case is not None:
+    if ("torigin" in parts or "torigin2" in parts or "torigin3" in parts) and case is not None:
         from pipeline.trace_structure import trace_observations, origin_nodes
-        obs += trace_observations(case, db, v2="torigin2" in parts, omsg="omsg" in parts)
-        if "torigin2" in parts:
+        obs += trace_observations(case, db, v2="torigin2" in parts or "torigin3" in parts, omsg="omsg" in parts,
+                                  v3="torigin3" in parts)
+        if "torigin2" in parts or "torigin3" in parts:
             model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
     H = model.testable(model.hypotheses(db), obs)
     bg = bd.background(obs, db)
@@ -431,7 +435,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     hosts = db.get("hosts", {})
     contrib = []
     for o in obs:
-        if ("torigin" in parts or "torigin2" in parts) and not o["holds"] and (("prop" in parts and model.propagated(o, hb, expl, hosts))
+        if ({"torigin", "torigin2", "torigin3"} & set(parts)) and not o["holds"] and (("prop" in parts and model.propagated(o, hb, expl, hosts))
                                                        or model.may(o, hb, hosts)):
             continue    # v5: an uninformative absence (as in the likelihood) is not listed as evidence; A (frozen) is unchanged
         p1, p0 = model.p_holds(o, hb, bg, expl, hosts, db), model.p_holds(o, H[-1], bg, expl, hosts, db)

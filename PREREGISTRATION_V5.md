@@ -150,3 +150,20 @@ message evidence counted per service misleads; read at the origin it names the m
 Part `cpuspec`: cpuDeadLoop (a loop starving its own process) needs starvation evidence: key = svc_cpu_rise & svc_request_drop; a
 CPU rise alone is cpuFullLoad (parsimony; the two fingerprints were otherwise near-identical and flipped on small changes).
 Runs on DEV_ODD: V4_RULE_MM_T2_OMSG_CPU (all), V4_RULE_MM_T2_OMSG, V4_RULE_MM_T2_CPU, against V4_RULE_MM_TORIGIN2.
+
+## Results of `omsg` / `cpuspec` (odd half) and Amendment 7 (2026-11-01)
+
+Commit bf3b3a1, DEV_ODD (52 cases), Final (EL / FI): A 48.7 (56.4 / 15.4); mm 50.4 (57.9 / 19.2); mm+torigin 50.2 (58.8 / 17.3);
+mm+torigin2+omsg 53.3 (66.0 / 17.3), exact entities 29 (mm 25), 8 better / 5 worse vs mm (p = 0.47);
+mm+torigin2+omsg+cpuspec 52.7 (66.0 / 15.4). The V4_RULE_MM_TORIGIN2 arm alone was not run, so torigin2 and omsg are not separated.
+`cpuspec` is REJECTED: the CPU stress also lowers throughput, so the request drop does not separate deadLoop from fullLoad (t067,
+t071, t093 became cpuDeadLoop). The two CPU types remain indistinguishable with the available signals (a limitation to report).
+Remaining systematic error (5 cases: t033, t065, t081, t087, t095): when a callee has no pods (replicaScaleDown, podPending), the
+caller's client span fails with 'connection refused' and has no child span, so the CALLER (checkout) is the deepest failing span,
+the error origin, and its 'refused' message makes it networkPolicyIsolation.
+
+Part `torigin3` (= torigin2 + caller-to-callee attribution; no new constant): a deepest failing span with an 'unreachable' message
+(refused / unavailable / no such host / no healthy upstream / no endpoints / connection reset) and no child span, or with a timeout
+message, is attributed to its callee: the service named in the span name or attributes (longest known service name, normalised,
+other than its own), or for a timeout with children, the longest child. Otherwise the span's own service keeps the origin. Counts
+of moved origins are stored (v5_relayed). Run: V4_RULE_MM_T3_OMSG on DEV_ODD vs V4_RULE_MM_T2_OMSG.
