@@ -250,6 +250,38 @@ def torigin2_node_needs_two_origin_services_and_counts():
     assert m1.p_holds(o, h_node, bg, {}, hosts, db) == 0.6
 
 
+@test
+def origin_messages_are_read_where_the_failure_starts():
+    from pipeline.trace_structure import analyse, origin_messages
+    spans = []
+    for i in range(12):            # inventory throttles (429 + 'rate limit'); checkout relays it as 500 with the same wording
+        t = f"{i:032x}"
+        spans += [{**_sp(t, f"{t}a", None, "checkout", 0, 1.0, True), "msg": "upstream: rate limit exceeded",
+                   "attrs": '"http.status_code":"500"'},
+                  {**_sp(t, f"{t}b", f"{t}a", "inventory", 0.1, 0.5, True), "msg": "rate limit exceeded",
+                   "attrs": '"http.status_code":"429"'}]
+    res = analyse(spans, 10, 5)
+    om = origin_messages(res, logs=[("inventory", f"WARN throttled trace_id={0:032x} Too Many Requests")])
+    assert ("inventory", "omsg_ratelimit") in om and ("inventory", "ohttp429") in om, om
+    assert not any(k[0] == "checkout" for k in om), om               # the caller only relays the failure
+    assert origin_messages(res, logs=None).keys() == om.keys()
+
+
+@test
+def cpu_deadloop_needs_starvation_evidence():
+    from pipeline import belief_v4 as b4
+    fp = b4.fingerprints_v4(set(b4.DEFAULT_PARTS) | {"cpuspec"})
+    assert fp["F012-cpuDeadLoop"]["key"] == ["svc_cpu_rise&svc_request_drop"] and fp["F034-cpuFullLoad"]["key"] == ["svc_cpu_rise"]
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["cpuspec"])
+    obs = [{"entity": "cart", "signal": "svc_cpu_rise", "holds": True, "kind": "cont"}]
+    H = [{"entity": "cart", "level": "service", "type": "F034-cpuFullLoad"}, {"entity": "cart", "level": "service", "type": "F012-cpuDeadLoop"},
+         {"entity": None, "level": None, "type": None}]
+    T = m.testable(H, obs)
+    assert [h["type"] for h in T] == ["F034-cpuFullLoad", None]          # deadLoop untestable without the request drop
+    T2 = m.testable(H, obs + [{"entity": "cart", "signal": "svc_request_drop", "holds": False, "kind": "cont"}])
+    assert "F012-cpuDeadLoop" in [h["type"] for h in T2]
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

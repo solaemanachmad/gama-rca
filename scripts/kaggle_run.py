@@ -72,8 +72,9 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
-          "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2")     # = belief_v4.ALL_PARTS
-V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2"))  # = DEFAULT_PARTS
+          "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec")  # = ALL_PARTS
+V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg",
+                                                  "cpuspec"))                                       # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -134,6 +135,12 @@ ARMS = {                                                          # name -> extr
                            "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                 # CPU
     "V4_RULE_MM_TORIGIN2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                             "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2"))},                                               # CPU
+    "V4_RULE_MM_T2_OMSG_CPU": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                               "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "omsg", "cpuspec"))},                         # CPU
+    "V4_RULE_MM_T2_OMSG": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "omsg"))},                                        # CPU
+    "V4_RULE_MM_T2_CPU": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "cpuspec"))},                                      # CPU
     "V4_RULE_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},   # CPU
     "V4_MM_TORIGIN": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                       "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                     # GPU

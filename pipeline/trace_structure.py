@@ -52,6 +52,8 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
         if s.get("traceId") and s.get("spanId") and s.get("service"):
             by_trace[s["traceId"]].append(s)
     err_traces, err_origin = 0, Counter()
+    origin_spans = defaultdict(list)                    # service -> origin (deepest failing) spans, for 'omsg'
+    origin_traces = defaultdict(set)                    # service -> traceIds where it is an origin
     groups = defaultdict(list)                          # root operation -> [(trace duration, top self-time service)]
     for tid, ss in by_trace.items():
         ids = {s["spanId"]: s for s in ss}
@@ -62,9 +64,12 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
                 kids[p].append(s)
         if any(s["error"] for s in ss):
             err_traces += 1
-            origins = {s["service"] for s in ss if s["error"] and not any(c["error"] for c in kids.get(s["spanId"], []))}
-            for svc in origins:
+            deepest = [s for s in ss if s["error"] and not any(c["error"] for c in kids.get(s["spanId"], []))]
+            for svc in {s["service"] for s in deepest}:
                 err_origin[svc] += 1
+                origin_traces[svc].add(tid)
+            for s in deepest:
+                origin_spans[s["service"]].append(s)
         self_t = Counter()
         for s in ss:
             st, du = s.get("start") or 0.0, max(s.get("duration") or 0.0, 0.0)
@@ -90,7 +95,7 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
                 rest[svc] += 1
                 n_rest += 1
     out = {"n_traces": len(by_trace), "n_err_traces": err_traces, "n_slow": n_slow, "err_origin": dict(err_origin),
-           "slow_origin": dict(slow), "holds": {}}
+           "slow_origin": dict(slow), "holds": {}, "origin_spans": origin_spans, "origin_traces": origin_traces}
     for svc, c in err_origin.items():
         if err_traces and c >= min_err and c / err_traces >= ORIGIN_SHARE:
             out["holds"][(svc, "trace_err_origin")] = f"errors start here in {c} of {err_traces} failing traces"
@@ -103,6 +108,54 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
     return out
 
 
+OMSG_SHARE = 0.3          # 'omsg': a category holds at an origin service if >= 30% of its origin spans / linked log lines carry it
+_HEX32 = None
+
+
+def origin_messages(res: Dict, logs=None) -> Dict:
+    """v5 'omsg' (amendment 6): WHAT fails, read only where the failure starts. For every service that is an error origin, the status
+    message and HTTP status code of its ORIGIN spans (deepest failing spans) and, when log lines carry the trace id of one of its origin
+    traces, those log lines. Messages of callers that merely relay a callee's failure ('upstream failed: rate limit') are not counted
+    at the caller. Returns {(service, signal): evidence} for omsg_<category> and ohttp<code> (429, 403, 503, 5xx)."""
+    import re
+    from pipeline.fault_fingerprint import _TEXT_FAMILIES, _HTTP_RE
+    global _HEX32
+    _HEX32 = _HEX32 or re.compile(r"\b[0-9a-f]{32}\b", re.I)
+    out = {}
+    origins = {sv for (sv, sig) in res["holds"] if sig == "trace_err_origin"}
+    tid2svc = {str(t).lower(): sv for sv in origins for t in res["origin_traces"].get(sv, ())}
+    linked = defaultdict(list)
+    for svc, line in (logs or []):
+        for t in _HEX32.findall(line or ""):
+            if tid2svc.get(t.lower()) == svc:
+                linked[svc].append(line)
+                break
+    for svc in origins:
+        spans = res["origin_spans"].get(svc, [])
+        texts = [s.get("msg") or "" for s in spans] + linked.get(svc, [])
+        n = max(len(texts), 1)
+        cat = Counter()
+        for t in texts:
+            for f, rx in _TEXT_FAMILIES:
+                if f != "error" and t and rx.search(t):
+                    cat[f] += 1
+        for f, c in cat.items():
+            if c / n >= OMSG_SHARE:
+                out[(svc, f"omsg_{f}")] = f"{c} of {n} origin spans / linked log lines mention '{f}'"
+        codes = Counter()
+        for s in spans:
+            m = _HTTP_RE.search(s.get("attrs") or "")
+            if m:
+                c = m.group(1)
+                codes[c] += 1
+                if c.startswith("5"):
+                    codes["5xx"] += 1
+        for c in ("429", "403", "503", "5xx"):
+            if len(spans) and codes[c] / len(spans) >= OMSG_SHARE:
+                out[(svc, f"ohttp{c}")] = f"HTTP {c} in {codes[c]} of {len(spans)} origin spans"
+    return out
+
+
 def origin_nodes(obs: List[Dict], hosts: Dict) -> set:
     """v2: nodes that host >= NODE_MIN_SERVICES services holding a trace origin."""
     from collections import Counter as _C
@@ -111,7 +164,11 @@ def origin_nodes(obs: List[Dict], hosts: Dict) -> set:
     return {n for n, c in cnt.items() if c >= NODE_MIN_SERVICES}
 
 
-def trace_observations(case, db, v2: bool = False) -> List[Dict]:
+OMSG_SIGNALS = tuple([f"omsg_{f}" for f in ("npe", "ratelimit", "oom", "gc", "thread", "timeout", "refused", "redis", "dns", "sql",
+                                                "queue", "cache", "lb", "netpol")] + ["ohttp429", "ohttp403", "ohttp503", "ohttp5xx"])
+
+
+def trace_observations(case, db, v2: bool = False, omsg: bool = False) -> List[Dict]:
     """Window spans of the case -> observations for the services of db (holds True / False for every service with spans)."""
     from pipeline.fault_fingerprint import _owner, _naive
     from data.dataset_profile import TRACE_ERROR_STATUS
@@ -131,13 +188,31 @@ def trace_observations(case, db, v2: bool = False) -> List[Dict]:
         except (TypeError, ValueError):
             du = 0.0
         spans.append({"traceId": p.get("traceId"), "spanId": p.get("spanId"), "parentSpanId": p.get("parentSpanId"), "service": svc,
-                      "name": p.get("spanName"), "start": ts.timestamp(), "duration": du, "error": str(p.get("statusCode")) == TRACE_ERROR_STATUS})
+                      "name": p.get("spanName"), "start": ts.timestamp(), "duration": du, "error": str(p.get("statusCode")) == TRACE_ERROR_STATUS,
+                      "msg": str(p.get("statusMessage") or ""), "attrs": p.get("attributes") if isinstance(p.get("attributes"), str) else ""})
         seen.add(svc)
     res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2) if v2 else analyse(spans)
-    db["_trace_structure"] = {k: v for k, v in res.items() if k != "holds"}
+    om = {}
+    if omsg:
+        logs = []
+        for o in case.observations.get("logs", []):
+            p = o.payload or {}
+            ts = _naive(o.timestamp)
+            if ts is None or ts < w0 or ts > w1:
+                continue
+            svc = _owner(p.get("_container_name_"), services)
+            if svc:
+                logs.append((svc, str(p.get("content") or "")))
+        om = origin_messages(res, logs)
+    db["_trace_structure"] = {k: v for k, v in res.items() if k not in ("holds", "origin_spans", "origin_traces")}
+    db["_trace_structure"]["origin_messages"] = {f"{k[0]}:{k[1]}": v for k, v in om.items()}
     obs = []
     for svc in sorted(seen):
         for sig in SIGNALS:
             ev = res["holds"].get((svc, sig), "")
             obs.append({"entity": svc, "signal": sig, "holds": bool(ev), "kind": "cat", "ev": ev})
+        if omsg:
+            for sig in OMSG_SIGNALS:
+                ev = om.get((svc, sig), "")
+                obs.append({"entity": svc, "signal": sig, "holds": bool(ev), "kind": "cat", "ev": ev})
     return obs

@@ -50,6 +50,11 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
            is uninformative; never a propagated symptom
   torigin2 trace structure v2 (amendment 5): as torigin, with minimum counts (10 failing / 5 slow traces) and a node supported only
            when >= 2 of its hosted services are origins (tier decision: one failing service on a node is a service fault)
+  omsg     origin messages (amendment 6; needs torigin or torigin2): the status message / HTTP code of a service's ORIGIN spans and
+           the log lines linked to its origin traces by trace id -> omsg_<category>, ohttp<code>; role 'may' of every type whose
+           fingerprint names the same message category or status code (present: support; absent: uninformative)
+  cpuspec  parsimony between the two CPU types (amendment 6): cpuDeadLoop is the SPECIFIC case (a loop starving its own process), so
+           it needs the starvation evidence: key = CPU rise AND request drop; a CPU rise alone is cpuFullLoad
   xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
            modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
@@ -69,8 +74,9 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2"))  # v5 opt-in
+             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec")
+V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops") + V5_PARTS)      # rnull/ops did not help; v5 parts opt-in
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
 THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
@@ -122,6 +128,16 @@ def fingerprints_v4(parts) -> Dict:
         fp["F006-trafficSurge"]["sup"] = list(dict.fromkeys(fp["F006-trafficSurge"]["sup"] + ["svc_request_rise"]))
         for t in ("F014-httpError5xx", "F011-codeDefect"):
             fp[t]["sup"] = list(dict.fromkeys(fp[t]["sup"] + ["svc_err_rate_rise"]))
+    if "omsg" in parts:                                  # v5: the same evidence read at the origin spans
+        for t, f in fp.items():
+            atoms = {a for k in f.get("key", []) + f.get("sup", []) for a in _atoms(k)}
+            extra = [("omsg_" + a[4:]) for a in atoms if a.startswith("msg_")]
+            extra += [("omsg_" + a[4:-5]) for a in atoms if a.startswith("log_") and a.endswith("_rise")]
+            extra += [("o" + a) for a in atoms if a in ("http429", "http403", "http503", "http5xx")]
+            if extra:
+                f["may"] = list(dict.fromkeys(f.get("may", []) + sorted(set(extra))))
+    if "cpuspec" in parts:                               # v5: deadLoop needs starvation evidence; plain CPU rise = fullLoad
+        fp["F012-cpuDeadLoop"]["key"] = ["svc_cpu_rise&svc_request_drop"]
     if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)
         fp["F014-httpError5xx"]["key"].append("op_error_rise")
         for t in ("F011-codeDefect", "F023-nullPointerException", "F016-rateLimiting"):
@@ -320,7 +336,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
                         "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
     if ("torigin" in parts or "torigin2" in parts) and case is not None:
         from pipeline.trace_structure import trace_observations, origin_nodes
-        obs += trace_observations(case, db, v2="torigin2" in parts)
+        obs += trace_observations(case, db, v2="torigin2" in parts, omsg="omsg" in parts)
         if "torigin2" in parts:
             model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
     H = model.testable(model.hypotheses(db), obs)
@@ -459,7 +475,7 @@ def modality(signal: str) -> str:
         return "events"
     if signal.startswith(("log_", "msg_")) or signal == "message":
         return "logs"
-    if signal.startswith("http") or signal == "error_spans" or signal.split("_")[0] in ("db", "redis", "queue"):
+    if signal.startswith(("http", "ohttp", "omsg_", "trace_")) or signal == "error_spans" or signal.split("_")[0] in ("db", "redis", "queue"):
         return "traces"
     return "metrics"
 

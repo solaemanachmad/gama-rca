@@ -101,6 +101,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
              **({"v5_err_traces": (res.get("trace_structure") or {}).get("n_err_traces"),
                  "v5_err_origin": "|".join(f"{k}:{v}" for k, v in sorted(((res.get("trace_structure") or {}).get("err_origin") or {}).items(),
                                                                        key=lambda kv: -kv[1])[:3]),
+                 "v5_origin_msgs": "|".join(sorted(((res.get("trace_structure") or {}).get("origin_messages") or {}).keys())),
                  "v5_slow_origin": "|".join(f"{k}:{v}" for k, v in sorted(((res.get("trace_structure") or {}).get("slow_origin") or {}).items(),
                                                                         key=lambda kv: -kv[1])[:3])}
                 if res.get("trace_structure") else {}),

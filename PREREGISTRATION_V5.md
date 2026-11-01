@@ -139,3 +139,14 @@ together with an external benchmark).
 Part `torigin2` (fixed before any run): as torigin with MIN_ERR_TRACES 10, MIN_SLOW_TRACES 5, and a node supported by trace origins
 only when >= 2 of the services it hosts are origins (a node fault hits co-located services together). torigin (v1) is unchanged.
 Run: V4_RULE_MM_TORIGIN2 on DEV_ODD; compared with V4_RULE_MM and V4_RULE_MM_TORIGIN.
+
+## Amendment 6 (2026-11-01, before any run of these parts): origin messages and CPU parsimony
+
+Part `omsg` (needs torigin / torigin2; constant OMSG_SHARE 0.3 fixed a priori): for each error-origin service, the status messages
+and HTTP codes of its ORIGIN spans, plus log lines that carry the trace id of one of its origin traces (32-hex id in the line), give
+omsg_<category> / ohttp<code> when >= 30% of them carry it. Role 'may' for every type whose fingerprint names the same message
+category or status code. Rationale (odd cases: 26 entity-right / type-wrong): a caller relays its callee's failure message, so
+message evidence counted per service misleads; read at the origin it names the mechanism where it happens.
+Part `cpuspec`: cpuDeadLoop (a loop starving its own process) needs starvation evidence: key = svc_cpu_rise & svc_request_drop; a
+CPU rise alone is cpuFullLoad (parsimony; the two fingerprints were otherwise near-identical and flipped on small changes).
+Runs on DEV_ODD: V4_RULE_MM_T2_OMSG_CPU (all), V4_RULE_MM_T2_OMSG, V4_RULE_MM_T2_CPU, against V4_RULE_MM_TORIGIN2.
