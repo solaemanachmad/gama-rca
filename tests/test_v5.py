@@ -336,6 +336,23 @@ def hostcpu_errclass_tiebreak():
     assert order.index("F034-cpuFullLoad") < order.index("F012-cpuDeadLoop")
 
 
+@test
+def depconseq_jvm_signals_are_consequences_of_slow_dependencies():
+    from pipeline import belief_v4 as b4
+    m0, m1 = b4.Model(list(b4.DEFAULT_PARTS)), b4.Model(list(b4.DEFAULT_PARTS) + ["depconseq"])
+    for t in b4.DEP_LATENCY_TYPES:
+        for a in b4.DEP_CONSEQUENCES:
+            assert m1.roles[t].get(a) in ("M", "U", "K"), (t, a)                # explained when present
+    assert m0.roles["F010-slowSQL"].get("svc_thread_rise") is None
+    assert m1.roles["F010-slowSQL"]["svc_thread_rise"] == "M" and m1.roles["F010-slowSQL"]["db_slow"] == "K"
+    assert m1.roles["F007-memoryPressure"] == m0.roles["F007-memoryPressure"]     # other types unchanged
+    hosts, db = {"inventory": ["node-a"]}, {"nodes": {}}
+    o = {"entity": "inventory", "signal": "svc_thread_rise", "holds": True, "kind": "cat"}
+    h = {"entity": "inventory", "level": "service", "type": "F010-slowSQL", "q": 0.8}
+    bg = {("svc_thread_rise", False): 0.05}
+    assert m1.p_holds(o, h, bg, {}, hosts, db) > m0.p_holds(o, h, bg, {}, hosts, db)
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -69,7 +69,10 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
   xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
            modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
-Nothing here reads labels."""
+Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types (slowSQL, dbNetworkLatency, redisUnavailable, cacheBreakdown,
+           messageQueueBacklog) the caller's svc_thread_rise / svc_cpu_rise / svc_gc_rise are 'may' consequences (threads blocked
+           on the slow dependency), so these JVM signals no longer count only for resource types
+"""
 from __future__ import annotations
 
 import copy
@@ -86,8 +89,12 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak")
-V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak")
+             "errclass", "tiebreak", "depconseq")
+V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
+            "depconseq")
+DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
+                     "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
+DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
 DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops") + V5_PARTS)      # rnull/ops did not help; v5 parts opt-in
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
@@ -148,6 +155,10 @@ def fingerprints_v4(parts) -> Dict:
             extra += [("o" + a) for a in atoms if a in ("http429", "http403", "http503", "http5xx")]
             if extra:
                 f["may"] = list(dict.fromkeys(f.get("may", []) + sorted(set(extra))))
+    if "depconseq" in parts:                             # v5: threads blocked on a slow dependency raise thread count, CPU and GC
+        for t in DEP_LATENCY_TYPES:                      # of the caller -> consequences ('may'), not evidence for resource types only
+            if t in fp:
+                fp[t]["may"] = list(dict.fromkeys(fp[t].get("may", []) + list(DEP_CONSEQUENCES)))
     if "cpuspec" in parts:                               # v5: deadLoop needs starvation evidence; plain CPU rise = fullLoad
         fp["F012-cpuDeadLoop"]["key"] = ["svc_cpu_rise&svc_request_drop"]
     if "ops" in parts:                                   # a failing operation (error count / rate of one endpoint)

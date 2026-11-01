@@ -183,3 +183,19 @@ sort, so an exact tie goes to the type listed first (the general cpuFullLoad bef
 Disclosure: (c) uses the fingerprint order, which lists the general type first; cpuFullLoad is also the more frequent type in
 RCA100 (seen in the labels), which favours this rule on this benchmark.
 Runs: V4_RULE_MM_T3_OMSG_FI on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG; V4_MM_T3_OMSG_FI (GPU, + xcard LLM typing) afterwards.
+
+## Amendment 9 (2026-11-01, before any run of this part): consequences of a slow dependency
+
+Odd-case analysis of mm+torigin3+omsg (DB-type failures): in t021 and t097 db_slow holds at the true root (inventory), yet
+memoryPressure / cpuFullLoad win, because inventory's svc_thread_rise, svc_cpu_rise and svc_gc_rise also hold and these signals
+are explained only by resource types; each unexplained holding signal costs the dependency hypotheses a background factor.
+A thread pool blocked on a slow database or cache grows its thread count, and the waiting/retrying work raises CPU and GC, so these
+are consequences of the dependency fault, not evidence against it.
+Part `depconseq` (no new constants): for F010 slowSQL, F018 dbNetworkLatency, F029 redisUnavailable, F009 cacheBreakdown and
+F005 messageQueueBacklog, add svc_thread_rise, svc_cpu_rise and svc_gc_rise with role 'may' (explained when present, THETA_U;
+uninformative when absent). Key / support / contra roles of every type are unchanged; other types are unchanged.
+Expected failure mode (disclosed before the run): when db_slow does not hold (t015, t085: no DB spans detected), the part cannot
+help; when a resource fault ALSO slows DB calls, the dependency types may now win wrongly.
+Diagnostic (odd cases only): scripts/diagnostics/db_spans.py prints the DB-like spans of a service, how fault_calibrated
+classifies them, and the in-window duration test behind db_slow.
+Run: V4_RULE_MM_T3_OMSG_FI_DEP on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG_FI.
