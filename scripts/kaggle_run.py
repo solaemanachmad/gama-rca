@@ -72,8 +72,8 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
-          "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio")                            # = belief_v4.ALL_PARTS
-V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio")) # = belief_v4.DEFAULT_PARTS
+          "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin")                 # = belief_v4.ALL_PARTS
+V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin"))   # = belief_v4.DEFAULT_PARTS
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -130,12 +130,19 @@ ARMS = {                                                          # name -> extr
     "V4_RULE_RATIO": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("ratio",))},       # CPU
     "V4_RULE_MM_RATIO": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "ratio"))},                                                     # CPU
+    "V4_RULE_MM_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                 # CPU
+    "V4_RULE_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},   # CPU
+    "V4_MM_TORIGIN": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                      "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                     # GPU
     "V4_MM_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                     "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "xcard"))},                                                          # GPU
     "V4_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                  "V4_PARTS": ",".join(V4_DEFAULT + ("xcard",))},                                                                  # GPU
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
-    "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},      # v5 baseline: the LLM decides
+    "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},
+    "EVIDENCE_LLM_TORIGIN": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                             "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},                       # same evidence incl. trace origins      # v5 baseline: the LLM decides
                                                                                                             # from GAMA-RCA's evidence (GPU, 1 call)
     "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
     "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},

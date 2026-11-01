@@ -98,6 +98,12 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
              "v4_pi": round(res["pi"], 4) if res.get("pi") is not None else None, "v4_onset_root": res.get("onset_root"),
              "v4_n_onsets": res.get("n_onsets"), "v5_mm_k": res.get("mm_k"), "v5_mm_beta": res.get("mm_beta"),
              "v5_mm_n_corroborated": res.get("mm_n_corroborated"), "v5_load_explained": "|".join(res.get("load_explained") or []),
+             **({"v5_err_traces": (res.get("trace_structure") or {}).get("n_err_traces"),
+                 "v5_err_origin": "|".join(f"{k}:{v}" for k, v in sorted(((res.get("trace_structure") or {}).get("err_origin") or {}).items(),
+                                                                       key=lambda kv: -kv[1])[:3]),
+                 "v5_slow_origin": "|".join(f"{k}:{v}" for k, v in sorted(((res.get("trace_structure") or {}).get("slow_origin") or {}).items(),
+                                                                        key=lambda kv: -kv[1])[:3])}
+                if res.get("trace_structure") else {}),
              **stats_llmtype}
     ev_lines = [f"- {e['entity']} {e['signal']} {'holds' if e['holds'] else 'absent'} (log Bayes factor {e['log_bf']}): {e['ev']}"
                 for e in res["evidence"]]
@@ -153,7 +159,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
     stats["_trace"] = {                                           # decision trail (agents/trace.py); popped by main.py, never a column
         "alert_text": case.alert.alert_text, "alert_service": alert, "alert_operation": op_name, "parts": res.get("parts"),
         "n_observations": res.get("n_obs"), "n_hypotheses": res.get("n_hyp"), "holding_observations": res.get("holding"),
-        "pi": res.get("pi"), "onsets": res.get("onsets"), "top_hypotheses": res.get("top"), "type_rank": res.get("type_rank"),
+        "pi": res.get("pi"), "onsets": res.get("onsets"), "trace_structure": res.get("trace_structure"), "top_hypotheses": res.get("top"), "type_rank": res.get("type_rank"),
         "decided": {"entity": res.get("entity"), "level": res.get("level"), "type": res.get("type"), "p_entity": res.get("p"),
                     "p_type": res.get("p_type")},
         "evidence_by_bayes_factor": res.get("evidence"), "text_probes": res.get("probes"), "sensor_calls": sensor_log,

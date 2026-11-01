@@ -66,7 +66,7 @@ def agent_code_never_reads_labels():
     mention it)."""
     mods = ["pipeline/belief_v4.py", "pipeline/belief_rca.py", "pipeline/belief_diagnosis.py", "pipeline/fault_v4.py",
             "pipeline/fault_calibrated.py", "pipeline/llm_typing.py", "pipeline/semantic_probes.py", "pipeline/log_preprocess.py",
-            "pipeline/evidence_llm.py", "data/taxonomy.py", "data/loader.py"]
+            "pipeline/evidence_llm.py", "pipeline/trace_structure.py", "data/dataset_profile.py", "data/taxonomy.py", "data/loader.py"]
     bad = []
     for m in mods:
         tree = ast.parse(open(os.path.join(ROOT, m)).read())
@@ -167,6 +167,60 @@ def load_from_upstream_is_explained():
     assert m.p_holds(o, h0, {}, {}, {}, db) == 0.6                 # expected under no fault at recommendation
     assert m.p_holds({**o, "signal": "svc_request_rise"}, hs, {}, {}, {}, db) == 0.8   # still the key of trafficSurge there
     assert m.p_holds(o, h0, {}, {}, {}, {"nodes": {}}) == 0.05      # without loadx: the usual alpha
+
+
+def _sp(tid, sid, parent, svc, start, dur, err=False, name="op"):
+    return {"traceId": tid, "spanId": sid, "parentSpanId": parent, "service": svc, "start": start, "duration": dur, "error": err,
+            "name": name}
+
+
+@test
+def trace_error_origin_is_the_deepest_failing_span():
+    from pipeline.trace_structure import analyse
+    spans = []
+    for i in range(6):                                  # frontend -> checkout -> inventory; inventory fails, callers fail with it
+        t = f"e{i}"
+        spans += [_sp(t, f"{t}a", None, "frontend", 0, 1.0, True), _sp(t, f"{t}b", f"{t}a", "checkout", 0.1, 0.8, True),
+                  _sp(t, f"{t}c", f"{t}b", "inventory", 0.2, 0.5, True)]
+    for i in range(4):                                  # healthy traces
+        t = f"ok{i}"
+        spans += [_sp(t, f"{t}a", None, "frontend", 0, 0.2), _sp(t, f"{t}b", f"{t}a", "checkout", 0.05, 0.1)]
+    r = analyse(spans)
+    assert r["n_err_traces"] == 6 and r["err_origin"] == {"inventory": 6}, r
+    assert ("inventory", "trace_err_origin") in r["holds"] and ("checkout", "trace_err_origin") not in r["holds"]
+
+
+@test
+def trace_slow_origin_uses_self_time_not_inclusive_latency():
+    from pipeline.trace_structure import analyse
+    spans = []
+    for i in range(20):                                 # 18 fast traces: frontend self time dominates; 2... slow: cart self time
+        t = f"t{i}"
+        slow = i >= 16
+        cart = 3.0 if slow else 0.01
+        spans += [_sp(t, f"{t}a", None, "frontend", 0, 0.3 + cart, name="GET /"),
+                  _sp(t, f"{t}b", f"{t}a", "checkout", 0.05, 0.05 + cart, name="PlaceOrder"),
+                  _sp(t, f"{t}c", f"{t}b", "cart", 0.06, cart, name="GetCart")]
+    r = analyse(spans)
+    assert r["slow_origin"].get("cart", 0) >= 3 and ("cart", "trace_slow_origin") in r["holds"], r
+    assert ("checkout", "trace_slow_origin") not in r["holds"] and ("frontend", "trace_slow_origin") not in r["holds"]
+
+
+@test
+def trace_origin_is_own_evidence_and_absence_is_uninformative():
+    from pipeline import belief_v4 as b4
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["torigin"])
+    db = {"nodes": {"node-a": {}}}
+    hosts = {"cart": ["node-a"]}
+    o = {"entity": "cart", "signal": "trace_err_origin", "holds": True, "kind": "cat"}
+    bg = {("trace_err_origin", False): 0.05}
+    h_cart = {"entity": "cart", "level": "service", "type": "F029-redisUnavailable", "q": 0.8}
+    h_node = {"entity": "node-a", "level": "node", "type": "F026-nodeCpuHigh", "q": 0.8}
+    h_caller = {"entity": "checkout", "level": "service", "type": "F014-httpError5xx", "q": 0.8}
+    expl = {"cart": {"checkout"}}                       # even if checkout could explain cart's symptoms, an origin is not a symptom
+    assert m.p_holds(o, h_cart, bg, expl, hosts, db) == 0.6 and m.p_holds(o, h_node, bg, expl, hosts, db) == 0.6
+    assert m.p_holds(o, h_caller, bg, expl, hosts, db) == 0.05
+    assert m.may({**o, "holds": False}, h_cart, hosts) and not m.may({**o, "holds": False}, h_caller, hosts)
 
 
 if __name__ == "__main__":

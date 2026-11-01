@@ -45,6 +45,9 @@ v5 parts (PREREGISTRATION_V5.md amendment 1; opt-in until validated on the even 
            recommendation / ad show request + CPU rises in 29-36 of 52 incidents).
   ratio    relational signals (amendment 3): CPU per request, error rate, and request share relative to the callers; cpuFullLoad /
            cpuDeadLoop are keyed by CPU per request and trafficSurge by the request share (raw rises become support)
+  torigin  trace structure (amendment 4, pipeline/trace_structure.py): error origin (deepest failing spans) and slow origin (largest
+           self time in the slowest traces) per service, as OWN evidence of a root at that service or at the node hosting it; absence
+           is uninformative; never a propagated symptom
   xcard    LLM typing shows, per candidate type, its expected cross-modal signature (from the fingerprint, each signal tagged with its
            modality) and tags every evidence line with its modality.
 'rnull' and 'ops' are opt-in (they did not help in dev runs 2 and 3); V4_PARTS=all means DEFAULT_PARTS.
@@ -64,8 +67,9 @@ from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNAL
 from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
-             "conseq", "retry", "mm", "xcard", "loadx", "ratio")
-DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio"))   # rnull/ops did not help; v5 opt-in
+             "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin")
+DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin"))   # v5 parts opt-in
+from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
 THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
 THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
@@ -191,6 +195,8 @@ class Model:
         base = bd.ALPHA if o["kind"] == "cont" else bg.get((s, e in db["nodes"]), bd.ALPHA)
         if (e, s) in db.get("_load_explained", ()):              # v5 'loadx': load that came from upstream
             base = max(base, bd.THETA_P)
+        if s in TRACE_SIGNALS:                                   # v5 'torigin': own evidence of the root (or of its node)
+            return max(bd.THETA_P, base) if self.trace_own(o, h, hosts) else base
         if h["type"] is None:
             return base
         if e == h["entity"]:
@@ -204,7 +210,13 @@ class Model:
             return max(bd.THETA_P, base)
         return base
 
-    def may(self, o, h):
+    @staticmethod
+    def trace_own(o, h, hosts):
+        return h["type"] is not None and (o["entity"] == h["entity"] or h["entity"] in (hosts or {}).get(o["entity"], ()))
+
+    def may(self, o, h, hosts=None):
+        if o["signal"] in TRACE_SIGNALS:                         # absence of a trace origin is uninformative
+            return self.trace_own(o, h, hosts)
         return h["type"] not in (None, ANOM) and o["entity"] == h["entity"] and self.role(h, o["signal"]) == "M"
 
     def propagated(self, o, h, expl, hosts):
@@ -220,7 +232,7 @@ class Model:
         for o in obs:
             for i, h in enumerate(H):
                 p = self.p_holds(o, h, bg, expl, hosts, db)
-                if not o["holds"] and (("prop" in self.parts and self.propagated(o, h, expl, hosts)) or self.may(o, h)):
+                if not o["holds"] and (("prop" in self.parts and self.propagated(o, h, expl, hosts)) or self.may(o, h, hosts)):
                     p = self.p_holds(o, H[-1], bg, expl, hosts, db)      # partial propagation / possible consequence: absence is uninformative
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll
@@ -239,7 +251,7 @@ class Model:
                         n_abs[i] += 1
                     continue
                 p = self.p_holds(o, h, bg, expl, hosts, db)
-                if not o["holds"] and self.may(o, h):
+                if not o["holds"] and self.may(o, h, hosts):
                     p = self.p_holds(o, H[-1], bg, expl, hosts, db)
                 ll[i] += math.log(p if o["holds"] else 1.0 - p)
         return ll, n_hold, n_abs
@@ -298,6 +310,9 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         for s_, bad in unavailability(db).items():
             obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
                         "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
+    if "torigin" in parts and case is not None:
+        from pipeline.trace_structure import trace_observations
+        obs += trace_observations(case, db)
     H = model.testable(model.hypotheses(db), obs)
     bg = bd.background(obs, db)
     if alert and alert in db["services"]:
@@ -390,6 +405,9 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     hosts = db.get("hosts", {})
     contrib = []
     for o in obs:
+        if "torigin" in parts and not o["holds"] and (("prop" in parts and model.propagated(o, hb, expl, hosts))
+                                                       or model.may(o, hb, hosts)):
+            continue    # v5: an uninformative absence (as in the likelihood) is not listed as evidence; A (frozen) is unchanged
         p1, p0 = model.p_holds(o, hb, bg, expl, hosts, db), model.p_holds(o, H[-1], bg, expl, hosts, db)
         lr = math.log((p1 if o["holds"] else 1 - p1) / (p0 if o["holds"] else 1 - p0))
         if abs(lr) > 0.5:
@@ -401,6 +419,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
             "onset_root": onsets.get(ent), "n_onsets": len(onsets), "onsets": onsets,
             "load_explained": sorted({e for e, _ in db["_load_explained"]}),
+            "trace_structure": db.get("_trace_structure"),
             "mm_beta": mm_beta, "mm_k": int(mm_k[best]) if mm_k is not None else None,
             "mm_n_corroborated": int((mm_k >= 2).sum()) if mm_k is not None else None,
             "holding": [{"entity": o["entity"], "signal": o["signal"], "ev": o["ev"]} for o in obs if o["holds"]]}

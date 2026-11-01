@@ -128,6 +128,28 @@ def ratio_signals_separate_load_from_cpu_fault():
 
 
 @test
+def trace_origin_points_at_the_failing_callee_end_to_end():
+    """v5 'torigin' end to end: cart fails (HTTP 503) and its callers checkout and frontend fail with it in every trace; the trace
+    structure names cart as the error origin and the diagnosis stays at cart (not at a caller that shows more symptoms)."""
+    from schema import Observation
+    c = make_case()
+    for i in range(8):
+        t0 = W0 + dt.timedelta(seconds=20 + 10 * i)
+        for sid, par, svc, code in ((f"a{i}", None, "frontend", "500"), (f"b{i}", f"a{i}", "checkout", "500"),
+                                    (f"c{i}", f"b{i}", "cart", "503")):
+            c.observations["traces"].append(Observation(None, t0, "traces", "", {
+                "traceId": f"T{i}", "spanId": sid, "parentSpanId": par or "", "serviceName": svc, "statusCode": "2",
+                "statusMessage": "upstream failed", "attributes": f'"http.status_code":"{code}"', "spanName": "op", "duration": 3e8}))
+    r0, _ = run(c, parts=list(b4.DEFAULT_PARTS), alert="frontend")
+    r, db = run(c, parts=list(b4.DEFAULT_PARTS) + ["torigin"], alert="frontend")
+    ts = db["_trace_structure"]
+    assert ts["n_err_traces"] == 8 and ts["err_origin"] == {"cart": 8}, ts
+    top_svc = lambda res: next(t for t in res["top"] if t["entity"] in ("cart", "checkout", "frontend"))
+    assert top_svc(r)["entity"] == "cart" and top_svc(r)["p"] > top_svc(r0)["p"], (r0["top"], r["top"])
+    assert not any(e["signal"].startswith("trace_") and not e["holds"] for e in r["evidence"]), r["evidence"]
+
+
+@test
 def silent_scaled_down_callee_beats_its_caller():
     c = make_case()
     ordinary(c, "k8s.deployment", "deployment_available_replicas", 3.0, 500, noise=0.0)

@@ -71,6 +71,10 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     for s_, bad in unavailability(db).items():
         obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
                     "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
+    from pipeline.belief_v4 import parts_from_env                 # same evidence as GAMA-RCA: trace origins when 'torigin' is on
+    if "torigin" in parts_from_env():
+        from pipeline.trace_structure import trace_observations
+        obs += trace_observations(case, db)
     ev = {}
     for o in obs:
         if o["holds"]:

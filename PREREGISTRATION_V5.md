@@ -105,3 +105,23 @@ Fingerprints with `ratio`: cpuFullLoad and cpuDeadLoop key = CPU per request (ra
 request share (raw request rise becomes support); httpError5xx and codeDefect gain error rate as support.
 Runs: V4_RULE_RATIO and V4_RULE_MM_RATIO on DEV_ODD; compared with V4_RULE, V4_RULE_MM, V4_RULE_LOADX, V4_RULE_MM_LOADX on the same
 cases. Only the best odd-half variant is run once on VAL_EVEN.
+
+## Result of `ratio` (odd half) and Amendment 4 (2026-11-01): trace structure
+
+V4_RULE_MM_RATIO on DEV_ODD (commit ceba18a): EL 54.4, FI 15.4, RP 71.0, Final 47.7 (V4_RULE_MM: 50.4; A: 48.7); 4 cases better,
+9 worse than mm alone. Cause: the per-request ratios rise when a fault lowers throughput (denominator effect: memoryPressure and
+slowSQL cases became CPU types) and the request share rises when callers fail (trafficSurge everywhere). `ratio` is REJECTED as
+pre-registered and reported as a negative result; it is not patched further on the same cases.
+
+Odd-case trace analysis: in 19 of 20 entity errors with a resolvable true root, the true root HAS evidence; the failure is attribution
+(which entity starts the problem), not detection.
+
+Part `torigin` (pipeline/trace_structure.py; constants fixed before any run: MIN_TRACES 3, ORIGIN_SHARE 0.3, SLOW_Q 0.9, MIN_GROUP 10,
+SLOW_CONTRAST 0.2): per service, error origin = deepest failing spans (no failing child) in >= 30% and >= 3 of the failing traces;
+slow origin = largest self time (duration minus children's covered time) in the slowest 10% of traces of a root operation, at least 20
+points more often than in the other traces, in >= 3 slow traces. Categorical observations; own evidence (THETA_P) of a root at the
+service or at its hosting node; absence uninformative; never a propagated symptom. Only OpenTelemetry fields are used.
+Also: data/dataset_profile.py collects the dataset-specific knowledge (metric families, injector workloads, constant metrics, error
+status, entity types); the patterns are unchanged. EVIDENCE_LLM receives the trace origins too when 'torigin' is on.
+Runs: V4_RULE_MM_TORIGIN and V4_RULE_TORIGIN on DEV_ODD. Decision rule unchanged (section 4). This is the last design change before
+the VAL_EVEN run and the external benchmark.

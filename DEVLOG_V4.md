@@ -212,3 +212,14 @@ Same parts as V4_RULE in results-2, so the pair is matched (only the LLM differs
 - Cost: 2.3 LLM calls, ~8.5k tokens per case.
 - Takeaway: the LLM helps typing slightly and never broke a joint hit, but the gain is within noise.
   The statistical core carries the result. Pending: V4_NOLLMTYPE (sensor+narrator only) to separate the two LLM roles.
+
+## v5 (2026-11-01) — PREREGISTRATION_V5.md (odd/even protocol)
+
+| Odd half (52 cases) | EL | FI | RP | Final | changed vs reference |
+|---|---|---|---|---|---|
+| A (V4_RULE) | 56.4 | 15.4 | 71.6 | 48.7 | — |
+| A + mm | 57.9 | 19.2 | 71.6 | 50.4 | 3 changed: 2 better, 0 worse (p = 0.60) |
+| A + mm + ratio | 54.4 | 15.4 | 71.0 | 47.7 | vs mm: 4 better, 9 worse — rejected (denominator effect) |
+
+Trace analysis (odd cases): 19 of 20 entity errors have evidence at the true root -> attribution problem. Next: `torigin`
+(trace error origin / slow origin), the last design change before VAL_EVEN and the external benchmark.

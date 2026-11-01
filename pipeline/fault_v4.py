@@ -32,8 +32,7 @@ from pipeline.fault_fingerprint import _family, _TEXT_FAMILIES
 MIN_COVERAGE = 0.8
 REL_FLOOR, ABS_FLOOR = 0.05, 1e-6
 COUNT_FLOOR = 1.0                  # zero-filled event counts: one event per bin is the smallest meaningful scale
-EXCLUDE_NAME = re.compile(r"^(l3reg-|chaosblade|chaos-)", re.I)            # fault-injection workloads (not present in production)
-CONSTANT_METRIC = re.compile(r"_(init|max|committed)_bytes$|core_pool_size|max_pool_size|max_thread_count|desired_replicas", re.I)
+from data.dataset_profile import EXCLUDED_WORKLOADS as EXCLUDE_NAME, CONSTANT_METRICS as CONSTANT_METRIC   # dataset-specific
 COUNT_FAMILIES = {"error"}
 MIN_POOL = 20                      # smallest null pool whose resolution 1/(N+1) is below alpha = 0.05
 V4_SVC_SIGNALS = SVC_SIGNALS + [("svc_request_drop", ("request",), "down"), ("svc_avail_drop", ("avail",), "down")]

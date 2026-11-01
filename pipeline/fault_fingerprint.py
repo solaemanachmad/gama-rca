@@ -39,13 +39,7 @@ SLOW_ABS_MS = 1000.0    # ... or >= 1 s when there is no baseline span
 EVENT_LOOKBACK_S = 600  # K8s events count when their last occurrence is at most 10 min before the window start (or later)
 TOP_K = 3
 
-_METRIC_FAMILIES = [    # first match wins; matched on the lower-case metric name
-    ("throttle", r"throttl"), ("gc", r"gc"), ("thread", r"thread"), ("error", r"error|exception|fail"),
-    ("latency", r"latency|(^|_)rt($|_)|duration|response_time|elapsed"), ("replica", r"replica"), ("restart", r"restart"),
-    ("ready", r"ready"), ("pods", r"pod.*(running|count)|running.*pod"), ("disk", r"disk|(^|_)io($|_)|iops|(^|_)fs_"),
-    ("cpu", r"cpu"), ("mem", r"mem|heap"), ("request", r"request|qps|workload|(^|_)count$"),   # RCA100 APM: request count is exported as 'workload'
-
-]
+from data.dataset_profile import METRIC_FAMILY_PATTERNS as _METRIC_FAMILIES   # dataset-specific (data/dataset_profile.py)
 _METRIC_FAMILIES = [(f, re.compile(p)) for f, p in _METRIC_FAMILIES]
 _RATE_NAME = re.compile(r"rate|usage|util|percent|ratio")
 
