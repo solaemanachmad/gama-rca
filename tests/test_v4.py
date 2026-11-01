@@ -582,6 +582,8 @@ def depbase_db_slow_against_history_end_to_end():
     assert entity_signals(db_b, "cart")["db_slow"]["p"] <= 0.05             # history test sees it, also for entity_signals()
     p_dep = lambda r: sum(t["p"] for t in r["top"] if t["entity"] == "cart" and t["type"] in ("F010-slowSQL", "F018-dbNetworkLatency"))
     assert r1["entity"] == "cart" and r1["type"] == "F010-slowSQL" and p_dep(r1) > p_dep(r0), (r0["top"], r1["top"])
+    r2, db_c = run(c, parts=base + ["depbase", "depshare"], alert="frontend")              # the time moved into the DB calls
+    assert entity_signals(db_c, "cart")["db_slow"]["p"] <= 0.05 and "share of request time" in entity_signals(db_c, "cart")["db_slow"]["ev"]
 
 
 if __name__ == "__main__":

@@ -369,6 +369,15 @@ def depbase_history_test_needs_rank_and_effect():
     assert slow_test([0.4, 0.5], hist) is None                                          # too few spans: no observation
 
 
+@test
+def depshare_separates_slow_dependency_from_starved_service():
+    from pipeline.dep_latency import share_rise
+    n = 1000
+    assert share_rise(5000.0 * 6, 5003.0 * 6, 0.45 * n, 2.0 * n)[0]                   # DB timeouts: the time is in the calls
+    assert not share_rise(1.0 * n, 50.0 * n, 0.45 * n, 2.0 * n)[0]                    # GC / CPU starvation: calls 2x, requests 25x
+    assert share_rise(1.0, 0.0, 1.0, 1.0) is None                                     # no request spans: no comparison
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

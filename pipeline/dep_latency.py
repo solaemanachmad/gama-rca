@@ -55,12 +55,24 @@ def slow_test(win: List[float], hist: List[float]):
     return p <= ALPHA and qw >= (1.0 + SLOW_CONTRAST) * qh, p, qw, qh
 
 
-def dep_observations(case, db) -> List[Dict]:
+def share_rise(dep_win: float, entry_win: float, dep_hist: float, entry_hist: float):
+    """v5 'depshare': (holds, share_win, share_hist). The share of the service's request time (sum of its entry spans) spent in
+    calls of this dependency kind must rise by >= SLOW_CONTRAST. A slow dependency moves the extra time INTO the calls; a starved
+    service (CPU, GC, threads) also stretches its calls a little but spends the extra time in itself, so the share does not rise."""
+    if entry_win <= 0 or entry_hist <= 0:
+        return None
+    sw, sh = dep_win / entry_win, dep_hist / entry_hist
+    return sw >= (1.0 + SLOW_CONTRAST) * sh, sw, sh
+
+
+def dep_observations(case, db, share: bool = False) -> List[Dict]:
     from pipeline.fault_fingerprint import _owner, _naive
     services = list(db["services"])
     w0, w1 = db["w0"], db["w1"]
     h0 = w0 - B_SPAN * (w1 - w0)
     dur = defaultdict(lambda: ([], []))                     # (svc, kind) -> (history ms, window ms)
+    plain = []                                              # 'depshare': (svc, phase, spanId, parentId, ms) of non-dependency spans
+    ids = defaultdict(set)                                  # svc -> its span ids
     for o in case.observations.get("traces", []):
         p = o.payload or {}
         ts = _naive(o.timestamp)
@@ -68,8 +80,6 @@ def dep_observations(case, db) -> List[Dict]:
             continue
         attrs = p.get("attributes") if isinstance(p.get("attributes"), str) else ""
         k = dep_kind(str(p.get("spanName") or ""), attrs)
-        if k == "other":
-            continue
         s = _owner(p.get("serviceName"), services)
         if not s:
             continue
@@ -77,14 +87,33 @@ def dep_observations(case, db) -> List[Dict]:
             ms = float(p.get("duration")) / 1e6
         except (TypeError, ValueError):
             continue
-        dur[(s, k)][1 if ts >= w0 else 0].append(ms)
+        ph = 1 if ts >= w0 else 0
+        if k == "other":
+            if share:
+                sid = p.get("spanId")
+                ids[s].add(sid)
+                plain.append((s, ph, p.get("parentSpanId"), ms))
+            continue
+        dur[(s, k)][ph].append(ms)
+    entry = defaultdict(lambda: [0.0, 0.0])                 # svc -> request time (entry spans: parent not a span of the same service)
+    for s, ph, par, ms in plain:
+        if not par or par not in ids[s]:
+            entry[s][ph] += ms
     obs = []
     for (s, k), (hist, win) in sorted(dur.items()):
         r = slow_test(win, hist)
         if r is None:
             continue
         holds, p, qw, qh = r
-        obs.append({"entity": s, "signal": f"{k}_slow", "holds": bool(holds), "kind": "cont", "p": p,
-                    "ev": f"{k} spans: slowest-10% mean {qw:.3g}ms in the window vs {qh:.3g}ms before it ({len(win)} vs {len(hist)} spans, "
-                          f"rank test p={p:.3g})"})
+        ev = (f"{k} spans: slowest-10% mean {qw:.3g}ms in the window vs {qh:.3g}ms before it ({len(win)} vs {len(hist)} spans, "
+              f"rank test p={p:.3g})")
+        if share:
+            sr = share_rise(sum(win), entry[s][1], sum(hist), entry[s][0])
+            if sr is None:
+                holds = False
+                ev += "; no request spans to compare the time share"
+            else:
+                holds = holds and sr[0]
+                ev += f"; share of request time in {k} calls {sr[1]:.0%} in the window vs {sr[2]:.0%} before"
+        obs.append({"entity": s, "signal": f"{k}_slow", "holds": bool(holds), "kind": "cont", "p": p, "ev": ev})
     return obs

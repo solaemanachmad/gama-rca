@@ -74,6 +74,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            on the slow dependency), so these JVM signals no longer count only for resource types
   depbase  (amendment 10) db_slow / redis_slow / queue_slow test the service's dependency spans against the same spans before the
            window (rank test + upper-quantile effect), connection-pool waits count as database calls (pipeline/dep_latency.py)
+  depshare (amendment 11) with depbase: <dep>_slow also needs the share of the service's request time spent in those calls to rise
+           (a starved service stretches its calls too, but spends the extra time in itself)
 """
 from __future__ import annotations
 
@@ -91,9 +93,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase")
+            "depconseq", "depbase", "depshare")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
@@ -382,7 +384,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
     if "depbase" in parts and case is not None:            # v5: dependency latency against the service's own history
         from pipeline.dep_latency import dep_observations
-        dep = dep_observations(case, db)
+        dep = dep_observations(case, db, share="depshare" in parts)
         obs = [o for o in obs if o["signal"] not in ("db_slow", "redis_slow", "queue_slow")] + dep
         db["_dep_override"] = {}                         # the same values for entity_signals() (LLM typing, fallback type)
         for o in dep:

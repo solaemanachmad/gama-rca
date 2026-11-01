@@ -220,3 +220,24 @@ without dependency spans. The tail-mean (not the 0.9 quantile) was chosen while 
 recorded in 0.1 ms steps and a quantile jumps between steps.
 Disclosure: designed after inspecting four odd (development) cases with labels; even cases unseen.
 Run: V4_RULE_MM_T3_OMSG_FI_DEPB (= FI parts + depconseq + depbase) on DEV_ODD (CPU) vs V4_RULE_MM_T3_OMSG_FI_DEP.
+
+### Result of amendments 9-10 (V4_RULE_MM_T3_OMSG_FI_DEPB, DEV_ODD, commit 4a8e7a6)
+Final 53.3 / EL 66.0 / FI 17.3 / RP 72.3 (entities 30, types 9) vs V4_RULE_MM_T3_OMSG 54.5 / 66.0 / 21.2 / 72.6 (30, 11); Wilcoxon
+p = 0.28. Gains: memoryPressure right in t047, t057, t061 (previously CPU types). Losses:
+- `depconseq` REJECTED: dependency types became sinks at services without that dependency (redisUnavailable at inventory, which
+  has no redis spans: t027, t067, t071; messageQueueBacklog t007, t083; cacheBreakdown t023, t045, t091). Their keys are untestable
+  there, so they paid nothing, while the 'may' roles explained every JVM / CPU rise.
+- `depbase` is sensitive but not specific: db_slow now holds at inventory in t015, t021, t097 (DB faults) but also in 11 non-DB
+  cases (t017, t029, t035, t037, t039, t047, t055, t077, t089, t099, ...): a starved service stretches its own DB calls as well
+  (t099 httpError5xx -> slowSQL).
+
+## Amendment 11 (2026-11-01, before any run of this part): where the extra time goes
+
+Part `depshare` (with depbase; pipeline/dep_latency.py; no new constants): <dep>_slow additionally requires that the share of the
+service's request time spent in calls of that dependency kind rises by >= SLOW_CONTRAST: share = sum of the dependency span
+durations / sum of the service's entry spans (spans whose parent is not a span of the same service), window vs history. A slow
+dependency moves the extra time into the calls; a starved service (CPU, GC, threads) also stretches its calls but spends most of the
+extra time in itself. Same principle as the slow origin of amendment 4, applied inside one service. No observation change otherwise.
+Run: V4_RULE_MM_T3_OMSG_FI_DBS (= FI parts + depbase + depshare, WITHOUT depconseq) on DEV_ODD (CPU), compared with
+V4_RULE_MM_T3_OMSG_FI (to be run as well: it separates the FI parts from the dependency parts). Decision rule: if FI_DBS does not
+improve over FI, the dependency parts are dropped and recorded as negative results.
