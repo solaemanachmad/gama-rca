@@ -79,6 +79,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
   sigorder (amendment 12) inside the root, the key mechanism signal of the type (CPU / memory / GC / threads) must be among the
            first to move (onset), else the type is penalised (THETA_T, as the between-entity onset rule)
   sigorder2 (amendment 13) the same rule applied only when typing the decided root (the entity marginals are unchanged)
+  loadx2   (amendment 15) loadx + the latency rise that load causes + the CPU rise of the hosts of a load-explained service; load-explained
+           signals do not date an entity's onset
 """
 from __future__ import annotations
 
@@ -96,9 +98,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder", "sigorder2")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
@@ -401,7 +403,11 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if alert and alert in db["services"]:
         obs.append({"entity": alert, "signal": "alert", "holds": True, "kind": "alert", "ev": "the alert fired on this service"})
     expl = bd.explainers(db, callees)
-    db["_load_explained"] = load_explained(obs, callees) if "loadx" in parts else set()
+    if "loadx2" in parts:                                 # v5 amendment 15: load and what load causes
+        db["_load_explained"] = load_explained(obs, callees, signals=LOAD_SIGNALS + ("svc_latency_rise",),
+                                               hosts=db.get("hosts", {}))
+    else:
+        db["_load_explained"] = load_explained(obs, callees) if "loadx" in parts else set()
     extra, mm_beta, mm_k = np.zeros(len(H)), None, None
     if "mm" in parts:
         extra, mm_beta, mm_k = mm_loglik(model, H, obs)
@@ -428,8 +434,10 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     onsets = {}
     if "onset" in parts:
         cal = db.get("_cal", {})
+        lx = db["_load_explained"] if "loadx2" in parts else ()
         for ent, sigs in cal.items():
-            ts = [r["onset"] for r in sigs.values() if r.get("onset") is not None and r.get("p") is not None and r["p"] <= bd.ALPHA]
+            ts = [r["onset"] for k, r in sigs.items() if r.get("onset") is not None and r.get("p") is not None and r["p"] <= bd.ALPHA
+                  and (ent, k) not in lx]                 # loadx2: load that came from upstream does not date the entity's fault
             if ts:
                 onsets[ent] = min(ts)
         logp = logp + onset_loglik(H, onsets, expl)
@@ -612,8 +620,11 @@ def mm_loglik(model, H, obs):
     return out, beta, k
 
 
-def load_explained(obs, callees) -> set:
-    """v5 'loadx': {(service, signal)} for the load signals of services whose request count rises together with a caller's."""
+def load_explained(obs, callees, signals=None, hosts=None) -> set:
+    """v5 'loadx': {(service, signal)} for the load signals of services whose request count rises together with a caller's.
+    'loadx2' (amendment 15): the signals include the latency rise that load causes, and the CPU rise of the NODES hosting a service
+    whose CPU rise is load-explained (the load heats the host too) is load-explained as well."""
+    signals = signals or LOAD_SIGNALS
     rise = {o["entity"] for o in obs if o["holds"] and o["signal"] in ("svc_request_rise", "op_request_rise")}
     callers = defaultdict(set)
     for a, bs in callees.items():
@@ -622,5 +633,9 @@ def load_explained(obs, callees) -> set:
     out = set()
     for e in rise:
         if callers.get(e, set()) & rise:
-            out |= {(e, sg) for sg in LOAD_SIGNALS}
+            out |= {(e, sg) for sg in signals}
+    if hosts is not None:
+        cpu = {o["entity"] for o in obs if o["holds"] and o["signal"] == "svc_cpu_rise"}
+        for e in {e for e, sg in out if sg == "svc_cpu_rise"} & cpu:
+            out |= {(n, "node_cpu_rise") for n in hosts.get(e, [])}
     return out

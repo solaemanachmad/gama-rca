@@ -401,6 +401,21 @@ def sigorder_first_mover_decides_among_jvm_types():
     assert round(float(dict(zip(types, b4.sigorder_loglik(H, notheld, m)))["F022-fullGC"]), 6) == up
 
 
+@test
+def loadx2_load_causes_latency_and_heats_the_host():
+    from pipeline import belief_v4 as b4
+    obs = [{"entity": e, "signal": sg, "holds": True} for e, sg in
+           (("frontend", "svc_request_rise"), ("recommendation", "svc_request_rise"), ("recommendation", "svc_cpu_rise"),
+            ("recommendation", "svc_latency_rise"), ("inventory", "svc_cpu_rise"))]
+    callees = {"frontend": ["recommendation", "cart"], "cart": ["inventory"]}
+    hosts = {"recommendation": ["node-r"], "inventory": ["node-i"]}
+    v1 = b4.load_explained(obs, callees)
+    v2 = b4.load_explained(obs, callees, signals=b4.LOAD_SIGNALS + ("svc_latency_rise",), hosts=hosts)
+    assert ("recommendation", "svc_latency_rise") not in v1 and ("recommendation", "svc_latency_rise") in v2
+    assert ("node-r", "node_cpu_rise") in v2 and ("node-i", "node_cpu_rise") not in v2       # inventory's CPU is not load
+    assert not any(e == "inventory" for e, _ in v2) and not any(e == "frontend" for e, _ in v2)   # no rising caller
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

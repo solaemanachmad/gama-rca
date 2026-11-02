@@ -319,3 +319,20 @@ its latency rise and other terms. Decision trail of t017 (ORD2): the recommendat
 HTTP 5xx and error spans (as upstream propagation from a callee) and the CPU rise of its three host nodes (hostcpu), although the
 traces attribute all 190 error traces to inventory (HTTP 429). The full loadx run is postponed; entity_errors_dev.py now prints, per
 wrong case, the per-observation log-likelihood difference between the best hypothesis of the predicted and of the true root.
+
+## Amendment 15 (2026-11-02, before any run of this part): load and what load causes (`loadx2`)
+
+Diagnostic entity_errors_dev.py with per-observation comparison (ORD2 + loadx, odd cases; log-likelihood difference between the best
+hypothesis of the predicted and of the true root): with loadx the request rises no longer count, but the load-carrying service still
+wins through what the load CAUSES: (a) its latency rise (+2.48: t005, t013, t017, t077, t097); (b) the CPU rise of the nodes that host
+it, credited to it through hostcpu (+7.44 in t017 and t077, +5.0 in t097 vs the true root's own hosts); (c) its early onset (load
+arrives before the fault's effects), which penalises the true root through the between-entity onset rule (t013: +2.29 non-likelihood).
+Other findings, not addressed here: node faults whose node shows no signal (t019, t069, t073: data limit); scaled-down services
+(t033, t065, t081) beaten by the caller's 'connection refused' evidence; t003 node memory vs the memory rise of a hosted service.
+Part `loadx2` (no new constants): loadx with (i) svc_latency_rise added to the load signals of a service whose request rise is
+load-explained, (ii) node_cpu_rise of the hosts of a service whose CPU rise is load-explained is load-explained too (background
+THETA_P for every hypothesis), (iii) load-explained signals are excluded when dating an entity's onset.
+Expected from the per-observation differences (not a guarantee: EM and the mm term also move): t005, t017, t097 may flip to the true
+root; t013, t077 probably not (memory rise / remaining margin); risk: true roots whose own request rise is load-explained lose their
+latency / host-CPU evidence.
+Run: V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2 on DEV_ODD (CPU), vs ORD2.

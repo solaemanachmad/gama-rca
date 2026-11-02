@@ -601,6 +601,13 @@ def sigorder2_keeps_the_entity_marginals():
     assert r1["entity"] == r2["entity"] and abs(r1["p"] - r2["p"]) < 1e-9, (r1["entity"], r1["p"], r2["entity"], r2["p"])
 
 
+@test
+def loadx2_runs_end_to_end():
+    c = make_case()
+    r, db = run(c, parts=list(b4.DEFAULT_PARTS) + ["loadx2", "sigorder2"], alert="frontend")
+    assert r["entity"] and isinstance(db["_load_explained"], set)
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:
