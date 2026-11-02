@@ -366,7 +366,8 @@ def _fallback_type(model, ent, level, sig):
     return best or ("F026-nodeCpuHigh" if level == "node" else "F011-codeDefect")
 
 
-def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8, alert=None, parts=None, case=None) -> Dict:
+def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8, alert=None, parts=None, case=None,
+                debug=None) -> Dict:
     parts = set(parts) if parts is not None else parts_from_env()
     model = Model(parts)
     if "events" in parts and case is not None:
@@ -461,6 +462,8 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         log.append({"probe": e, "eig_bits": round(g, 3), "category": cat, "max_belief_before": round(before, 3),
                     "max_belief_after": round(float(bd.posterior(logp).max()), 3)})
     post = bd.posterior(logp)
+    if debug is not None:                                # diagnostics only (scripts/diagnostics/entity_errors_dev.py)
+        debug.update(model=model, obs=obs, bg=bg, expl=expl, H=H, logp=logp, pi=pi)
     order = np.argsort(-post, kind="stable") if "tiebreak" in parts else np.argsort(-post)
     if "twostage" in parts:
         marg = defaultdict(float)

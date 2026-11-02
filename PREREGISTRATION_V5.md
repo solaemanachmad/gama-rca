@@ -313,3 +313,9 @@ pseudo-windows moved as much as the real window:
 Amendment 2 (`loadx`, load entering at the user-facing services flows downstream; a callee's request / CPU rise together with a
 caller's request rise is expected without a fault there) was fixed but NEVER RUN. It targets exactly the recommendation attractor.
 It is run now, unchanged, on top of the current best: V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX on DEV_ODD (CPU), vs ORD2.
+Pilot (4 odd cases, commit 70a9f82): load_explained = recommendation, frontend, ad, product-catalog (the frontend-proxy -> frontend edge
+exists); t067 unchanged (cpuFullLoad, correct); t013, t017, t005 stay at recommendation (entity p 0.99 / 0.998 / 0.88), now carried by
+its latency rise and other terms. Decision trail of t017 (ORD2): the recommendation hypothesis also explains frontend / frontend-proxy
+HTTP 5xx and error spans (as upstream propagation from a callee) and the CPU rise of its three host nodes (hostcpu), although the
+traces attribute all 190 error traces to inventory (HTTP 429). The full loadx run is postponed; entity_errors_dev.py now prints, per
+wrong case, the per-observation log-likelihood difference between the best hypothesis of the predicted and of the true root.
