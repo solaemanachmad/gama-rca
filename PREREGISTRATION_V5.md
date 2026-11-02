@@ -540,3 +540,15 @@ node faults. Reported as a limitation; the leave-one-module-out ablations on the
 ## Leave-one-module-out ablations (even half, CPU; arms GAMA_CORE_NO_{MM, TRACE, TYPE, LOAD, TEXT})
 Each = V5_FINAL without one module: MM (mm), TRACE (torigin3, omsg, msgtarget), TYPE (hostcpu, errclass, tiebreak, sigorder2),
 LOAD (loadx2), TEXT (textx2). Reported as measured, whatever the outcome.
+
+## Refactor of the frozen method (2026-11-03) -- not an amendment
+
+The frozen configuration V5_FINAL (tag `v5-frozen` = 012ab6e) is re-implemented as the package `gama/` with one switch per ablation
+module: M1 `mm`, M2 `trace` (torigin3, omsg, msgtarget), M3 `typing` (hostcpu, errclass, tiebreak, sigorder2), M4 `load` (loadx2),
+M5 `text` (textx2), M6 `chain` (redchain), M7 `llm` (sensor, llmtype, xcard, keepchain, typecheck). Development parts that were not
+adopted are not in `gama/` (they stay reproducible from the tag). No decision rule, constant or prompt changes.
+
+Equivalence (required before `gama` replaces the development arms in any reported run):
+1. synthetic: `tests/test_gama.py` -- identical outputs (entity, type, confidence, chain, evidence, all stats, decision trail) for
+   core, each leave-one-out, base, and full with a deterministic stub LLM (identical prompts as well); 4/4 passed (commit d3d4f14);
+2. real cases: `python scripts/kaggle_job.py --check core,llm --cases all --shard k/4` (CPU) -- result to be recorded here.
