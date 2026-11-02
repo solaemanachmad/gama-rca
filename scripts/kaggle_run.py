@@ -80,6 +80,7 @@ V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard",
                                                   "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
                                                   "depconseq", "depbase", "depshare", "sigorder",
                                                   "sigorder2", "loadx2", "msgtarget"))                    # = DEFAULT_PARTS
+V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget")   # frozen 2026-11-02
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -186,6 +187,13 @@ ARMS = {                                                          # name -> extr
     "V4_MM_T3_OMSG_FI_ORD2_LOADX2": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                                      "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
                                                                         "sigorder2", "loadx2", "xcard"))},              # GPU
+    # ---- FROZEN v5 configuration (PREREGISTRATION_V5.md, design freeze 2026-11-02) ----
+    "GAMA_CORE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                  "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                                    # CPU, no LLM
+    "GAMA_LLM": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                 "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("xcard",))},                                         # GPU: + log sensor + LLM typing
+    "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
+                           "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                            # GPU baseline: same evidence, LLM decides
     "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "xcard"))},  # GPU
     "V4_MM_T3_OMSG": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",

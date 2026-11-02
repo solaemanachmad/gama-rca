@@ -363,3 +363,17 @@ in advance. The recommendation attractor is gone in the rateLimiting cases; t077
 By fault group (entity / type right): Resource 6/6 6/6, JVM 8/8 5/8, Middleware & DB 7/8 1/8, Application logic 12/19 5/19,
 K8s lifecycle 2/6 1/6, Cloud resource 0/5 0/5.
 Next: msgtarget on top of loadx2 (V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2_MSGT) instead of on ORD2 alone, since loadx2 is now the base.
+
+### Result of amendment 16 (V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2_MSGT, DEV_ODD, commit d4ef239)
+Final 63.4 [bootstrap 95% CI 55.4, 71.0] / EL 77.1 / FI 34.6 / RP 74.0 (entities 37, types 18) vs LOADX2 62.3 / 74.6 / 34.6 / 73.5
+(35, 18); Wilcoxon vs LOADX2 p = 0.59 (3 cases changed), vs configuration A p = 0.0003. The relay worked where designed: t033 and t081
+relay 2419 / 1666 error origins to quote. t081: quote / replicaScaleDown, entity and type right (0.23 -> 0.87). t095: entity now right
+(shipping; type replicaScaleDown instead of podPendingUnschedulable). t033: worse (0.16 -> 0.07): quote and shipping are both error
+origins there and a node wins (cn-hongkong.10.0.1.107). K8s lifecycle entities 2/6 -> 4/6.
+
+## Design freeze (2026-11-02) -- CPU core
+Configuration GAMA-RCA v5 (core) = A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak + sigorder2 + loadx2 + msgtarget
+(arm V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2_MSGT). No further change to the core is made on the odd cases. Known failure modes recorded
+above (node faults without node signals; t033 node attraction; DB slowness invisible in traces). Next, in order: GPU run of the same
+core + LLM (log sensor + typing) on DEV_ODD with one backbone, to check that the LLM stage is not harmful; then VAL_EVEN once (core,
+and per backbone DIRECT_LLM / EVIDENCE_LLM / GAMA-RCA + LLM), with the arms aligned to this configuration before any even-case run.
