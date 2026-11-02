@@ -62,7 +62,7 @@ def quote_supports(line: str, roles: Dict[str, str]) -> bool:
 
 def signature_card(fp: Dict, t: str) -> str:
     """v5 'xcard': the expected cross-modal signature of a fault type, read from its fingerprint (each signal with its modality)."""
-    from pipeline.belief_v4 import modality
+    from gama.belief import modality
     f = fp.get(t, {})
     tag = lambda exprs: ", ".join(f"{e} [{'+'.join(sorted({modality(a) for a in e.replace('|', '&').split('&')}))}]" for e in exprs) or "-"
     return (f"expected: one of {tag(f.get('key', []))}; often with {tag(f.get('sup', []))}; possible consequences "
@@ -76,7 +76,8 @@ def shortlist(res: Dict, k: int = SHORTLIST) -> List[str]:
     return cands
 
 
-def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
+def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=None, typecheck=None) -> Dict:
+    """model / xcard / typecheck: given by GAMA (gama/llm.py); None = derived from res['parts'] (development arms)."""
     ent, level = res["entity"], res["level"]
     cands = shortlist(res)
     lines = evidence_lines(db, ent, texts)
@@ -85,10 +86,14 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     if len(cands) < 2 or not lines:
         return out
     probs = dict(res.get("type_rank", []))
-    xcard = "xcard" in (res.get("parts") or [])
+    xcard = "xcard" in (res.get("parts") or []) if xcard is None else xcard
+    typecheck = "typecheck" in (res.get("parts") or []) if typecheck is None else typecheck
+    if model is None and (xcard or typecheck):
+        from pipeline.belief_v4 import Model
+        model = Model(res.get("parts") or [])
     if xcard:                                             # v5: modality tags and expected cross-modal signatures
-        from pipeline.belief_v4 import Model, modality
-        fp = Model(res.get("parts") or []).fp
+        from gama.belief import modality
+        fp = model.fp
         lines = [f"[{modality(l.split(' ')[1].rstrip(':'))}] {l}" if len(l.split(' ')) > 1 else l for l in lines]
         cand_txt = "\n".join(f"- {t} (statistical probability {probs.get(t, 0.0):.2f}): {FAULT_DEFINITIONS.get(t, '')}\n  "
                              f"{signature_card(fp, t)}" for t in cands)
@@ -117,9 +122,8 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     quoted = [l for l in lines if len(q) >= 10 and (q in l.lower() or l.lower() in q)]
     grounded = bool(quoted)
     out["quote_ok"] = grounded
-    if grounded and "typecheck" in (res.get("parts") or []) and t in cands:   # v5 'typecheck' (amendment 23): the quoted evidence must
-        from pipeline.belief_v4 import Model                                    # be a signal of the chosen type's fingerprint
-        roles = Model(res.get("parts") or []).roles.get(t, {})
+    if grounded and typecheck and t in cands:            # v5 'typecheck' (amendment 23): the quoted evidence must be a signal of the
+        roles = model.roles.get(t, {})                   # chosen type's fingerprint
         out["quote_supports"] = any(quote_supports(l, roles) for l in quoted)
         grounded = out["quote_supports"]
     if t in cands and grounded:

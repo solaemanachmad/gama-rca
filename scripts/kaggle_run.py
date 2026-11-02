@@ -71,7 +71,7 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "ENTITY_TYPING", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "USE_CHANGE_STATS", "USE_CHANGE_FACTOR",
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
-         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS")
+         "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS", "GAMA_MODULES")
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
           "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec",
           "torigin3", "hostcpu", "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder",
@@ -192,6 +192,8 @@ ARMS = {                                                          # name -> extr
                                      "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
                                                                         "sigorder2", "loadx2", "xcard"))},              # GPU
     # ---- FROZEN v5 configuration (PREREGISTRATION_V5.md, design freeze 2026-11-02) ----
+    "GAMA": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "core"},       # refactored method (gama/); CPU.
+    "GAMA_FULL": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "full"},  # + LLM (GPU). kaggle_job --modules overrides
     "GAMA_CORE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                   "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                                    # CPU, no LLM
     "GAMA_LLM": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",

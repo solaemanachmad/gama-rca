@@ -24,6 +24,9 @@ Arms, model presets and case lists are the ones of scripts/kaggle_run.py (Cell 3
   --wandb   log to W&B (Secret WANDB_API_KEY; keep the project private)
   --data    folder containing cases/ and manifest.txt
   --dry     print what would run, run nothing
+  --modules GAMA module spec for the arms GAMA / GAMA_FULL (gama/config.py): core | full | core,-trace | ...
+  --check   equivalence of gama/ with the frozen code (scripts/equivalence.py): core | loo | llm | base, comma-separated;
+            no --arm needed, e.g.  --check core,llm --cases all --shard 0/4
 """
 import argparse
 import os
@@ -65,6 +68,8 @@ def main():
     ap.add_argument("--no_install", action="store_true")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--modules", default=None)
+    ap.add_argument("--check", default=None)
     a = ap.parse_args()
 
     assert os.path.isdir(os.path.join(a.data, "cases")), f"dataset not found: {a.data} (attach RCA100 or pass --data)"
@@ -73,6 +78,8 @@ def main():
         print("ARMS:", ", ".join(D["ARMS"]))
         print("MODELS:", ", ".join(D["MODELS"]))
         return
+    if a.check:
+        a.arm = "GAMA"
     assert a.arm in D["ARMS"], f"unknown arm {a.arm!r}; --list shows the arms"
     assert a.model in D["MODELS"], f"unknown model {a.model!r}; --list shows the models"
 
@@ -87,9 +94,13 @@ def main():
 
     commit = subprocess.run("git rev-parse --short HEAD", shell=True, capture_output=True, text=True, cwd=REPO).stdout.strip()
     tag = {"qwen25_7b": "7B"}.get(a.model, a.model)
-    name = f"{a.arm}_{tag}" + ("" if a.model == "qwen25_7b" or a.model in tag else f"_{a.model}") + \
-           (f"_shard{shard[0]}of{shard[1]}" if shard else "")
-    arm = D["ARMS"][a.arm]
+    mods = a.modules.replace(",", "_").replace("-", "no") if a.modules else ""
+    name = (f"EQUIV_{a.check.replace(',', '_')}" if a.check else f"{a.arm}_{tag}" + (f"_{mods}" if mods else "")
+            + ("" if a.model == "qwen25_7b" or a.model in tag else f"_{a.model}")) + (f"_shard{shard[0]}of{shard[1]}" if shard else "")
+    arm = dict(D["ARMS"][a.arm])
+    if a.modules:
+        assert arm.get("_SYSTEM") == "gama", "--modules applies to the GAMA arms"
+        arm["GAMA_MODULES"] = a.modules
     system = arm.get("_SYSTEM", "proposed_hybrid")
     env = {**{k: v for k, v in os.environ.items() if k not in D["FLAGS"]}, **D["BASE"], **D["MODELS"][a.model],
            **{k: v for k, v in arm.items() if not k.startswith("_")}, **D["FIXED"],
@@ -97,13 +108,16 @@ def main():
            "DEBUG_DUMP_DIR": f"{a.out}/dump_{name}", "SAVE_TYPING_STATE_DIR": f"{a.out}/state_{name}"}
     out_csv = f"{a.out}/{name}.csv"
     cmd = [sys.executable, "main.py", "--case_ids", *cases, "--systems", system, "--save_path", out_csv]
+    if a.check:
+        cmd = [sys.executable, "scripts/equivalence.py", "--data", a.data, "--case_ids", *cases, "--configs", a.check,
+               "--out", out_csv]
     if a.wandb:
         from kaggle_secrets import UserSecretsClient
         env["WANDB_API_KEY"] = UserSecretsClient().get_secret("WANDB_API_KEY")
         cmd += ["--wandb", "--wandb_project", "gama-rca", "--wandb_group", f"{a.arm}_{a.model}"]
 
     print(f"commit {commit} | arm {a.arm} ({system}) | model {a.model} | {len(cases)} cases | output {name}")
-    print("V4_PARTS:", env.get("V4_PARTS", "-"))
+    print("V4_PARTS:", env.get("V4_PARTS", "-"), "| GAMA_MODULES:", env.get("GAMA_MODULES", "-"))
     print("cases:", " ".join(cases))
     if a.dry:
         return
@@ -118,7 +132,8 @@ def main():
             log.write(raw)
             log.flush()
             line = raw.decode("utf-8", errors="replace").rstrip()
-            if "entity_loc=" in line or "[error]" in line or "Traceback" in line or "Error" in line[:40]:
+            if ("entity_loc=" in line or "[error]" in line or "Traceback" in line or "Error" in line[:40]
+                    or "IDENTICAL" in line or "DIFFERENT" in line or "identical ->" in line):
                 done += ("entity_loc=" in line) + ("[error]" in line)
                 print(f"[{(time.time() - t0) / 60:5.1f} min {done}/{len(cases)}] {line[-170:]}", flush=True)
         rc = p.wait()
@@ -126,7 +141,7 @@ def main():
     if rc != 0:
         print(open(f"{a.out}/{name}.log", "rb").read()[-3000:].decode("utf-8", errors="replace"))
 
-    if os.path.exists(out_csv):
+    if os.path.exists(out_csv) and not a.check:
         import pandas as pd
         d = pd.read_csv(out_csv)
         cols = [c for c in ("entity_localization", "fault_identification_exact", "fault_group_identification", "reasoning_process",

@@ -40,13 +40,21 @@ ALPHA = 0.05
 
 # v5 'textx' (PREREGISTRATION_V5.md amendment 17): text evidence the core did not read. Read from V4_PARTS because the signal database
 # is built before the diagnosis; off unless the part is named, so earlier configurations are unchanged.
-def _textx() -> bool:
+def _text_mode(db=None):
+    """(textx, textx2). GAMA (gama/evidence.py) passes the M5 switch to compute_signal_db, which stores it in db["_text"]; the
+    development arms read V4_PARTS (unchanged behaviour)."""
+    if db is not None and db.get("_text") is not None:
+        return db["_text"]
     parts = os.environ.get("V4_PARTS", "").split(",")
-    return "textx" in parts or "textx2" in parts
+    return ("textx" in parts or "textx2" in parts, "textx2" in parts)
 
 
-def _textx2() -> bool:
-    return "textx2" in os.environ.get("V4_PARTS", "").split(",")
+def _textx(db=None) -> bool:
+    return _text_mode(db)[0]
+
+
+def _textx2(db=None) -> bool:
+    return _text_mode(db)[1]
 
 
 SYMPTOM_TEXT = ("timeout", "refused")      # amendment 18: log text that reports an effect, not a mechanism
@@ -107,9 +115,10 @@ def mwu_greater(x: List[float], y: List[float]) -> Optional[float]:
 # ------------------------------------------------------------------------------------------------------------------------------
 # Algorithm 1: evidence database (one pass per modality)
 # ------------------------------------------------------------------------------------------------------------------------------
-def compute_signal_db(case, alert_ts) -> Dict:
+def compute_signal_db(case, alert_ts, text=None) -> Dict:
+    """text: M5 switch of GAMA (True / False); None = read V4_PARTS (development arms)."""
     try:
-        return _compute(case, alert_ts)
+        return _compute(case, alert_ts, None if text is None else (bool(text), bool(text)))
     except Exception as e:  # evidence must never break the pipeline
         return {"error": repr(e)}
 
@@ -120,7 +129,8 @@ def _prof():
             "dur": defaultdict(list), "dep_err": Counter(), "events": defaultdict(Counter)}
 
 
-def _compute(case, alert_ts):
+def _compute(case, alert_ts, text=None):
+    text = text if text is not None else _text_mode()
     topo = case.topology
     if alert_ts is None:
         return {}
@@ -178,7 +188,7 @@ def _compute(case, alert_ts):
             if rx.search(content):
                 svc[s]["log_bins"][f][b] += 1
 
-    textx = _textx()
+    textx = text[0]
     for o in case.observations.get("traces", []):
         p = o.payload or {}
         s = _owner(p.get("serviceName"), services)
@@ -237,7 +247,7 @@ def _compute(case, alert_ts):
             if rx.search(txt):
                 prof["events"][f][str(e.get("reason", ""))] += int(e.get("count") or 1)
 
-    return {"services": svc, "nodes": nod, "hosts": {k: sorted(v) for k, v in hosts.items()}, "w0": w0, "w1": w1,
+    return {"_text": text, "services": svc, "nodes": nod, "hosts": {k: sorted(v) for k, v in hosts.items()}, "w0": w0, "w1": w1,
             "log_base_bins": (int((w0 - log_t0).total_seconds() // LOG_BIN_S) if log_t0 and log_t0 < w0 else 0),
             "win_bins": max(1, int(math.ceil((w1 - w0).total_seconds() / LOG_BIN_S)))}
 
@@ -373,11 +383,11 @@ def entity_signals(db: Dict, ent: str) -> Dict:
     for f in ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache"):
         if pr["msg"].get(f):
             sig[f"msg_{f}"] = {"kind": "cat", "p": None, "ev": f"{pr['msg'][f]} error spans whose message matches '{f}'"}
-    if _textx():                                          # v5 textx: a kind of log text that is NEW in the window (Poisson test vs
+    if _textx(db):                                        # v5 textx: a kind of log text that is NEW in the window (Poisson test vs
         wb, hb = int(db.get("win_bins") or 0), int(db.get("log_base_bins") or 0)   # the same length of history, at ALPHA)
         L = min(wb, hb)
         fams = ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache")
-        if _textx2():                                     # v5 textx2: only text that NAMES a mechanism; 'timeout' / 'refused' say that a
+        if _textx2(db):                                   # v5 textx2: only text that NAMES a mechanism; 'timeout' / 'refused' say that a
             fams = tuple(f for f in fams if f not in SYMPTOM_TEXT)   # call did not complete -- a symptom of almost any fault
         for f in fams:
             bins = pr["log_bins"].get(f)

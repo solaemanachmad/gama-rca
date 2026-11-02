@@ -106,8 +106,8 @@ from typing import Dict, List
 import numpy as np
 
 from pipeline import belief_diagnosis as bd
-from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms, entity_signals
-from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavailability, B_SPAN
+from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, _atoms, entity_signals
+from pipeline.fault_v4 import calibrate_v4, new_events, unavailability, B_SPAN
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
@@ -119,14 +119,11 @@ DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavail
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
 DEFAULT_PARTS = tuple(p for p in ALL_PARTS if p not in ("rnull", "ops") + V5_PARTS)      # rnull/ops did not help; v5 parts opt-in
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS        # v5 'torigin' (pipeline/trace_structure.py)
-LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")
-THETA_M, MM_B0, MM_W = 0.6, 0.1, 10          # v5 'mm': P(>=2 modalities corroborate | true root); background floor and prior weight
-THETA_T, ONSET_TOL = 0.9, 60.0     # v4.2 onset: P(an entity the root explains starts no earlier than the root - 60 s | h)
-PI_MIN, PI_MAX, EM_ITERS = 0.06, 0.95, 30
 OP_CONT = ["op_error_rise", "op_latency_rise"]
-ANOM = "ANOMALY"
-SVC_CONT = [s for s, _, _ in V4_SVC_SIGNALS] + ["op_request_rise"]
-NODE_CONT = [s for s, _, _ in NODE_SIGNALS]
+# constants and the part-free terms are shared with the frozen method (gama/belief.py, single source)
+from gama.belief import (LOAD_SIGNALS, THETA_M, MM_B0, MM_W, THETA_T, ONSET_TOL, PI_MIN, PI_MAX, EM_ITERS, ANOM,  # noqa: F401,E402
+                         SVC_CONT, NODE_CONT, MECHANISM_SIGNALS, onset_loglik, first_movers, sigorder_loglik, modality, mm_loglik,
+                         load_explained)
 
 
 def parts_from_env() -> set:
@@ -540,115 +537,3 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
             "mm_beta": mm_beta, "mm_k": int(mm_k[best]) if mm_k is not None else None,
             "mm_n_corroborated": int((mm_k >= 2).sum()) if mm_k is not None else None,
             "holding": [{"entity": o["entity"], "signal": o["signal"], "ev": o["ev"]} for o in obs if o["holds"]]}
-
-
-def onset_loglik(H, onsets, expl) -> np.ndarray:
-    """v4.2 temporal precedence: a root cause starts no later than what it causes. For h = (e*, .) with a measured onset of e*, every
-    service e that e* can explain (e* in Expl(e)) and that has its own onset contributes P(onset_e >= onset_e* - ONSET_TOL | h) = THETA_T
-    (else 1 - THETA_T), against 0.5 when nothing is assumed about the order. No onset at e* (silent or unmeasured root) = neutral."""
-    out = np.zeros(len(H))
-    for i, h in enumerate(H):
-        r = h["entity"]
-        if h["type"] is None or r not in onsets:
-            continue
-        for e, t in onsets.items():
-            if e == r or r not in expl.get(e, ()):
-                continue
-            ok = t >= onsets[r] - ONSET_TOL
-            out[i] += math.log((THETA_T if ok else 1 - THETA_T) / 0.5)
-    return out
-
-
-MECHANISM_SIGNALS = ("svc_cpu_rise", "svc_mem_rise", "svc_gc_rise", "svc_thread_rise")   # the resources a process consumes
-
-
-def first_movers(sigs: Dict):
-    """(signals with the earliest onset, holding signals without a measured onset, any onset?) among the MECHANISM_SIGNALS of one
-    entity's calibrated signals; ties at the sampling resolution are all first movers."""
-    on = {k: r["onset"] for k, r in sigs.items() if k in MECHANISM_SIGNALS and r.get("onset") is not None
-          and r.get("p") is not None and r["p"] <= bd.ALPHA}
-    non = {k for k, r in sigs.items() if k in MECHANISM_SIGNALS and r.get("onset") is None
-           and r.get("p") is not None and r["p"] <= bd.ALPHA}
-    if not on:
-        return set(), non, False
-    t0 = min(on.values())
-    return {k for k, t in on.items() if t == t0}, non, True
-
-
-def sigorder_loglik(H, cal: Dict, model) -> np.ndarray:
-    """v5 'sigorder' (amendment 12): within the root, the cause moves before its consequences. CPU, memory, GC and thread faults of
-    one process raise the same four signals; which one moved FIRST tells them apart (memory leak -> GC -> CPU; CPU saturation ->
-    GC / threads later). For h = (e*, type) whose key names one of the MECHANISM_SIGNALS, and when at least one of them has a
-    measured onset at e*: THETA_T if a key of the type is a first mover, neutral (0.5) if the key holds without a measured onset
-    (a gradual change: order unknown), 1 - THETA_T otherwise (the key moved later, or not at all). Other types: neutral. Same
-    constant and resolution as the between-entity onset rule; no new constants."""
-    out = np.zeros(len(H))
-    cache = {}
-    for i, h in enumerate(H):
-        if h["type"] in (None, ANOM) or h.get("level") != "service":
-            continue
-        keys = {a for k in model.fp.get(h["type"], {}).get("key", []) for a in _atoms(k)} & set(MECHANISM_SIGNALS)
-        if not keys:
-            continue
-        e = h["entity"]
-        if e not in cache:
-            cache[e] = first_movers(cal.get(e, {}))
-        first, non, any_on = cache[e]
-        if not any_on:
-            continue
-        p = THETA_T if keys & first else (0.5 if keys & non else 1 - THETA_T)
-        out[i] = math.log(p / 0.5)
-    return out
-
-
-def modality(signal: str) -> str:
-    """Telemetry modality of an observation (v5 'mm'): events = Kubernetes events; traces = status codes and span outcomes;
-    logs = log-template rises and log / span messages; everything else is a metric (incl. availability state)."""
-    if signal.startswith("ev_"):
-        return "events"
-    if signal.startswith(("log_", "msg_")) or signal == "message":
-        return "logs"
-    if signal.startswith(("http", "ohttp", "omsg_", "trace_")) or signal == "error_spans" or signal.split("_")[0] in ("db", "redis", "queue"):
-        return "traces"
-    return "metrics"
-
-
-def mm_loglik(model, H, obs):
-    """v5 multimodal corroboration term (see the module docstring, part 'mm'). Returns (log-lik vector, beta_M, k per hypothesis)."""
-    hold = defaultdict(set)
-    for o in obs:
-        if o["holds"] and o["kind"] != "alert":
-            hold[o["entity"]].add(o["signal"])
-    k = np.zeros(len(H))
-    spec = []
-    for i, h in enumerate(H):
-        if h["type"] in (None, ANOM):
-            continue
-        spec.append(i)
-        mods = {modality(sg) for sg in hold.get(h["entity"], ()) if sg not in bd.SYMPTOMS and model.role(h, sg) in ("K", "U", "M")}
-        k[i] = len(mods)
-    n2 = sum(1 for i in spec if k[i] >= 2)
-    beta = max((n2 + MM_W * MM_B0) / (len(spec) + MM_W), MM_B0)
-    out = np.where(k >= 2, math.log(THETA_M / beta), 0.0)
-    return out, beta, k
-
-
-def load_explained(obs, callees, signals=None, hosts=None) -> set:
-    """v5 'loadx': {(service, signal)} for the load signals of services whose request count rises together with a caller's.
-    'loadx2' (amendment 15): the signals include the latency rise that load causes, and the CPU rise of the NODES hosting a service
-    whose CPU rise is load-explained (the load heats the host too) is load-explained as well."""
-    signals = signals or LOAD_SIGNALS
-    rise = {o["entity"] for o in obs if o["holds"] and o["signal"] in ("svc_request_rise", "op_request_rise")}
-    callers = defaultdict(set)
-    for a, bs in callees.items():
-        for b_ in bs:
-            callers[b_].add(a)
-    out = set()
-    for e in rise:
-        if callers.get(e, set()) & rise:
-            out |= {(e, sg) for sg in signals}
-    if hosts is not None:
-        cpu = {o["entity"] for o in obs if o["holds"] and o["signal"] == "svc_cpu_rise"}
-        for e in {e for e, sg in out if sg == "svc_cpu_rise"} & cpu:
-            out |= {(n, "node_cpu_rise") for n in hosts.get(e, [])}
-    return out
