@@ -75,12 +75,13 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
 V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
           "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec",
           "torigin3", "hostcpu", "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder",
-          "sigorder2", "loadx2", "msgtarget", "textx", "textx2")                                              # = belief_v4.ALL_PARTS
+          "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain")                                   # = belief_v4.ALL_PARTS
 V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg",
                                                   "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
                                                   "depconseq", "depbase", "depshare", "sigorder",
-                                                  "sigorder2", "loadx2", "msgtarget", "textx", "textx2"))  # = DEFAULT_PARTS
-V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget")   # frozen 2026-11-02
+                                                  "sigorder2", "loadx2", "msgtarget", "textx", "textx2",
+                                                  "rpchain"))                                   # = DEFAULT_PARTS
+V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget", "textx2")   # frozen 2026-11-02 (+textx2, am. 18)
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
@@ -196,6 +197,8 @@ ARMS = {                                                          # name -> extr
                      "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("textx",))},                                     # CPU, amendment 17
     "GAMA_CORE_TX2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                       "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("textx2",))},                                   # CPU, amendment 18
+    "GAMA_CORE_RP": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                     "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("rpchain",))},                                   # CPU, amendment 19
     "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                            "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                            # GPU baseline: same evidence, LLM decides
     "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",

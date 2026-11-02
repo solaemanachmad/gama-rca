@@ -415,3 +415,20 @@ lb, netpol, sql, cache; 'timeout' and 'refused' log text no longer creates msg_*
 No new constants. Expected from the trails: the four CPU cases and t007 return to the frozen-core decision, the three NPE gains stay
 (about 21 types right); t045 stays loadBalancerFailure.
 Run: GAMA_CORE_TX2 on DEV_ODD (CPU).
+
+### Result of amendment 18 (GAMA_CORE_TX2, DEV_ODD, commit 9cb48ea)
+Final 65.0 [bootstrap 95% CI 56.6, 72.7] / EL 76.6 / FI 40.4 / RP 74.0 / group 53.8 (entities 37, types 21) vs frozen core 63.4 / 77.1 /
+34.6 / 74.0 (37, 18), as predicted: nullPointerException right in t029, t035, t083; the four CPU cases unchanged; t045 -> loadBalancerFailure
+(was codeDefect, both wrong); t065 0.5 -> 0.25; t073 type changed (entity wrong). Wilcoxon vs frozen core p = 0.14; vs
+V4_RULE_MM_T3_OMSG p = 0.0015; vs configuration A p = 0.00014. textx2 joins the frozen configuration (V5_FINAL in scripts/kaggle_run.py;
+arms GAMA_CORE / GAMA_LLM / EVIDENCE_LLM_FINAL now include it).
+
+## Amendment 19 (2026-11-02, before any run of this part): the reasoning chain (`rpchain`; affects RP only)
+RP = 0.5 chain-node match + 0.5 checkpoint hit rate. The chain is the topology path from the decided root to the alerted service; the
+checkpoint texts were the infra evidence retrieved around the ALERT only, hence decision-independent (constant ~75.6).
+Part `rpchain` (no new constants; the entity and type decisions are untouched): (i) among the shortest root -> alert paths, the one whose
+intermediate services hold the most observations (the propagation the evidence supports) instead of an arbitrary one; (ii) the infra
+evidence is also retrieved around the decided root (1-hop neighbourhood), deduplicated -- evidence a diagnostician retrieves to support
+the chain. Disclosure: (ii) adds evidence text and can raise the checkpoint hit rate also through volume; retrieval precision /
+recall are reported next to RP so that this is visible.
+Run: GAMA_CORE_RP (= frozen core incl. textx2 + rpchain) on DEV_ODD (CPU); EL and FI must equal GAMA_CORE_TX2 exactly.

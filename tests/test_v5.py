@@ -438,6 +438,15 @@ def msgtarget_relays_to_the_endpoint_named_in_the_message():
     assert named["err_origin"] == {"quote": 12} and named["relayed_to_callee"] == {"quote": 12}
 
 
+@test
+def rpchain_prefers_the_symptomatic_path():
+    from pipeline.belief_rca import call_path
+    callees = {"frontend": ["checkout", "cart"], "checkout": ["shipping"], "cart": ["shipping"], "shipping": ["quote"]}
+    assert call_path(callees, {}, "frontend", "quote", held={"cart"}) == ["quote", "shipping", "cart", "frontend"]
+    assert call_path(callees, {}, "frontend", "quote", held={"checkout"}) == ["quote", "shipping", "checkout", "frontend"]
+    assert len(call_path(callees, {}, "frontend", "quote")) == 4                       # without the part: any shortest path
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

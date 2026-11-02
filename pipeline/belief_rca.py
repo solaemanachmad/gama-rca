@@ -115,7 +115,17 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
     trace = _safe(compute_trace_evidence, case, at, entry)
     tables = "\n\n".join(t for t in (prop.get("text"), infra.get("text"), trace.get("text")) if t)
     op_name = _node_name(case.topology, entry) if (v4 and entry and entry in case.topology) else None
-    path = call_path(callees, db.get("hosts", {}), alert, res["entity"]) if v4 else []
+    rpchain = v4 and "rpchain" in (res.get("parts") or [])
+    held = {o["entity"] for o in (res.get("holding") or [])} if rpchain else None
+    path = call_path(callees, db.get("hosts", {}), alert, res["entity"], held=held) if v4 else []
+    if rpchain:                                                   # v5 'rpchain' (amendment 19): evidence is also retrieved around the
+        ids0 = _ids(case.topology)                                # decided root (its 1-hop neighbourhood), not only around the alert
+        root_id = ids0.get(res["entity"])
+        if root_id:
+            extra = _safe(compute_infra_evidence, case, at, root_id, 1)
+            seen_t = {o.text for o in infra.get("observations", [])}
+            infra.setdefault("observations", [])
+            infra["observations"] += [o for o in extra.get("observations", []) if o.text not in seen_t]
     if narrate and llm is not None and v4:
         prompt = (f"Alert: {case.alert.alert_text}\nAlerted service: {alert or '(none given)'}\nAlerted operation: {op_name or '(none given)'}\n"
                   f"Call path from the root cause to the alerted service (topology): {' -> '.join(path) if path else '(none)'}\n\n"
@@ -201,9 +211,11 @@ def belief_v4_rule(case_id, llm, cases_dir=config.CASES_DIR):
     return run_case(Case(case_id, cases_dir=cases_dir), None, 0, narrate=False, v4=True)
 
 
-def call_path(callees, hosts, alert, root):
+def call_path(callees, hosts, alert, root, held=None):
     """Topology path root -> ... -> alerted service (services along callee edges, reversed). For a node root, the path starts at the
-    node and continues from the hosted service closest to the alerted service. [] when unknown."""
+    node and continues from the hosted service closest to the alerted service. [] when unknown.
+    v5 'rpchain' (held = entities with a holding observation): among the shortest paths, the one whose intermediate services show the
+    most symptoms (the propagation the evidence supports), instead of an arbitrary one."""
     import networkx as nx
     if not alert or not root:
         return []
@@ -217,7 +229,11 @@ def call_path(callees, hosts, alert, root):
         if st == alert:
             p = [alert]
         elif alert in g and st in g and nx.has_path(g, alert, st):
-            p = list(reversed(nx.shortest_path(g, alert, st)))
+            if held is not None:
+                cands = [list(reversed(q)) for q in nx.all_shortest_paths(g, alert, st)]
+                p = max(cands, key=lambda q: sum(1 for x in q[1:-1] if x in held))
+            else:
+                p = list(reversed(nx.shortest_path(g, alert, st)))
         else:
             continue
         if best is None or len(p) < len(best):
