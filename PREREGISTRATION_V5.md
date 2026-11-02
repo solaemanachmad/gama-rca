@@ -445,3 +445,18 @@ can be raised by retrieval volume alone), in line with the benchmark authors' ow
 ## Final design freeze (2026-11-02)
 CPU core = V5_FINAL = A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak + sigorder2 + loadx2 + msgtarget + textx2
 (arm GAMA_CORE). Odd-half result: Final 65.0 [56.6, 72.7], EL 76.6, FI 40.4, RP 74.0. No further change before VAL_EVEN.
+
+## Amendment 20 (2026-11-02, before any run of this part): evidence at each chain step (`redchain`) and a step-anchored RP
+Reference (Cai et al., RCA100 protocol): the ground truth is a typed chain cause -> propagation -> impact with numeric observability
+checkpoints PER STEP (e.g. cause payment error_count >= 8829; propagation checkout error_count >= 8828; impact checkout::PlaceOrder);
+"an agent must walk the right chain and cite the right evidence at each step". Our scorer matched checkpoints against ALL retrieved
+text, which amendment 19 showed to reward volume.
+(1) Metric, evaluation only, reported next to the existing ones: rp_checkpoint_hit_step = share of ground-truth checkpoints satisfied
+by a predicted chain step that NAMES the checkpoint's step target (signal=value meeting the constraint); reasoning_process_step =
+0.5 chain-node match + 0.5 rp_checkpoint_hit_step; final_score_step. Values at other steps or in retrieved tables do not count.
+(2) Part `redchain` (no new constants beyond the citation format): every step of the rule chain cites up to 4 metric=value readings of
+its own target -- golden signals request / error / latency for services and operations, cpu / memory / disk for nodes -- the window
+extreme in the direction of the change from the baseline median, largest relative changes first. The same per-step table is given
+to the LLM narrator in GAMA_LLM. Entity and type decisions are untouched.
+Run: GAMA_CORE_RED on DEV_ODD (CPU); EL, FI, chain-node match must equal GAMA_CORE_TX2; compare RP, RP_step and the step-anchored
+checkpoint rate where the entity is right vs wrong (it should rise mainly where the entity is right).

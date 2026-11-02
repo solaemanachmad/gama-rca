@@ -368,6 +368,25 @@ def _extract_signal_value(signal: str, text: str) -> Optional[float]:
         return None
 
 
+def _norm_target(x: str) -> str:
+    return re.sub(r"\s+", "", str(x or "").lower())
+
+
+def step_checkpoint_rate(pred_chain, gt) -> float:
+    """Share of the ground-truth checkpoints satisfied by a predicted chain step that names the checkpoint's step target."""
+    cps = [cp for cp in (gt.checkpoints or []) if cp.get("signal")]
+    if not cps or not pred_chain:
+        return 0.0
+    steps = [str(_stringify_chain_step(p)) for p in pred_chain]
+    hits = 0
+    for cp in cps:
+        tgt = _norm_target(cp.get("target"))
+        mine = [st for st in steps if tgt and tgt in _norm_target(st)]
+        if mine and _checkpoint_satisfied(cp, mine):
+            hits += 1
+    return round(hits / len(cps), 4)
+
+
 def _checkpoint_satisfied(cp: Dict, retrieved_texts: List[str]) -> bool:
     """Checks whether any retrieved evidence text satisfies this
     checkpoint's numeric comparator/value constraint (e.g. error_count >=
@@ -531,6 +550,14 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
         report["rp_checkpoint_hit_chain"] = round(_ch / len(gt.checkpoints), 4)
     else:
         report["rp_checkpoint_hit_chain"] = 0.0
+    # Step-anchored RP (evaluation-only, amendment 20): the paper's protocol asks the agent to "cite the right evidence at each step";
+    # a checkpoint of ground-truth step S (target T) counts only if a step of the predicted chain that names T carries a value of the
+    # checkpoint's signal satisfying its constraint. Immune to evidence volume: neither retrieved tables nor other steps count.
+    report["rp_checkpoint_hit_step"] = step_checkpoint_rate(result.reasoning_chain, gt)
+    report["reasoning_process_step"] = round(0.5 * report["rp_chain_nodes"] + 0.5 * report["rp_checkpoint_hit_step"], 4)
+    report["final_score_step"] = round(config.WEIGHT_ENTITY_LOCALIZATION * report["entity_localization"]
+                                       + config.WEIGHT_FAULT_IDENTIFICATION * report["fault_identification"]
+                                       + config.WEIGHT_REASONING_PROCESS * report["reasoning_process_step"], 4)
     # Strict RP / final (evaluation-only, added 2026-10-10 audit): the local
     # rp_checkpoint_hit_rate counts any checkpoint value that merely appears in
     # RETRIEVED evidence, including the synthetic infra tables, so arms that add

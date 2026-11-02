@@ -447,6 +447,45 @@ def rpchain_prefers_the_symptomatic_path():
     assert len(call_path(callees, {}, "frontend", "quote")) == 4                       # without the part: any shortest path
 
 
+@test
+def redchain_cites_step_values_and_step_anchored_rp():
+    import datetime as dt
+    from types import SimpleNamespace
+    from schema import Observation
+    from pipeline.belief_rca import chain_step_metrics, rule_chain
+    from evaluation.scoring import step_checkpoint_rate
+    w0 = dt.datetime(2026, 1, 1, 12, 0, 0)
+    w1 = w0 + dt.timedelta(minutes=5)
+    obs = []
+    def m(eset, name, metric, base, win):
+        for i in range(20):
+            obs.append(Observation(None, w0 - dt.timedelta(seconds=30 * (i + 1)), "metrics", "",
+                                   {"entity_set": eset, "entity_name": name, "metric": metric, "value": base}))
+        for i in range(10):
+            obs.append(Observation(None, w0 + dt.timedelta(seconds=30 * i), "metrics", "",
+                                   {"entity_set": eset, "entity_name": name, "metric": metric, "value": win}))
+    m("apm.service", "payment", "error_count", 2.0, 8900.0)
+    m("apm.service", "payment", "request_count", 100.0, 100.0)
+    m("apm.service", "checkout", "error_count", 1.0, 8850.0)
+    m("apm.service", "checkout", "cpu_usage", 0.1, 0.9)              # not a golden signal of a service step
+    m("apm.operation", "checkout::PlaceOrder", "request_count", 900.0, 20.0)   # a drop: the window MINIMUM is cited
+    case = SimpleNamespace(observations={"metrics": obs})
+    sm = chain_step_metrics(case, w0, w1, ["payment", "payment", "checkout"], "checkout::PlaceOrder")
+    assert dict(sm["payment"])["error_count"] == 8900.0 and "cpu_usage" not in dict(sm["checkout"])
+    assert dict(sm["checkout::PlaceOrder"])["request_count"] == 20.0
+    res = {"entity": "payment", "type": "F014-httpError5xx", "evidence": []}
+    chain = rule_chain(res, ["payment", "checkout"], "checkout::PlaceOrder", sm)
+    assert "error_count=8900" in chain[0] and "error_count=8850" in chain[1]
+    gt = SimpleNamespace(checkpoints=[
+        {"target": "payment", "signal": "error_count", "comparator": ">=", "value": 8829},
+        {"target": "checkout", "signal": "error_count", "comparator": ">=", "value": 8828},
+        {"target": "checkout :: PlaceOrder", "signal": "request_count", "comparator": "<=", "value": 50}])
+    assert step_checkpoint_rate(chain, gt) == 1.0
+    wrong = rule_chain({"entity": "cart", "type": "F014-httpError5xx", "evidence": []}, ["cart"], None,
+                       {"cart": [("error_count", 9000.0)]})
+    assert step_checkpoint_rate(wrong, gt) == 0.0                     # right values at the wrong step do not count
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

@@ -126,6 +126,12 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             seen_t = {o.text for o in infra.get("observations", [])}
             infra.setdefault("observations", [])
             infra["observations"] += [o for o in extra.get("observations", []) if o.text not in seen_t]
+    step_metrics = None
+    if v4 and "redchain" in (res.get("parts") or []):            # v5 'redchain' (amendment 20): each chain step cites the window
+        step_metrics = chain_step_metrics(case, db["w0"], db["w1"], [res["entity"]] + list(path or []), op_name)   # values of its target
+        if step_metrics:
+            tables = (tables + "\n\nWindow values of the entities on the chain (cite them as metric=value):\n" + "\n".join(
+                f"- {e}: " + "; ".join(f"{m}={v}" for m, v in vals) for e, vals in step_metrics.items())).strip()
     if narrate and llm is not None and v4:
         prompt = (f"Alert: {case.alert.alert_text}\nAlerted service: {alert or '(none given)'}\nAlerted operation: {op_name or '(none given)'}\n"
                   f"Call path from the root cause to the alerted service (topology): {' -> '.join(path) if path else '(none)'}\n\n"
@@ -162,7 +168,7 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             stats.update(v3_grounded=round(g, 3), v3_numbers=n)
         stats["v3_narrator_prompt_chars"] = len(prompt)
     if not chain and v4:                                          # deterministic chain along the topology path (no LLM)
-        chain = rule_chain(res, path, op_name)
+        chain = rule_chain(res, path, op_name, step_metrics)
     if not chain:
         chain = [f"cause: {res['entity']} {res['type']}"] + [f"evidence: {e['entity']} {e['signal']}" for e in res["evidence"][:3]]
         if alert and alert != res["entity"]:
@@ -243,7 +249,52 @@ def call_path(callees, hosts, alert, root, held=None):
     return ([root] + best) if best[0] != root else best
 
 
-def rule_chain(res, path, op_name):
+RED_FAMILIES = ("request", "error", "latency")          # golden signals of a service / operation step (rate, errors, duration)
+NODE_FAMILIES = ("cpu", "mem", "disk")
+STEP_METRICS = 4
+
+
+def chain_step_metrics(case, w0, w1, entities, op_name):
+    """v5 'redchain': for every entity on the chain (root, path services or node, alerted operation), up to STEP_METRICS of its own
+    metrics of the golden-signal families (services / operations: request, error, latency; nodes: cpu, memory, disk), each as
+    metric=value with the window extreme in the direction of its change from the baseline median, the largest changes first."""
+    import math
+    from pipeline.fault_fingerprint import _naive
+    want = {e for e in entities if e}
+    if op_name:
+        want.add(op_name)
+    series = defaultdict(list)
+    for o in case.observations.get("metrics", []):
+        p = o.payload or {}
+        name = str(p.get("entity_name") or "")
+        if name not in want or p.get("value") is None:
+            continue
+        ts = _naive(o.timestamp)
+        if ts is None or ts > w1:
+            continue
+        try:
+            series[(name, str(p.get("metric") or ""), str(p.get("entity_set") or ""))].append((ts, float(p["value"])))
+        except (TypeError, ValueError):
+            continue
+    out = defaultdict(list)
+    for (name, m, eset), pts in series.items():
+        fams = NODE_FAMILIES if eset == "k8s.node" else RED_FAMILIES
+        if not any(f in m.lower() for f in fams):
+            continue
+        base = sorted(v for t, v in pts if t < w0)
+        win = [v for t, v in pts if w0 <= t <= w1]
+        if not win or not base:
+            continue
+        b = base[len(base) // 2]
+        hi, lo = max(win), min(win)
+        v = hi if abs(hi - b) >= abs(lo - b) else lo
+        score = abs(math.log((abs(v) + 1e-9) / (abs(b) + 1e-9)))
+        out[name].append((score, m, float(f"{v:.6g}")))
+    return {e: [(m, v) for _, m, v in sorted(out[e], reverse=True)[:STEP_METRICS]] for e in
+            [x for x in list(dict.fromkeys(entities)) + ([op_name] if op_name else []) if x in out]}
+
+
+def rule_chain(res, path, op_name, step_metrics=None):
     """Chain without an LLM: cause at the root with its strongest own evidence, propagation through the path's services with their
     own symptom evidence, impact at the alerted operation."""
     ev = {}
@@ -251,10 +302,12 @@ def rule_chain(res, path, op_name):
         if e["holds"] and e["entity"] not in ev and e["signal"] != "alert":     # the alert itself is not evidence of a step
             ev[e["entity"]] = f"{e['signal']} ({e['ev']})" if e.get("ev") else e["signal"]
     root = res["entity"]
-    chain = [f"cause: {root} {res['type']} " + ev.get(root, "")]
+    sm = step_metrics or {}
+    cite = lambda e: (" | " + "; ".join(f"{m}={v}" for m, v in sm[e])) if sm.get(e) else ""
+    chain = [f"cause: {root} {res['type']} " + ev.get(root, "") + cite(root)]
     for s_ in (path or [])[1:]:
         if s_ != root:
-            chain.append(f"propagation: {s_} " + ev.get(s_, ""))
+            chain.append(f"propagation: {s_} " + ev.get(s_, "") + cite(s_))
     if op_name:
-        chain.append(f"impact: {op_name}")
+        chain.append(f"impact: {op_name}" + cite(op_name))
     return [c.strip() for c in chain]
