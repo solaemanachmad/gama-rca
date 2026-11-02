@@ -470,3 +470,20 @@ amendment 19. Two weaknesses seen in the chains: (a) a CPU ratio 'deployment_cpu
 'error' / 'latency' in the data while checkpoint signals may be 'error_count' / 'avg_request_latency_seconds' (e.g. t001 cites
 error=8899 at payment). Diagnostic checkpoint_names_dev.py (odd cases; answer key read for evaluation analysis only) lists the
 checkpoint signal names per step against the names our steps cite, before any decision on (b).
+
+### Re-run of amendment 20 with the fix (commit 1e80418) and checkpoint-name diagnostic
+Identical scores (step-anchored checkpoint 29.8, RP_step 51.0; right 32.5 vs wrong 23.3). checkpoint_names_dev.py over the four odd
+shards (answer key read for evaluation analysis only): ground-truth checkpoints of the cause / propagation / impact steps are mostly
+request_count, avg_request_latency_seconds and error_count (service / operation), plus, at CAUSE steps, mechanism metrics
+(arms_jvm_gc_delta / gc_seconds_delta, arms_thread_pool_*, arms_jvm_mem_used_bytes, deployment_*_replicas, node_*_usage_rate,
+node_ready_status, pod_restart_count, slow_count). Of the checkpoints: about 94 have no step for their target in our chain (entity
+or path wrong); 140 are cited under the same name at the right step; 93 are not cited although the step exists -- mainly error_count
+(our service-level reading is named 'error' in the data, values agree, e.g. payment error=8899 vs error_count >= 8829) and the
+mechanism metrics of cause steps. No renaming is done (the names are the data's own); the error / error_count difference is reported
+as a property of the metric.
+
+## Amendment 21 (2026-11-03, before any run of this part): the cause step cites its mechanism readings
+Within `redchain`: the cause step additionally cites, as metric=value, the readings behind the root's holding evidence (the metric
+named in each holding observation's evidence text, with its window extreme), before the golden signals (at most 4 + 3 readings).
+This is what the decision used, now written in the chain. No new constants. Affects RP only.
+Run: GAMA_CORE_RED again on DEV_ODD (CPU); EL / FI / chain-node match must stay identical.

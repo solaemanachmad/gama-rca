@@ -253,6 +253,8 @@ RED_FAMILIES = ("request", "error", "latency")          # golden signals of a se
 NODE_FAMILIES = ("cpu", "mem", "disk")
 RESOURCE_WORDS = ("cpu", "mem", "disk", "thread", "gc")
 STEP_METRICS = 4
+import re as _re
+_EV_READING = _re.compile(r"([A-Za-z_][\w.]*): baseline median=[-+0-9.eE]+, window (max|min)=([-+0-9.eE]+)")
 
 
 def chain_step_metrics(case, w0, w1, entities, op_name):
@@ -306,7 +308,15 @@ def rule_chain(res, path, op_name, step_metrics=None):
         if e["holds"] and e["entity"] not in ev and e["signal"] != "alert":     # the alert itself is not evidence of a step
             ev[e["entity"]] = f"{e['signal']} ({e['ev']})" if e.get("ev") else e["signal"]
     root = res["entity"]
-    sm = step_metrics or {}
+    sm = dict(step_metrics or {})
+    if step_metrics is not None:                         # v5 'redchain' (amendment 21): the cause step also cites the readings behind
+        mech = []                                        # the root's holding evidence (the mechanism metrics: GC, threads, replicas,
+        for e in res.get("evidence", []):                # node CPU / memory ...), as metric=window extreme
+            if e["entity"] == root and e["holds"]:
+                mm_ = _EV_READING.search(str(e.get("ev") or ""))
+                if mm_ and mm_.group(1) not in {m for m, _ in mech}:
+                    mech.append((mm_.group(1), float(f"{float(mm_.group(3)):.6g}")))
+        sm[root] = (mech + [x for x in sm.get(root, []) if x[0] not in {m for m, _ in mech}])[:STEP_METRICS + 3]
     cite = lambda e: (" | " + "; ".join(f"{m}={v}" for m, v in sm[e])) if sm.get(e) else ""
     chain = [f"cause: {root} {res['type']} " + ev.get(root, "") + cite(root)]
     for s_ in (path or [])[1:]:

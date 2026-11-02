@@ -478,6 +478,11 @@ def redchain_cites_step_values_and_step_anchored_rp():
     res = {"entity": "payment", "type": "F014-httpError5xx", "evidence": []}
     chain = rule_chain(res, ["payment", "checkout"], "checkout::PlaceOrder", sm)
     assert "error_count=8900" in chain[0] and "error_count=8850" in chain[1]
+    res_gc = {"entity": "payment", "type": "F022-fullGC", "evidence": [
+        {"entity": "payment", "signal": "svc_gc_rise", "holds": True, "log_bf": 2.5,
+         "ev": "arms_jvm_gc_delta: baseline median=18, window max=256 (robust shift 31) (calibrated p=0.03)"}]}
+    assert "arms_jvm_gc_delta=256" in rule_chain(res_gc, ["payment"], None, sm)[0]
+    assert "arms_jvm_gc_delta=" not in rule_chain(res_gc, ["payment"], None, None)[0]          # without the part: unchanged
     gt = SimpleNamespace(checkpoints=[
         {"target": "payment", "signal": "error_count", "comparator": ">=", "value": 8829},
         {"target": "checkout", "signal": "error_count", "comparator": ">=", "value": 8828},
