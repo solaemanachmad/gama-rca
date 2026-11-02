@@ -7,6 +7,9 @@ anomalous?). The answer key is read here ONLY to name the true entity for the an
 Even cases are refused: they are the validation half and stay unseen until the v5 design is frozen.
 
 Usage (on Kaggle, RCA100_ROOT set):  ALERT_T0_MODE=window python scripts/diagnostics/entity_errors_dev.py V4_dev.csv > entity_errors_odd.txt
+  with the parts of an arm (sets its env first):  python scripts/diagnostics/entity_errors_dev.py <results.csv> --arm V4_RULE_MM_T3_OMSG_FI_ORD2
+For every holding calibrated signal it also prints 'self a/b': how many of the entity's OWN b pseudo-windows (cut from its baseline)
+scored at least as high as the real window -- a service that moves this much in its own quiet periods is noisy, not faulty.
 """
 import os
 import sys
@@ -29,10 +32,15 @@ PARTS = [p for p in DEFAULT_PARTS if p != "llmtype"]
 
 
 def main(csv):
-    df = pd.read_csv(csv)
-    df = df[df.case_id.map(lambda c: int(c[1:]) % 2 == 1)]
-    wrong = df[df.entity_localization < 0.999]
-    print(f"odd cases: {len(df)}, entity wrong: {len(wrong)}\n")
+    if csv == "odd":                                     # no results file: diagnose every odd case, print the wrong ones
+        ids = [l.strip() for l in open(os.path.join(config.CASES_DIR, "..", "manifest.txt")) if l.strip()]
+        wrong = pd.DataFrame({"case_id": [c for c in ids if int(c[1:]) % 2 == 1]})
+        print(f"odd cases: {len(wrong)} (all diagnosed; correct entities are skipped)\n")
+    else:
+        df = pd.read_csv(csv)
+        df = df[df.case_id.map(lambda c: int(c[1:]) % 2 == 1)]
+        wrong = df[df.entity_localization < 0.999]
+        print(f"odd cases: {len(df)}, entity wrong: {len(wrong)}\n")
     noisy = Counter()
     for _, r in wrong.iterrows():
         cid = r.case_id
@@ -45,6 +53,8 @@ def main(csv):
         db = compute_signal_db(case, case.alert.alert_timestamp)
         callees = callee_map(case.topology)
         res = diagnose_v4(db, callees, {}, sensor=None, budget=0, alert=alert, parts=PARTS, case=case)
+        if csv == "odd" and res["entity"] in true_names:
+            continue
         obs = bd.observations(db)
         held = Counter(o["entity"] for o in obs if o["holds"])
         expl = bd.explainers(db, callees)
@@ -61,7 +71,11 @@ def main(csv):
             print(f"  {tag} {ent}: hosts={db.get('hosts', {}).get(ent, [])} holding={len(hold)} "
                   f"(rank {rank.index(ent) + 1 if ent in rank else '-'} of {len(rank)}) onset={onset} explains_alert={can}")
             for h in hold[:15]:
-                print(f"      {h}")
+                sig_name = h.split(":", 1)[0]
+                r = on.get(sig_name) or {}
+                z, ps = r.get("z", r.get("raw")), r.get("pseudo") or []
+                selfn = f"  [self {sum(1 for x in ps if x is not None and z is not None and x >= z)}/{len(ps)}]" if ps and z is not None else ""
+                print(f"      {h[:200]}{selfn}")
         for e, n in held.most_common(5):
             noisy[e] += 1
         print()
@@ -69,4 +83,16 @@ def main(csv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    args = sys.argv[1:]
+    if "--arm" in args:
+        i = args.index("--arm")
+        arm = args[i + 1]
+        args = args[:i] + args[i + 2:]
+        from scripts.kaggle_job import definitions
+        D = definitions(os.environ.get("RCA100_ROOT", "/kaggle/input/datasets/solaemanachmad/rca100v1-1/RCA100v1.1"))
+        for k, v in D["ARMS"][arm].items():
+            if not k.startswith("_"):
+                os.environ[k] = v
+        PARTS = [p for p in os.environ["V4_PARTS"].split(",") if p != "llmtype"]
+        print(f"arm {arm}: parts {','.join(PARTS)}")
+    main(args[0])
