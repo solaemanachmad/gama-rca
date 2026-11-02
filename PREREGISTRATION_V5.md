@@ -432,3 +432,16 @@ evidence is also retrieved around the decided root (1-hop neighbourhood), dedupl
 the chain. Disclosure: (ii) adds evidence text and can raise the checkpoint hit rate also through volume; retrieval precision /
 recall are reported next to RP so that this is visible.
 Run: GAMA_CORE_RP (= frozen core incl. textx2 + rpchain) on DEV_ODD (CPU); EL and FI must equal GAMA_CORE_TX2 exactly.
+
+### Result of amendment 19 (GAMA_CORE_RP, DEV_ODD, commit 3101593) -- NOT adopted
+EL and type identical to GAMA_CORE_TX2 in all 52 cases (check passed). (i) the symptom-supported path changed no chain (chain-node
+match 72.1 -> 72.1). (ii) retrieving evidence around the decided root raised the checkpoint hit rate 76.0 -> 83.8 (12 cases up,
+0 down), RP 74.0 -> 78.0, Final 65.0 -> 66.2 (Wilcoxon p = 0.002) -- but the gain is LARGER where the decided entity is wrong (+12.2
+points) than where it is right (+6.1): the checkpoint test is not entity-specific, so more retrieved text hits more checkpoints whatever
+the diagnosis. This measures retrieval volume, not reasoning quality. rpchain is not adopted; the frozen configuration stays
+GAMA_CORE (V5_FINAL, incl. textx2; Final 65.0). The result is reported as a sensitivity analysis of the RP metric (checkpoint credit
+can be raised by retrieval volume alone), in line with the benchmark authors' own truncation of evidence to suppress keyword stuffing.
+
+## Final design freeze (2026-11-02)
+CPU core = V5_FINAL = A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak + sigorder2 + loadx2 + msgtarget + textx2
+(arm GAMA_CORE). Odd-half result: Final 65.0 [56.6, 72.7], EL 76.6, FI 40.4, RP 74.0. No further change before VAL_EVEN.
