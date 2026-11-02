@@ -497,3 +497,17 @@ wrong (25.9). redchain (amendments 20-21) is adopted: it changes no decision and
 V5_FINAL = A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak + sigorder2 + loadx2 + msgtarget + textx2 + redchain
 (arms GAMA_CORE / GAMA_LLM / EVIDENCE_LLM_FINAL). Odd half: Final 65.0 [56.6, 72.7], EL 76.6, FI 40.4, RP 74.0;
 step-anchored: RP_step 52.6, final_score_step 58.5 [50.4, 66.4]. Both RP variants are reported.
+
+### GPU pilot of GAMA_LLM (Qwen2.5-7B, 6 odd cases chosen as hard / control cases, commit 89d3345)
+Runs cleanly: 2-4 LLM calls and 7.2k-11.5k tokens per case, 160-244 s per case; log probes in 5 of 6 cases. Entities unchanged
+(6/6 right). Types vs GAMA_CORE: t045 fixed (loadBalancerFailure -> httpError5xx, LLM typing), t067 broken (cpuFullLoad -> cpuDeadLoop:
+an exact statistical tie that the core resolves to the general type, the LLM to the special one); t007, t055, t059 still wrong; net 0.
+The LLM narrator lowered the reasoning score: step-anchored checkpoints 0 in 5 of 6 cases (rule chain 0.11-0.71), and the old RP
+dropped in t059: the narrative cites fewer of the step readings and once attributes a node metric to a service.
+
+## Amendment 22 (2026-11-03, before the full GPU run): the computed chain is the scored chain (`keepchain`)
+In GAMA_LLM the scored reasoning chain is the computed chain (topology path + per-step readings, redchain); the LLM narrative is kept
+in the output (llm_chain) for the human reader and scored separately on the same metrics (rp_chain_nodes_llm,
+rp_checkpoint_hit_step_llm), so that hypothesis H3 (does a stronger LLM write a better chain?) can still be tested. Consistent with
+principle P3: the LLM does not replace computed evidence. The LLM still reads logs (sensor) and types the root from the shortlist.
+Run: GAMA_LLM (now with keepchain) on DEV_ODD, GPU, 4 shards.

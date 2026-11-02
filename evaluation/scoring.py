@@ -554,6 +554,11 @@ def full_case_report(result: RCAResult, gt: GroundTruth, topology: nx.DiGraph,
     # a checkpoint of ground-truth step S (target T) counts only if a step of the predicted chain that names T carries a value of the
     # checkpoint's signal satisfying its constraint. Immune to evidence volume: neither retrieved tables nor other steps count.
     report["rp_checkpoint_hit_step"] = step_checkpoint_rate(result.reasoning_chain, gt)
+    _llm_chain = str((result.retrieval_stats or {}).get("llm_chain") or "")
+    if _llm_chain:                                        # amendment 22: the LLM narrative scored on the same metrics, for comparison
+        _lc = [x for x in _llm_chain.split(" || ") if x]
+        report["rp_chain_nodes_llm"] = round(chain_node_match(_lc, gt.reasoning_chain), 4)
+        report["rp_checkpoint_hit_step_llm"] = step_checkpoint_rate(_lc, gt)
     report["reasoning_process_step"] = round(0.5 * report["rp_chain_nodes"] + 0.5 * report["rp_checkpoint_hit_step"], 4)
     report["final_score_step"] = round(config.WEIGHT_ENTITY_LOCALIZATION * report["entity_localization"]
                                        + config.WEIGHT_FAULT_IDENTIFICATION * report["fault_identification"]

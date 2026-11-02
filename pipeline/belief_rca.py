@@ -167,6 +167,9 @@ def run_case(case, llm, budget: int, narrate: bool, v4: bool = False) -> RCAResu
             g, n, _bad = _grounding(chain, pool)
             stats.update(v3_grounded=round(g, 3), v3_numbers=n)
         stats["v3_narrator_prompt_chars"] = len(prompt)
+    if chain and v4 and "keepchain" in (res.get("parts") or []):   # v5 'keepchain' (amendment 22): the scored chain is the computed one
+        stats["llm_chain"] = " || ".join(chain)                   # (path + per-step readings); the LLM's narrative is kept for the reader
+        chain = []                                                # and scored separately (rp_*_llm columns)
     if not chain and v4:                                          # deterministic chain along the topology path (no LLM)
         chain = rule_chain(res, path, op_name, step_metrics)
     if not chain:

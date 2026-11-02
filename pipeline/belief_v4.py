@@ -90,6 +90,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            evidence also retrieved around the decided root (1 hop). Affects RP only (not the entity or type decision)
   redchain (amendment 20; read in belief_rca) every chain step cites metric=value of its own target (golden signals: request, error,
            latency for services / operations; cpu, memory, disk for nodes). Affects RP only
+  keepchain (amendment 22; read in belief_rca) with an LLM narrator, the scored chain stays the computed one; the narrative is saved
+           (llm_chain) and scored separately
 """
 from __future__ import annotations
 
@@ -107,9 +109,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
