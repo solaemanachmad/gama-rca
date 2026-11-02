@@ -75,7 +75,8 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     _pe = parts_from_env()
     if {"torigin", "torigin2", "torigin3"} & set(_pe):
         from pipeline.trace_structure import trace_observations
-        obs += trace_observations(case, db, v2=bool({"torigin2", "torigin3"} & set(_pe)), omsg="omsg" in _pe, v3="torigin3" in _pe)
+        obs += trace_observations(case, db, v2=bool({"torigin2", "torigin3"} & set(_pe)), omsg="omsg" in _pe, v3="torigin3" in _pe,
+                                  msgtarget="msgtarget" in _pe)
     ev = {}
     for o in obs:
         if o["holds"]:

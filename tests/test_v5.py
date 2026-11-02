@@ -416,6 +416,28 @@ def loadx2_load_causes_latency_and_heats_the_host():
     assert not any(e == "inventory" for e, _ in v2) and not any(e == "frontend" for e, _ in v2)   # no rising caller
 
 
+@test
+def msgtarget_relays_to_the_endpoint_named_in_the_message():
+    from pipeline.trace_structure import analyse, named_target
+    svcs = ["frontend", "checkout", "shipping", "quote"]
+    m1 = "Request error: error sending request for url (http://quote:8080/getquote): error trying to connect: Connection refused"
+    assert named_target(m1, svcs, "checkout") == "quote"
+    assert named_target("dial tcp quote.default.svc.cluster.local:8080: connect: connection refused", svcs, "checkout") == "quote"
+    assert named_target("dial tcp 192.168.132.109:8080: connect: connection refused", svcs, "checkout") == ""   # an IP names nothing
+    assert named_target("http://checkout:8080/x refused", svcs, "checkout") == ""                               # its own name
+    spans = []
+    for i in range(12):                       # checkout -> shipping (reached, no error) ; shipping could not reach quote
+        t = f"q{i}"
+        a = _sp(t, f"{t}a", None, "checkout", 0, 1.0, True, "/oteldemo.ShippingService/GetQuote")
+        a["msg"] = m1
+        spans += [a, _sp(t, f"{t}b", f"{t}a", "shipping", 0.1, 0.5, False, "GET /getquote")]
+    svcs_all = svcs
+    plain = analyse(spans, 10, 5, services=svcs_all)
+    named = analyse(spans, 10, 5, services=svcs_all, msgtarget=True)
+    assert plain["err_origin"] == {"checkout": 12}                      # reached shipping: torigin3 keeps the caller
+    assert named["err_origin"] == {"quote": 12} and named["relayed_to_callee"] == {"quote": 12}
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

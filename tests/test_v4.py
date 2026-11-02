@@ -608,6 +608,28 @@ def loadx2_runs_end_to_end():
     assert r["entity"] and isinstance(db["_load_explained"], set)
 
 
+@test
+def msgtarget_gives_evidence_to_a_service_without_spans():
+    """v5 'msgtarget': checkout reports 'error sending request for url (http://cart:8080/...)'; cart itself emits no span. The
+    error origin goes to cart, which gets observations although it has no spans in the window."""
+    from schema import Observation
+    from pipeline.trace_structure import trace_observations
+    c = make_case()
+    for i in range(12):
+        t0 = W0 + dt.timedelta(seconds=20 + 10 * i)
+        for sid, par, svc in ((f"a{i}", None, "frontend"), (f"b{i}", f"a{i}", "checkout")):
+            c.observations["traces"].append(Observation(None, t0, "traces", "", {
+                "traceId": f"M{i}", "spanId": sid, "parentSpanId": par or "", "serviceName": svc, "statusCode": "2",
+                "statusMessage": "error sending request for url (http://cart:8080/getcart): connection refused",
+                "attributes": "", "spanName": "op", "duration": 3e8}))
+    db = compute_signal_db(c, T0)
+    o0 = trace_observations(c, db, v2=True, omsg=True, v3=True)
+    o1 = trace_observations(c, db, v2=True, omsg=True, v3=True, msgtarget=True)
+    holds = lambda obs: {(o["entity"], o["signal"]) for o in obs if o["holds"]}
+    assert ("cart", "trace_err_origin") not in holds(o0)
+    assert ("cart", "trace_err_origin") in holds(o1) and ("checkout", "trace_err_origin") not in holds(o1), holds(o1)
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

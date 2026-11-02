@@ -336,3 +336,20 @@ Expected from the per-observation differences (not a guarantee: EM and the mm te
 root; t013, t077 probably not (memory rise / remaining margin); risk: true roots whose own request rise is load-explained lose their
 latency / host-CPU evidence.
 Run: V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2 on DEV_ODD (CPU), vs ORD2.
+
+## Amendment 16 (2026-11-02, before any run of this part): the endpoint named in the failure message (`msgtarget`)
+
+Diagnostic silent_dev.py (odd t033, t065, t081, replicaScaleDown; no labels read by the script):
+- t033 / t081 (quote scaled down): checkout's failing span is the client call /oteldemo.ShippingService/GetQuote; shipping WAS
+  reached (it has a child span), so torigin3 keeps checkout as the origin. The message carries the real failure:
+  "error sending request for url (http://quote:8080/getquote): ... connection refused" (shipping could not reach quote).
+  quote emits no spans in the window (t033: 3513 before, 0 in), so it also had no trace observation at all.
+- t065 (shipping scaled down): "dial tcp 192.168.132.109:8080: ... connection refused" (an IP, names no service); torigin3 already
+  relays to shipping (no child span). Unchanged by this amendment.
+- "Silence" is not specific: when checkout fails, payment / email / accounting / fraud-detection also emit no spans (never called).
+  No silence signal is added.
+Part `msgtarget` (with torigin3; no new constants): for a deepest failing span whose message is of the unreachable / timeout kind,
+if the message names the endpoint (host of a URL, of 'dial tcp <host>:' or of a DNS lookup) and that host's first DNS label is a known
+service other than the span's own, that service is the error origin (and receives the origin messages); services that become
+origins this way get trace observations even without spans of their own. An IP address names no service.
+Run: V4_RULE_MM_T3_OMSG_FI_ORD2_MSGT on DEV_ODD (CPU), vs ORD2; separately from loadx2, to attribute each.

@@ -81,6 +81,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
   sigorder2 (amendment 13) the same rule applied only when typing the decided root (the entity marginals are unchanged)
   loadx2   (amendment 15) loadx + the latency rise that load causes + the CPU rise of the hosts of a load-explained service; load-explained
            signals do not date an entity's onset
+  msgtarget (amendment 16) with torigin3: a failure whose message names the unreachable endpoint (URL / dial / lookup host) is
+           relayed to THAT service (a caller reports its callee's failure to reach a deeper service)
 """
 from __future__ import annotations
 
@@ -98,9 +100,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
@@ -385,7 +387,7 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
     if ("torigin" in parts or "torigin2" in parts or "torigin3" in parts) and case is not None:
         from pipeline.trace_structure import trace_observations, origin_nodes
         obs += trace_observations(case, db, v2="torigin2" in parts or "torigin3" in parts, omsg="omsg" in parts,
-                                  v3="torigin3" in parts)
+                                  v3="torigin3" in parts, msgtarget="msgtarget" in parts)
         if "torigin2" in parts or "torigin3" in parts:
             model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
     if "depbase" in parts and case is not None:            # v5: dependency latency against the service's own history

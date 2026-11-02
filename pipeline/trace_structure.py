@@ -65,6 +65,21 @@ def callee_of(span: Dict, services: List[str]) -> str:
     return best
 
 
+def named_target(msg: str, services: List[str], own: str) -> str:
+    """v5 'msgtarget' (amendment 16): the service a failure message names as the endpoint that could not be reached -- the host of a
+    URL ('http://quote:8080/getquote'), of 'dial tcp <host>:' or of a DNS lookup -- when that host is a known service other than the
+    span's own (first DNS label; 'quote.default.svc.cluster.local' -> quote). '' if none (IP addresses name no service)."""
+    import re
+    hosts = re.findall(r"[a-z][a-z0-9+.-]*://([A-Za-z0-9._-]+)|dial tcp ([A-Za-z0-9._-]+):|lookup ([A-Za-z0-9._-]+)", msg or "")
+    byname = {_norm(sv): sv for sv in services}
+    for groups in hosts:
+        for h in groups:
+            sv = byname.get(_norm(h.split(".")[0])) if h else None
+            if sv and sv != own:
+                return sv
+    return ""
+
+
 def unreachable_kind(span: Dict) -> str:
     """'unreachable' if the failure message says the callee could not be reached (refused / unavailable / no such host / no
     endpoints), 'timeout' for timeouts, '' otherwise."""
@@ -78,7 +93,8 @@ def unreachable_kind(span: Dict) -> str:
     return "unreachable" if _UNREACHABLE[0].search(m) else ("timeout" if _UNREACHABLE[1].search(m) else "")
 
 
-def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TRACES, services: List[str] = None) -> Dict:
+def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TRACES, services: List[str] = None,
+            msgtarget: bool = False) -> Dict:
     """spans: dicts with traceId, spanId, parentSpanId, service, start (s), duration (s), error (bool). Returns per-service counts and
     the services that hold each signal, with a short evidence text."""
     by_trace = defaultdict(list)
@@ -105,7 +121,10 @@ def analyse(spans: List[Dict], min_err: int = MIN_TRACES, min_slow: int = MIN_TR
                 own = s["service"]
                 if services is not None:                  # v3: a caller that could not reach / waited out its callee is not the origin
                     kind, ch = unreachable_kind(s), kids.get(s["spanId"], [])
-                    if kind == "unreachable" and not ch:
+                    named = named_target(s.get("msg"), services, s["service"]) if msgtarget and kind else ""
+                    if named:                             # v5 'msgtarget': the message names the endpoint that failed
+                        own = named
+                    elif kind == "unreachable" and not ch:
                         own = callee_of(s, services) or own
                     elif kind == "timeout":
                         if ch:
@@ -219,7 +238,7 @@ OMSG_SIGNALS = tuple([f"omsg_{f}" for f in ("npe", "ratelimit", "oom", "gc", "th
                                                 "queue", "cache", "lb", "netpol")] + ["ohttp429", "ohttp403", "ohttp503", "ohttp5xx"])
 
 
-def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool = False) -> List[Dict]:
+def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool = False, msgtarget: bool = False) -> List[Dict]:
     """Window spans of the case -> observations for the services of db (holds True / False for every service with spans)."""
     from pipeline.fault_fingerprint import _owner, _naive
     from data.dataset_profile import TRACE_ERROR_STATUS
@@ -243,7 +262,7 @@ def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool 
                       "msg": str(p.get("statusMessage") or ""), "attrs": p.get("attributes") if isinstance(p.get("attributes"), str) else ""})
         seen.add(svc)
     if v3:
-        res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2, services=services)
+        res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2, services=services, msgtarget=msgtarget)
     elif v2:
         res = analyse(spans, MIN_ERR_TRACES_V2, MIN_SLOW_TRACES_V2)
     else:
@@ -263,6 +282,8 @@ def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool 
     db["_trace_structure"] = {k: v for k, v in res.items() if k not in ("holds", "origin_spans", "origin_traces")}
     db["_trace_structure"]["origin_messages"] = {f"{k[0]}:{k[1]}": v for k, v in om.items()}
     obs = []
+    if msgtarget:                                        # a service that could not be reached may have no spans of its own at all
+        seen |= {sv for sv, _ in res["holds"]} | {sv for sv, _ in om}
     for svc in sorted(seen):
         for sig in SIGNALS:
             ev = res["holds"].get((svc, sig), "")
