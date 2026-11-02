@@ -353,3 +353,13 @@ if the message names the endpoint (host of a URL, of 'dial tcp <host>:' or of a 
 service other than the span's own, that service is the error origin (and receives the origin messages); services that become
 origins this way get trace observations even without spans of their own. An IP address names no service.
 Run: V4_RULE_MM_T3_OMSG_FI_ORD2_MSGT on DEV_ODD (CPU), vs ORD2; separately from loadx2, to attribute each.
+
+### Result of amendment 15 (V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2, DEV_ODD, commit efdb33b)
+Final 62.3 [bootstrap 95% CI 54.4, 69.7] / EL 74.6 / FI 34.6 / RP 73.5 (entities 35, types 18) vs ORD2 56.6 / 64.3 / 30.8 / 72.3
+(29, 16). Wilcoxon on Final: vs ORD2 p = 0.025; vs V4_RULE_MM_T3_OMSG p = 0.008; vs configuration A p = 0.0003. 12 cases changed:
+entity AND type right now in t013, t017, t089 (rateLimiting at inventory, previously recommendation / a node); entity right in t039,
+t059, t097; t065 0.25 -> 0.5 hop credit; one loss: t049 (trafficHotspot type lost; its entity was already wrong) -- the risk stated
+in advance. The recommendation attractor is gone in the rateLimiting cases; t077 (rateLimiting) and t073 (nodeDown) remain.
+By fault group (entity / type right): Resource 6/6 6/6, JVM 8/8 5/8, Middleware & DB 7/8 1/8, Application logic 12/19 5/19,
+K8s lifecycle 2/6 1/6, Cloud resource 0/5 0/5.
+Next: msgtarget on top of loadx2 (V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2_MSGT) instead of on ORD2 alone, since loadx2 is now the base.
