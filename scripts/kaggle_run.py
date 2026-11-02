@@ -204,6 +204,12 @@ ARMS = {                                                          # name -> extr
                      "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("rpchain",))},                                   # CPU, amendment 19
     "GAMA_CORE_RED": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                       "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("redchain",))},                                 # CPU, amendment 20
+    # leave-one-module-out ablations of the frozen core (run on the EVEN half; PREREGISTRATION_V5.md, evaluation runs)
+    **{f"GAMA_CORE_NO_{mod}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                               "V4_PARTS": ",".join(V4_DEFAULT + tuple(x for x in V5_FINAL if x not in drop))}
+       for mod, drop in (("MM", ("mm",)), ("TRACE", ("torigin3", "omsg", "msgtarget")),
+                         ("TYPE", ("hostcpu", "errclass", "tiebreak", "sigorder2")), ("LOAD", ("loadx2",)),
+                         ("TEXT", ("textx2",)))},
     "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                            "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                            # GPU baseline: same evidence, LLM decides
     "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",

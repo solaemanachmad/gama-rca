@@ -524,3 +524,19 @@ belief sentinel of PoS (Luo et al.), which are LLM-run. No new constants.
   budget 5, stop at P >= 0.8) on ALL 103 cases (4 shards): the odd half compares with GAMA_CORE, the even half is validation.
 - GAMA_CORE on the EVEN half (the odd half is done): the validation of the statistical core.
 - Then, on the even half: EVIDENCE_LLM_FINAL and DIRECT_LLM (Qwen2.5-7B), and the cross-model study.
+
+## VALIDATION RESULT -- GAMA_CORE on the even half (51 cases, never used for design; commit 96dacea)
+Final 60.8 [bootstrap 95% CI 53.1, 68.6] / EL 61.0 / FI 47.1 / RP 74.2 / group 58.8 (entities 27, types 24); step-anchored RP 50.8,
+final_score_step 53.8. Configuration A on the same even cases: 51.4 [44.0, 58.8] (EL 54.6, FI 25.5); paired Wilcoxon p = 0.059;
+17 cases better, 6 worse, 28 equal. Odd half (development) 65.0; odd vs even difference not significant (Mann-Whitney p = 0.38).
+All 103 cases: 62.9 [57.2, 68.4] vs A 50.0, Wilcoxon p = 4.6e-5.
+By group (even): FI improves in every group except Resource and Middleware (equal); EL improves in Application logic, JVM, K8s and
+Middleware, but DROPS for Cloud-resource (node) faults (0.41 -> 0.28). The even half has 9 node faults (odd: 5). All six regressions
+vs A involve a node: the true node loses to another node (t008, t036: cn-hongkong.10.0.2.59, hosting several error / slow origins,
+wins with no node signal of its own), or a node wins over the service (t042, t058, t088). Probable cause (post hoc, not acted on):
+the node support of the trace-origin module (a node hosting >= 2 origin services) -- visible only now because the odd half had few
+node faults. Reported as a limitation; the leave-one-module-out ablations on the even half will measure it. No design change.
+
+## Leave-one-module-out ablations (even half, CPU; arms GAMA_CORE_NO_{MM, TRACE, TYPE, LOAD, TEXT})
+Each = V5_FINAL without one module: MM (mm), TRACE (torigin3, omsg, msgtarget), TYPE (hostcpu, errclass, tiebreak, sigorder2),
+LOAD (loadx2), TEXT (textx2). Reported as measured, whatever the outcome.
