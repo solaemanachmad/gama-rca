@@ -469,9 +469,11 @@ def redchain_cites_step_values_and_step_anchored_rp():
     m("apm.service", "checkout", "error_count", 1.0, 8850.0)
     m("apm.service", "checkout", "cpu_usage", 0.1, 0.9)              # not a golden signal of a service step
     m("apm.operation", "checkout::PlaceOrder", "request_count", 900.0, 20.0)   # a drop: the window MINIMUM is cited
+    m("apm.service", "payment", "deployment_cpu_usage_vs_requests", 1.0, 30.0)      # a CPU ratio, not a request count
     case = SimpleNamespace(observations={"metrics": obs})
     sm = chain_step_metrics(case, w0, w1, ["payment", "payment", "checkout"], "checkout::PlaceOrder")
     assert dict(sm["payment"])["error_count"] == 8900.0 and "cpu_usage" not in dict(sm["checkout"])
+    assert "deployment_cpu_usage_vs_requests" not in dict(sm["payment"])
     assert dict(sm["checkout::PlaceOrder"])["request_count"] == 20.0
     res = {"entity": "payment", "type": "F014-httpError5xx", "evidence": []}
     chain = rule_chain(res, ["payment", "checkout"], "checkout::PlaceOrder", sm)

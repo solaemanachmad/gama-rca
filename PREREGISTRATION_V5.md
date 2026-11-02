@@ -460,3 +460,13 @@ extreme in the direction of the change from the baseline median, largest relativ
 to the LLM narrator in GAMA_LLM. Entity and type decisions are untouched.
 Run: GAMA_CORE_RED on DEV_ODD (CPU); EL, FI, chain-node match must equal GAMA_CORE_TX2; compare RP, RP_step and the step-anchored
 checkpoint rate where the entity is right vs wrong (it should rise mainly where the entity is right).
+
+### Result of amendment 20 (GAMA_CORE_RED, DEV_ODD, commit dad4dba)
+Control passed: EL, type, chain-node match and the old RP identical to GAMA_CORE_TX2 (RP 74.0, old checkpoint rate 76.0). New,
+step-anchored: checkpoint rate 29.8 (TX2 chain cites no signal=value, ~0), reasoning_process_step 51.0, final_score_step 58.1; the
+step-anchored rate is higher where the entity is right (32.5) than where it is wrong (23.3) -- the opposite of the volume effect of
+amendment 19. Two weaknesses seen in the chains: (a) a CPU ratio 'deployment_cpu_usage_vs_requests' was cited as a request signal
+(name contains 'request'): bug, fixed (resource words excluded for service / operation steps); (b) service-level metrics are named
+'error' / 'latency' in the data while checkpoint signals may be 'error_count' / 'avg_request_latency_seconds' (e.g. t001 cites
+error=8899 at payment). Diagnostic checkpoint_names_dev.py (odd cases; answer key read for evaluation analysis only) lists the
+checkpoint signal names per step against the names our steps cite, before any decision on (b).

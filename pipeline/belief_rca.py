@@ -251,6 +251,7 @@ def call_path(callees, hosts, alert, root, held=None):
 
 RED_FAMILIES = ("request", "error", "latency")          # golden signals of a service / operation step (rate, errors, duration)
 NODE_FAMILIES = ("cpu", "mem", "disk")
+RESOURCE_WORDS = ("cpu", "mem", "disk", "thread", "gc")
 STEP_METRICS = 4
 
 
@@ -279,8 +280,11 @@ def chain_step_metrics(case, w0, w1, entities, op_name):
     out = defaultdict(list)
     for (name, m, eset), pts in series.items():
         fams = NODE_FAMILIES if eset == "k8s.node" else RED_FAMILIES
-        if not any(f in m.lower() for f in fams):
+        ml = m.lower()
+        if not any(f in ml for f in fams):
             continue
+        if eset != "k8s.node" and any(r in ml for r in RESOURCE_WORDS):   # e.g. deployment_cpu_usage_vs_requests is a CPU ratio,
+            continue                                                       # not a request count
         base = sorted(v for t, v in pts if t < w0)
         win = [v for t, v in pts if w0 <= t <= w1]
         if not win or not base:
