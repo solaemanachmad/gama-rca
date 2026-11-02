@@ -487,3 +487,13 @@ Within `redchain`: the cause step additionally cites, as metric=value, the readi
 named in each holding observation's evidence text, with its window extreme), before the golden signals (at most 4 + 3 readings).
 This is what the decision used, now written in the chain. No new constants. Affects RP only.
 Run: GAMA_CORE_RED again on DEV_ODD (CPU); EL / FI / chain-node match must stay identical.
+
+### Result of amendment 21 (GAMA_CORE_RED, DEV_ODD, commit 89d3345)
+EL / type / chain-node match / old RP identical (control passed). Step-anchored checkpoint rate 29.8 -> 33.1 (9 cases up, 0 down),
+RP_step 51.0 -> 52.6, final_score_step 58.1 -> 58.5 (Wilcoxon p = 0.007); higher where the entity is right (36.0) than where it is
+wrong (25.9). redchain (amendments 20-21) is adopted: it changes no decision and makes the chain cite the evidence of each step.
+
+## Final configuration (2026-11-03)
+V5_FINAL = A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak + sigorder2 + loadx2 + msgtarget + textx2 + redchain
+(arms GAMA_CORE / GAMA_LLM / EVIDENCE_LLM_FINAL). Odd half: Final 65.0 [56.6, 72.7], EL 76.6, FI 40.4, RP 74.0;
+step-anchored: RP_step 52.6, final_score_step 58.5 [50.4, 66.4]. Both RP variants are reported.

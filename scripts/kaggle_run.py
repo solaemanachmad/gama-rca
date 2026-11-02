@@ -81,7 +81,8 @@ V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard",
                                                   "depconseq", "depbase", "depshare", "sigorder",
                                                   "sigorder2", "loadx2", "msgtarget", "textx", "textx2",
                                                   "rpchain", "redchain"))                       # = DEFAULT_PARTS
-V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget", "textx2")   # frozen 2026-11-02 (+textx2, am. 18)
+V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget", "textx2",
+            "redchain")                                           # frozen 2026-11-03 (+textx2 am. 18, +redchain am. 20-21)
 ARMS = {                                                          # name -> extra env, all on the fixed base
     "A1rT_fixed": {},
     "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
