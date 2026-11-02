@@ -274,3 +274,20 @@ at the decided entity, multiplied by the factor). FI_DBS: +5 types (t027, t053, 
 threadExhaustion -> codeDefect: memory moved first). A variant that leaves types whose key does not hold neutral gained nothing and
 was not adopted. Even cases unseen.
 Runs: V4_RULE_MM_T3_OMSG_FI_ORD (CPU) on DEV_ODD; then V4_MM_T3_OMSG_FI_ORD (GPU, + xcard LLM typing).
+
+### Result of amendment 12 (V4_RULE_MM_T3_OMSG_FI_ORD, DEV_ODD, commit 4e2ffd8)
+Final 55.3 / EL 62.6 / FI 28.8 / RP 72.0 / group 51.9 (entities 28, types 15) vs V4_RULE_MM_T3_OMSG 54.5 / 66.0 / 21.2 / 72.6 / 44.2
+(30, 11) and V4_RULE_MM_T3_OMSG_FI (shards 0-2, 39 cases: types 6 vs ORD 10). Wilcoxon vs T3_OMSG p = 0.90. Types gained:
+cpuFullLoad t027, t041, t093 (CPU moved first) and memoryPressure t047, t057, t061 kept; lost: t007 (threadExhaustion -> codeDefect,
+memory moved first, as simulated). Entities lost: t039 (also in FI / FI_DBS: FI parts) and t099 (inventory 0.398 vs recommendation
+0.395 before; the order rule lowered inventory's type mass and moved the decision to recommendation): the rule meant to TYPE the root
+also moved the root.
+
+## Amendment 13 (2026-11-02, before any run of this part): the order rule types the root, it does not choose it
+
+Part `sigorder2` = the rule of amendment 12 applied only in the second stage of the two-stage decision: the root is chosen from the
+entity marginals WITHOUT the rule; then the types of that root are re-weighted by it (renormalised within the root). No new constants.
+Offline check on the FI arm's saved posteriors (39 odd cases, onsets from signal_onsets_dev.py): types 6 -> 11 (ORD: 10); t099 keeps
+inventory / httpError5xx.
+Runs: V4_RULE_MM_T3_OMSG_FI_ORD2 (CPU) on DEV_ODD; then V4_MM_T3_OMSG_FI_ORD2 (GPU, + xcard LLM typing, which reads the re-weighted
+type ranking).

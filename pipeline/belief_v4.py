@@ -78,6 +78,7 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            (a starved service stretches its calls too, but spends the extra time in itself)
   sigorder (amendment 12) inside the root, the key mechanism signal of the type (CPU / memory / GC / threads) must be among the
            first to move (onset), else the type is penalised (THETA_T, as the between-entity onset rule)
+  sigorder2 (amendment 13) the same rule applied only when typing the decided root (the entity marginals are unchanged)
 """
 from __future__ import annotations
 
@@ -95,9 +96,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
@@ -466,12 +467,21 @@ def diagnose_v4(db, callees, texts, sensor=None, budget=bd.PROBE_BUDGET, top_m=8
         for h, p in zip(H[:-1], post[:-1]):
             marg[h["entity"]] += float(p)
         ent = max(marg, key=marg.get)
-        own = [i for i in order if H[i]["entity"] == ent and H[i]["type"] not in (None, ANOM)]
+        tpost, torder = post, order
+        if "sigorder2" in parts:                         # v5 (amendment 13): the order rule types the root, it does not move it
+            so = sigorder_loglik(H, db.get("_cal", {}), model)
+            idx = [i for i in range(len(H) - 1) if H[i]["entity"] == ent]
+            w = post[idx] * np.exp(so[idx])
+            if w.sum() > 0:
+                tpost = post.copy()
+                tpost[idx] = w / w.sum() * marg[ent]
+                torder = np.argsort(-tpost, kind="stable") if "tiebreak" in parts else np.argsort(-tpost)
+        own = [i for i in torder if H[i]["entity"] == ent and H[i]["type"] not in (None, ANOM)]
         level = next(h["level"] for h in H if h["entity"] == ent)
-        type_rank = [(H[i]["type"], round(float(post[i]) / max(marg[ent], 1e-12), 4)) for i in own]
+        type_rank = [(H[i]["type"], round(float(tpost[i]) / max(marg[ent], 1e-12), 4)) for i in own]
         if own:
             best = own[0]
-            typ, p_type = H[best]["type"], float(post[best]) / max(marg[ent], 1e-12)
+            typ, p_type = H[best]["type"], float(tpost[best]) / max(marg[ent], 1e-12)
         else:
             best = next(i for i in order if H[i]["entity"] == ent)
             typ, p_type = _fallback_type(model, ent, level, entity_signals(db, ent)), None

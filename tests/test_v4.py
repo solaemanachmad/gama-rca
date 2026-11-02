@@ -593,6 +593,14 @@ def sigorder_runs_end_to_end():
     assert r["entity"] and r["type"]
 
 
+@test
+def sigorder2_keeps_the_entity_marginals():
+    c = make_case()
+    r1, _ = run(c, parts=list(b4.DEFAULT_PARTS), alert="frontend")
+    r2, _ = run(c, parts=list(b4.DEFAULT_PARTS) + ["sigorder2"], alert="frontend")
+    assert r1["entity"] == r2["entity"] and abs(r1["p"] - r2["p"]) < 1e-9, (r1["entity"], r1["p"], r2["entity"], r2["p"])
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:
