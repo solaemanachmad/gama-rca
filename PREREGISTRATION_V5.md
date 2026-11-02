@@ -377,3 +377,26 @@ Configuration GAMA-RCA v5 (core) = A + mm + torigin3 + omsg + hostcpu + errclass
 above (node faults without node signals; t033 node attraction; DB slowness invisible in traces). Next, in order: GPU run of the same
 core + LLM (log sensor + typing) on DEV_ODD with one backbone, to check that the LLM stage is not harmful; then VAL_EVEN once (core,
 and per backbone DIRECT_LLM / EVIDENCE_LLM / GAMA-RCA + LLM), with the arms aligned to this configuration before any even-case run.
+
+## Amendment 17 (2026-11-02, before any run of this part; reopens the frozen core on the odd half only): text evidence (`textx`)
+
+Per-type analysis of the frozen core (odd half): 18 cases have the right entity and the wrong type; in about 13 the key signal of the
+true type is not detected at the root. Diagnostic error_text_dev.py (odd cases, case:service pairs given, no labels read):
+- nullPointerException (t029, t035, t083): the span status message is empty, but every failing span carries the exception in the
+  OTel attributes (exception.type / exception.message) and the service logs 549-1280 'java.lang.NullPointerException' lines in the
+  window vs 0-7 before. The core reads only statusMessage for msg_*, and log_npe_rise did not hold.
+- httpError5xx at gRPC services (t045 ad): no http.status_code; rpc.grpc.status_code on the failing spans and 'Status{code=UNAVAILABLE}'
+  in the log. The core reads only http.status_code.
+- dbNetworkLatency (t015, t025): logs 'SQL Error', 'HikariPool - Interrupted during connection acquisition', mysql exceptions (0 before);
+  span exception 'No operations allowed after connection closed.'
+- Kubernetes events ARE mapped to services (inventory probe failures / restarts, shipping FailedScheduling / scale-down); unmapped
+  events belong to DaemonSets and prometheus only. No change needed there.
+- t039, t087 (shipping): no failing spans, no logs, no events of shipping in the window: data limit.
+Part `textx` (read in fault_calibrated when V4_PARTS names it; no new constants): (i) the text of a failing span = status message +
+OTel exception attributes (exception.type / message / stacktrace, vendor excep.name / message / stack); (ii) a failing span's
+rpc.grpc.status_code without an HTTP status is mapped to its HTTP class by the standard gRPC->HTTP table (2/13 -> 500, 14 -> 503,
+8 -> 429, 7 -> 403, 4 -> 504, 12 -> 501, 16 -> 401); (iii) msg_<family> also holds when log lines of that family are NEW in the window:
+one-sided Poisson test of the window count against the same length of history (rate (h+1)/L per bin), at ALPHA.
+Expected: t029, t035, t083 -> nullPointerException (key msg_npe); t045 may move (http503 is also a key of loadBalancerFailure); risk:
+more msg_* at callers that log their callee's failures (handled by the categorical background rate).
+Run: GAMA_CORE_TX (= frozen core + textx) on DEV_ODD (CPU), vs GAMA_CORE (= LOADX2_MSGT result, Final 63.4).

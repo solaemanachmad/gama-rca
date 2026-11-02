@@ -630,6 +630,46 @@ def msgtarget_gives_evidence_to_a_service_without_spans():
     assert ("cart", "trace_err_origin") in holds(o1) and ("checkout", "trace_err_origin") not in holds(o1), holds(o1)
 
 
+@test
+def textx_reads_exceptions_grpc_status_and_new_log_text():
+    """v5 'textx': a failing span whose exception is a NullPointerException, a gRPC UNAVAILABLE (14) status, and NPE log lines that are
+    new in the window give msg_npe / http503 at cart; without the part nothing changes."""
+    from schema import Observation
+    c = make_case()
+    for i in range(6):
+        t0 = W0 + dt.timedelta(seconds=20 + 10 * i)
+        c.observations["traces"].append(Observation(None, t0, "traces", "", {
+            "traceId": f"X{i}", "spanId": f"x{i}", "parentSpanId": "", "serviceName": "cart", "statusCode": "2", "statusMessage": "",
+            "attributes": '{"exception.type":"java.lang.NullPointerException","exception.message":"x"}', "spanName": "op",
+            "duration": 1e6}))
+        c.observations["traces"].append(Observation(None, t0, "traces", "", {
+            "traceId": f"Y{i}", "spanId": f"y{i}", "parentSpanId": "", "serviceName": "checkout", "statusCode": "2",
+            "statusMessage": "", "attributes": '{"rpc.grpc.status_code":"14"}', "spanName": "op", "duration": 1e6}))
+    for i in range(40):                                   # history: ordinary log lines of cart
+        c.observations["logs"].append(Observation(None, W0 - dt.timedelta(seconds=15 * (i + 1)), "logs", "",
+                                                  {"_container_name_": "cart", "content": "GET /cart 200 ok"}))
+    for i in range(12):
+        c.observations["logs"].append(Observation(None, W0 + dt.timedelta(seconds=10 * i), "logs", "",
+                                                  {"_container_name_": "frontend",
+                                                   "content": "java.lang.NullPointerException at Foo.bar"}))
+    old = os.environ.get("V4_PARTS")
+    try:
+        os.environ["V4_PARTS"] = ",".join(list(b4.DEFAULT_PARTS))
+        db0 = compute_signal_db(c, T0)
+        os.environ["V4_PARTS"] = ",".join(list(b4.DEFAULT_PARTS) + ["textx"])
+        db1 = compute_signal_db(c, T0)
+        s0c, s1c = entity_signals(db0, "cart"), entity_signals(db1, "cart")
+        assert "msg_npe" not in s0c and "msg_npe" in s1c, s1c.keys()
+        assert "http503" not in entity_signals(db0, "checkout") and "http503" in entity_signals(db1, "checkout")
+        s1f = entity_signals(db1, "frontend")
+        assert "msg_npe" in s1f and "log lines" in s1f["msg_npe"]["ev"], s1f.get("msg_npe")
+    finally:
+        if old is None:
+            os.environ.pop("V4_PARTS", None)
+        else:
+            os.environ["V4_PARTS"] = old
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

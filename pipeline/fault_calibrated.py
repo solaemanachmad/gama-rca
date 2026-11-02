@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
@@ -34,6 +36,30 @@ from pipeline.fault_fingerprint import (_owner, _family, _naive, _fmt, _TEXT_FAM
                                         _DB_RE, _REDIS_RE, _QUEUE_RE)
 
 ALPHA = 0.05
+
+
+# v5 'textx' (PREREGISTRATION_V5.md amendment 17): text evidence the core did not read. Read from V4_PARTS because the signal database
+# is built before the diagnosis; off unless the part is named, so earlier configurations are unchanged.
+def _textx() -> bool:
+    return "textx" in os.environ.get("V4_PARTS", "").split(",")
+
+
+_EXC_RE = re.compile(r'"(?:exception\.(?:type|message|stacktrace)|excep\.(?:name|message|stack))":"((?:[^"\\]|\\.){0,600})', re.I)
+_GRPC_RE = re.compile(r'"rpc\.grpc\.status_code":"?(\d+)')
+_GRPC_HTTP = {"2": "500", "13": "500", "14": "503", "8": "429", "7": "403", "4": "504", "12": "501", "16": "401"}   # standard gRPC -> HTTP
+
+
+def poisson_sf(n: int, lam: float) -> float:
+    """P(X >= n) for X ~ Poisson(lam)."""
+    if n <= 0:
+        return 1.0
+    if n > lam + 60.0 * math.sqrt(lam + 1.0) + 60.0:
+        return 0.0
+    term, cdf = math.exp(-lam), 0.0
+    for k in range(n):
+        cdf += term
+        term *= lam / (k + 1)
+    return max(0.0, 1.0 - cdf)
 TOP_K = 3
 LOG_BIN_S = 30          # log-keyword counts per 30 s bin (= the metric sampling step)
 MIN_SAMPLES = 3
@@ -144,6 +170,7 @@ def _compute(case, alert_ts):
             if rx.search(content):
                 svc[s]["log_bins"][f][b] += 1
 
+    textx = _textx()
     for o in case.observations.get("traces", []):
         p = o.payload or {}
         s = _owner(p.get("serviceName"), services)
@@ -160,7 +187,13 @@ def _compute(case, alert_ts):
             pr["n_err"] += 1
             if m:
                 pr["http"][m.group(1)] += 1
+            elif textx:                                   # v5 textx: gRPC status of the failing span, mapped to its HTTP class
+                g = _GRPC_RE.search(attrs)
+                if g and g.group(1) in _GRPC_HTTP:
+                    pr["http"][_GRPC_HTTP[g.group(1)]] += 1
             msg = str(p.get("statusMessage") or "")
+            if textx:                                     # v5 textx: the exception recorded on the span (OTel exception.*)
+                msg = (msg + " " + " ".join(_EXC_RE.findall(attrs))).strip()
             for f, rx in _TEXT_FAMILIES:
                 if msg and rx.search(msg):
                     pr["msg"][f] += 1
@@ -332,6 +365,19 @@ def entity_signals(db: Dict, ent: str) -> Dict:
     for f in ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache"):
         if pr["msg"].get(f):
             sig[f"msg_{f}"] = {"kind": "cat", "p": None, "ev": f"{pr['msg'][f]} error spans whose message matches '{f}'"}
+    if _textx():                                          # v5 textx: a kind of log text that is NEW in the window (Poisson test vs
+        wb, hb = int(db.get("win_bins") or 0), int(db.get("log_base_bins") or 0)   # the same length of history, at ALPHA)
+        L = min(wb, hb)
+        for f in ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache"):
+            bins = pr["log_bins"].get(f)
+            if not bins or L < 1 or f"msg_{f}" in sig:
+                continue
+            nw = int(sum(c for b, c in bins.items() if 0 <= b < wb))
+            nh = int(sum(c for b, c in bins.items() if -L <= b < 0))
+            p_ = poisson_sf(nw, (nh + 1.0) * wb / L)
+            if nw > 0 and p_ <= ALPHA:
+                sig[f"msg_{f}"] = {"kind": "cat", "p": None,
+                                   "ev": f"{nw} log lines match '{f}' in the window vs {nh} in the {L} bins before (Poisson p={p_:.2g})"}
     for k in ("db", "redis", "queue"):
         if pr["dep_err"].get(k):
             sig[f"{k}_err"] = {"kind": "cat", "p": None, "ev": f"{pr['dep_err'][k]} failing {k} spans"}

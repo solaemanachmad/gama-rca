@@ -83,6 +83,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            signals do not date an entity's onset
   msgtarget (amendment 16) with torigin3: a failure whose message names the unreachable endpoint (URL / dial / lookup host) is
            relayed to THAT service (a caller reports its callee's failure to reach a deeper service)
+  textx    (amendment 17; read in fault_calibrated) the exception recorded on a failing span, the gRPC status mapped to its HTTP class,
+           and kinds of log text that are new in the window (Poisson test vs the same length of history) feed the msg_* / http* signals
 """
 from __future__ import annotations
 
@@ -100,9 +102,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")
