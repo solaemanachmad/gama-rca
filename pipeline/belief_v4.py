@@ -92,6 +92,8 @@ Nothing here reads labels.  depconseq (amendment 9) for dependency-latency types
            latency for services / operations; cpu, memory, disk for nodes). Affects RP only
   keepchain (amendment 22; read in belief_rca) with an LLM narrator, the scored chain stays the computed one; the narrative is saved
            (llm_chain) and scored separately
+  typecheck (amendment 23; read in llm_typing) an LLM type is accepted only if its quoted evidence line names a signal of that type's
+           fingerprint (key / support / consequence), or log text of a family the fingerprint names
 """
 from __future__ import annotations
 
@@ -109,9 +111,9 @@ from pipeline.fault_v4 import calibrate_v4, V4_SVC_SIGNALS, new_events, unavaila
 
 ALL_PARTS = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm", "llmtype",
              "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu",
-             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain")
+             "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain", "typecheck")
 V5_PARTS = ("mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain")
+            "depconseq", "depbase", "depshare", "sigorder", "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain", "typecheck")
 DEP_LATENCY_TYPES = ("F010-slowSQL", "F018-dbNetworkLatency", "F029-redisUnavailable", "F009-cacheBreakdown",
                      "F005-messageQueueBacklog")                         # v5 'depconseq': cause = a slow / failing dependency
 DEP_CONSEQUENCES = ("svc_thread_rise", "svc_cpu_rise", "svc_gc_rise")

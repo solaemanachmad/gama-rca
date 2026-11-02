@@ -44,6 +44,22 @@ def evidence_lines(db, entity: str, texts: Dict[str, List[str]]) -> List[str]:
     return lines[:MAX_LINES]
 
 
+def quote_supports(line: str, roles: Dict[str, str]) -> bool:
+    """v5 'typecheck': does an evidence line name a signal that the type's fingerprint expects (key / support / consequence role)?
+    A log message line supports the type when its text belongs to a text family the fingerprint names (msg_<f> / log_<f>_rise)."""
+    import re
+    from pipeline.fault_fingerprint import _TEXT_FAMILIES
+    l = re.sub(r"^\[[^\]]*\]\s*", "", line.strip())
+    parts = l.split(" ", 2)
+    if len(parts) < 2:
+        return False
+    sig = parts[1].rstrip(":")
+    ok = ("K", "U", "M")
+    if sig == "message":
+        return any(roles.get(f"msg_{f}") in ok or roles.get(f"log_{f}_rise") in ok for f, rx in _TEXT_FAMILIES if rx.search(l))
+    return roles.get(sig) in ok
+
+
 def signature_card(fp: Dict, t: str) -> str:
     """v5 'xcard': the expected cross-modal signature of a fault type, read from its fingerprint (each signal with its modality)."""
     from pipeline.belief_v4 import modality
@@ -98,8 +114,14 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]]) -> Dict:
     q = str(ans.get("evidence_line", "")).strip().lstrip("- ").lower()
     out["llm_type"] = t
     out["evidence_line"] = q
-    grounded = len(q) >= 10 and any(q in l.lower() or l.lower() in q for l in lines)
+    quoted = [l for l in lines if len(q) >= 10 and (q in l.lower() or l.lower() in q)]
+    grounded = bool(quoted)
     out["quote_ok"] = grounded
+    if grounded and "typecheck" in (res.get("parts") or []) and t in cands:   # v5 'typecheck' (amendment 23): the quoted evidence must
+        from pipeline.belief_v4 import Model                                    # be a signal of the chosen type's fingerprint
+        roles = Model(res.get("parts") or []).roles.get(t, {})
+        out["quote_supports"] = any(quote_supports(l, roles) for l in quoted)
+        grounded = out["quote_supports"]
     if t in cands and grounded:
         out["accepted"] = True
         out["changed"] = t != res["type"]

@@ -493,6 +493,18 @@ def redchain_cites_step_values_and_step_anchored_rp():
     assert step_checkpoint_rate(wrong, gt) == 0.0                     # right values at the wrong step do not count
 
 
+@test
+def typecheck_quote_must_name_a_signal_of_the_chosen_type():
+    from pipeline import belief_v4 as b4
+    from pipeline.llm_typing import quote_supports
+    m = b4.Model(list(b4.DEFAULT_PARTS) + ["textx2"])
+    assert quote_supports("[logs] inventory msg_npe: 549 log lines match 'npe'", m.roles["F023-nullPointerException"])
+    assert quote_supports("inventory message: java.lang.NullPointerException at Foo", m.roles["F023-nullPointerException"])
+    assert quote_supports("[metrics] inventory svc_cpu_rise: cpu ...", m.roles["F012-cpuDeadLoop"])
+    assert not quote_supports("[metrics] inventory svc_latency_rise: latency ...", m.roles["F012-cpuDeadLoop"])
+    assert not quote_supports("inventory message: GET /cart 200 ok", m.roles["F023-nullPointerException"])
+
+
 if __name__ == "__main__":
     ok = 0
     for fn in T:

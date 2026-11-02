@@ -511,3 +511,16 @@ in the output (llm_chain) for the human reader and scored separately on the same
 rp_checkpoint_hit_step_llm), so that hypothesis H3 (does a stronger LLM write a better chain?) can still be tested. Consistent with
 principle P3: the LLM does not replace computed evidence. The LLM still reads logs (sensor) and types the root from the shortlist.
 Run: GAMA_LLM (now with keepchain) on DEV_ODD, GPU, 4 shards.
+
+## Amendment 23 (2026-11-03, before any full LLM run): the quote must support the chosen type (`typecheck`)
+LLM typing answers were accepted when the type is in the statistical shortlist and the quoted evidence line exists verbatim; the quote
+did not have to bear on the chosen type. Now (in GAMA_LLM) the quoted line must name a signal with a key / support / consequence
+role in the chosen type's fingerprint, or be log text of a family the fingerprint names (msg_<f> / log_<f>_rise); otherwise the
+statistical type is kept. A deterministic soundness check by code, in the spirit of the verifier of DiagGuard (Lu et al.) and the
+belief sentinel of PoS (Luo et al.), which are LLM-run. No new constants.
+
+## Evaluation runs (fixed now; no design change after them)
+- GAMA_LLM (V5_FINAL + xcard + keepchain + typecheck; Qwen2.5-7B, temperature 0, seed 0, max 1024 new tokens, shortlist 5, sensor
+  budget 5, stop at P >= 0.8) on ALL 103 cases (4 shards): the odd half compares with GAMA_CORE, the even half is validation.
+- GAMA_CORE on the EVEN half (the odd half is done): the validation of the statistical core.
+- Then, on the even half: EVIDENCE_LLM_FINAL and DIRECT_LLM (Qwen2.5-7B), and the cross-model study.
