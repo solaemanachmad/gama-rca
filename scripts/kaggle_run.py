@@ -171,6 +171,9 @@ ARMS = {                                                          # name -> extr
     "V4_MM_T3_OMSG_FI_ORD2": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                               "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
                                                                  "sigorder2", "xcard"))},                              # GPU
+    "V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
+                                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass",
+                                                                            "tiebreak", "sigorder2", "loadx"))},       # CPU
     "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "xcard"))},  # GPU
     "V4_MM_T3_OMSG": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",

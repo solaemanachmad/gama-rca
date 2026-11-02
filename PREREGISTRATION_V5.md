@@ -297,3 +297,19 @@ Final 56.6 [bootstrap 95% CI 48.8, 64.4] / EL 64.3 / FI 30.8 / RP 72.3 / group 5
 check: vs ORD only t099 changed (back to inventory / httpError5xx). Wilcoxon on Final: vs configuration A (48.7) p = 0.014; vs
 V4_RULE_MM_T3_OMSG (54.5) p = 0.61. Current best CPU configuration: A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak +
 sigorder2. Remaining weakness: entity localisation of node faults (0 of 5), K8s lifecycle (1 of 6) and the recommendation attractor.
+
+## Amendment 14 (2026-11-02): entity errors of ORD2, and the never-run `loadx`
+
+Diagnostic entity_errors_dev.py (odd, ORD2 parts; 23 entity errors), with a new per-signal count of how many of the entity's OWN
+pseudo-windows moved as much as the real window:
+- Idea "the attractor is a noisy service" REJECTED by the data: almost every holding signal has self 0/5 (0/2, 0/3); the
+  recommendation rises are real in the window (workload 1 -> 583, 30 -> 2800, 28 -> 1138 requests), not noise. Per-entity
+  calibration would not remove it.
+- recommendation is still chosen in 8 errors (t005, t013, t017, t019, t059, t073, t077, t097): rateLimiting, node and DB faults
+  elsewhere. Its evidence is load (request, operation request, CPU, latency rise). In 4 of them it cannot even explain the alert.
+- Node faults: the node signal exists in t003 (memory 19 -> 83 %) and t005 (CPU 9 -> 100 %) but the hosted service wins; t069, t073
+  (nodeDown): no node signal at all (a down node stops reporting).
+- Scaled-down services (quote t033 / t081, shipping t065): no or one holding signal; the caller with 'connection refused' wins.
+Amendment 2 (`loadx`, load entering at the user-facing services flows downstream; a callee's request / CPU rise together with a
+caller's request rise is expected without a fault there) was fixed but NEVER RUN. It targets exactly the recommendation attractor.
+It is run now, unchanged, on top of the current best: V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX on DEV_ODD (CPU), vs ORD2.
