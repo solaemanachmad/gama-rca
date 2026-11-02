@@ -41,7 +41,15 @@ ALPHA = 0.05
 # v5 'textx' (PREREGISTRATION_V5.md amendment 17): text evidence the core did not read. Read from V4_PARTS because the signal database
 # is built before the diagnosis; off unless the part is named, so earlier configurations are unchanged.
 def _textx() -> bool:
-    return "textx" in os.environ.get("V4_PARTS", "").split(",")
+    parts = os.environ.get("V4_PARTS", "").split(",")
+    return "textx" in parts or "textx2" in parts
+
+
+def _textx2() -> bool:
+    return "textx2" in os.environ.get("V4_PARTS", "").split(",")
+
+
+SYMPTOM_TEXT = ("timeout", "refused")      # amendment 18: log text that reports an effect, not a mechanism
 
 
 _EXC_RE = re.compile(r'"(?:exception\.(?:type|message|stacktrace)|excep\.(?:name|message|stack))":"((?:[^"\\]|\\.){0,600})', re.I)
@@ -368,7 +376,10 @@ def entity_signals(db: Dict, ent: str) -> Dict:
     if _textx():                                          # v5 textx: a kind of log text that is NEW in the window (Poisson test vs
         wb, hb = int(db.get("win_bins") or 0), int(db.get("log_base_bins") or 0)   # the same length of history, at ALPHA)
         L = min(wb, hb)
-        for f in ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache"):
+        fams = ("npe", "ratelimit", "dns", "refused", "timeout", "redis", "oom", "gc", "thread", "queue", "lb", "netpol", "sql", "cache")
+        if _textx2():                                     # v5 textx2: only text that NAMES a mechanism; 'timeout' / 'refused' say that a
+            fams = tuple(f for f in fams if f not in SYMPTOM_TEXT)   # call did not complete -- a symptom of almost any fault
+        for f in fams:
             bins = pr["log_bins"].get(f)
             if not bins or L < 1 or f"msg_{f}" in sig:
                 continue

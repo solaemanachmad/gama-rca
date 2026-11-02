@@ -670,6 +670,29 @@ def textx_reads_exceptions_grpc_status_and_new_log_text():
             os.environ["V4_PARTS"] = old
 
 
+@test
+def textx2_ignores_new_timeout_log_text():
+    from schema import Observation
+    c = make_case()
+    for i in range(40):
+        c.observations["logs"].append(Observation(None, W0 - dt.timedelta(seconds=15 * (i + 1)), "logs", "",
+                                                  {"_container_name_": "cart", "content": "GET /cart 200 ok"}))
+    for i in range(12):
+        c.observations["logs"].append(Observation(None, W0 + dt.timedelta(seconds=10 * i), "logs", "",
+                                                  {"_container_name_": "cart", "content": "request timed out after 3000 ms"}))
+    old = os.environ.get("V4_PARTS")
+    try:
+        os.environ["V4_PARTS"] = ",".join(list(b4.DEFAULT_PARTS) + ["textx"])
+        assert "msg_timeout" in entity_signals(compute_signal_db(c, T0), "cart")
+        os.environ["V4_PARTS"] = ",".join(list(b4.DEFAULT_PARTS) + ["textx2"])
+        assert "msg_timeout" not in entity_signals(compute_signal_db(c, T0), "cart")
+    finally:
+        if old is None:
+            os.environ.pop("V4_PARTS", None)
+        else:
+            os.environ["V4_PARTS"] = old
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

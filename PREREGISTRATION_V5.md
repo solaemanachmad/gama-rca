@@ -400,3 +400,18 @@ one-sided Poisson test of the window count against the same length of history (r
 Expected: t029, t035, t083 -> nullPointerException (key msg_npe); t045 may move (http503 is also a key of loadBalancerFailure); risk:
 more msg_* at callers that log their callee's failures (handled by the categorical background rate).
 Run: GAMA_CORE_TX (= frozen core + textx) on DEV_ODD (CPU), vs GAMA_CORE (= LOADX2_MSGT result, Final 63.4).
+
+### Result of amendment 17 (GAMA_CORE_TX, DEV_ODD, commit 2f9ec4e)
+Final 63.2 / EL 76.6 / FI 34.6 / RP 74.0 (entities 37, types 18) vs frozen core 63.4 / 77.1 / 34.6 / 74.0 (37, 18); Wilcoxon p = 0.95.
+Gains as predicted: nullPointerException right in t029, t035, t083 (exception attributes + new NPE log text); t007 threadExhaustion right.
+Losses: cpuFullLoad -> threadExhaustion in t027, t053, t067, t071; t065 entity 0.5 -> 0.25; t045 -> loadBalancerFailure (http503 from
+gRPC UNAVAILABLE). Decision trails: in all four CPU cases the only new text evidence at inventory is 'timeout' log text (80 lines,
+0 before) -> msg_timeout, which is a SUPPORT signal of threadExhaustion and unexplained under the CPU types. 'timeout' / 'refused'
+report that a call did not complete -- an effect of almost any fault -- not a mechanism.
+
+## Amendment 18 (2026-11-02, before any run of this part): only mechanism-naming text from logs (`textx2`)
+textx with the log rule (iii) restricted to the families that name a mechanism: npe, ratelimit, dns, redis, oom, gc, thread, queue,
+lb, netpol, sql, cache; 'timeout' and 'refused' log text no longer creates msg_* (span messages and exception attributes unchanged).
+No new constants. Expected from the trails: the four CPU cases and t007 return to the frozen-core decision, the three NPE gains stay
+(about 21 types right); t045 stays loadBalancerFailure.
+Run: GAMA_CORE_TX2 on DEV_ODD (CPU).
