@@ -291,3 +291,9 @@ Offline check on the FI arm's saved posteriors (39 odd cases, onsets from signal
 inventory / httpError5xx.
 Runs: V4_RULE_MM_T3_OMSG_FI_ORD2 (CPU) on DEV_ODD; then V4_MM_T3_OMSG_FI_ORD2 (GPU, + xcard LLM typing, which reads the re-weighted
 type ranking).
+
+### Result of amendment 13 (V4_RULE_MM_T3_OMSG_FI_ORD2, DEV_ODD, commit 3a98b08)
+Final 56.6 [bootstrap 95% CI 48.8, 64.4] / EL 64.3 / FI 30.8 / RP 72.3 / group 53.8 (entities 29, types 16), exactly the offline
+check: vs ORD only t099 changed (back to inventory / httpError5xx). Wilcoxon on Final: vs configuration A (48.7) p = 0.014; vs
+V4_RULE_MM_T3_OMSG (54.5) p = 0.61. Current best CPU configuration: A + mm + torigin3 + omsg + hostcpu + errclass + tiebreak +
+sigorder2. Remaining weakness: entity localisation of node faults (0 of 5), K8s lifecycle (1 of 6) and the recommendation attractor.
