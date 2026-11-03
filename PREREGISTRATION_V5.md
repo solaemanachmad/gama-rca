@@ -552,3 +552,41 @@ Equivalence (required before `gama` replaces the development arms in any reporte
 1. synthetic: `tests/test_gama.py` -- identical outputs (entity, type, confidence, chain, evidence, all stats, decision trail) for
    core, each leave-one-out, base, and full with a deterministic stub LLM (identical prompts as well); 4/4 passed (commit d3d4f14);
 2. real cases: `python scripts/kaggle_job.py --check core,llm --cases all --shard k/4` (CPU) -- result to be recorded here.
+
+## Analysis plan v5 (2026-11-03, fixed before the evaluation runs; replaces sections 5-6 where they differ)
+
+Implemented in `scripts/analyze_v5.py` (reads the Kaggle *_all.zip files; nothing is re-run). It reproduces the recorded numbers of
+GAMA_CORE (even 60.8, odd 65.0, all 62.9).
+
+Metrics (x100). Headline Final = `final_score_nodes` = 0.4 EL + 0.3 FI + 0.3 RP, with RP = 0.5 chain-node match + 0.5 checkpoint hit
+rate (the benchmark's protocol as implemented in evaluation/scoring.py). Also EL, FI (exact 28-class), group FI, exact entity / type /
+joint counts, and the step-anchored variants Final_step / RP_step (amendment 20) as a secondary RP measure. For an LLM narrator,
+its own chain is scored separately (rp_chain_nodes_llm, rp_checkpoint_hit_step_llm).
+
+Subsets: even = validation (confirmatory), odd = development (descriptive), all 103 = comparison with other work. Error rows score 0
+and stay in the denominator; cases never run are listed as missing and left out of paired tests.
+
+Statistics: 95% percentile bootstrap CIs of means and of paired mean differences (5,000 resamples, seed 0); paired Wilcoxon
+signed-rank on Final (one-sided where the hypothesis has a direction, else two-sided); Holm within each family; better / worse /
+equal counts; exact McNemar (two-sided) on exact entity and exact type as secondary.
+
+Families:
+- F1 main (confirmatory, even half): GAMA_CORE > configuration A (one-sided). Already recorded above (p = 0.059 on even; reported as is).
+- F2 ablation (even half, descriptive + tests): GAMA_CORE vs each leave-one-module-out arm (two-sided, Holm over the modules).
+- F3 LLM, per backbone b (even half): GAMA_LLM@b vs GAMA_CORE (two-sided: what the LLM adds); GAMA_LLM@b > EVIDENCE_LLM_FINAL@b and
+  > DIRECT_LLM@b (one-sided; Holm within the family).
+- F4 cross-model hypotheses (backbones: Qwen2.5-7B local [main], Llama-3.1-8B local, one large API model named before its run):
+  H1 the statistical core carries localisation: |EL(GAMA_LLM@b) - EL(GAMA_CORE)| <= 3 points for every b (descriptive).
+  H2 the LLM's FI gain is bounded by shortlist coverage: FI(GAMA_LLM@b) <= FI(GAMA_CORE) + share of cases whose true type is in the
+     top-5 shortlist but not first (coverage from the decision trail, computed at scoring time; exploratory).
+  H3 the narrator's step-anchored checkpoint rate rises with model strength (ordered small local < large API; exploratory).
+  H4 structure beats scale: Final(GAMA_LLM@qwen25_7b) vs Final(EVIDENCE_LLM_FINAL@large): one-sided Wilcoxon (greater) and
+     non-inferiority with margin 3 points (lower 95% bound of the paired difference > -3). Confirmatory.
+  H5 constant cost: GAMA_LLM uses <= 7 LLM calls per case by construction (sensor <= 5, typing 1, narrator 1); mean input and output
+     tokens per case reported per backbone, with the cross-backbone coefficient of variation (descriptive).
+- API models (comparison ceiling only): provider setting "allow training on data" OFF, stated in the paper's data-ethics paragraph;
+  the main claim stays local and API-free.
+
+Logging (from commit after 562fd14): per case input_tokens, output_tokens, max_input_tokens, LLM calls and time; per call the same in
+the trace (llm_calls.jsonl); per run a manifest (commit, arm, modules, model, hardware, library versions, wall time) inside the zip.
+Runs before this commit have total tokens per case and the full prompts / outputs in their traces, so no run has to be repeated.

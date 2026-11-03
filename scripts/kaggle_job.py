@@ -125,6 +125,19 @@ def main():
         install(D["MODELS"][a.model])
 
     open(f"{a.out}/{name}.commit.txt", "w").write(commit + "\n")
+    manifest = {"commit": commit, "arm": a.arm, "system": system, "check": a.check, "modules": env.get("GAMA_MODULES"),
+                "v4_parts": env.get("V4_PARTS"), "model": a.model, "model_env": D["MODELS"][a.model], "cases": cases,
+                "shard": a.shard, "python": sys.version.split()[0], "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    try:                                                      # hardware and library versions (efficiency table of the paper)
+        import platform
+        manifest.update(cpu=platform.processor() or platform.machine(), cpu_count=os.cpu_count())
+        import torch
+        import transformers
+        manifest.update(torch=torch.__version__, transformers=transformers.__version__,
+                        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+                        gpu_count=torch.cuda.device_count())
+    except Exception as e:
+        manifest["env_error"] = repr(e)
     t0, done = time.time(), 0
     with open(f"{a.out}/{name}.log", "ab") as log:
         p = subprocess.Popen(cmd, env=env, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -138,6 +151,9 @@ def main():
                 print(f"[{(time.time() - t0) / 60:5.1f} min {done}/{len(cases)}] {line[-170:]}", flush=True)
         rc = p.wait()
     print("rc =", rc)
+    import json
+    manifest.update(rc=rc, finished=time.strftime("%Y-%m-%dT%H:%M:%S%z"), wall_s=round(time.time() - t0, 1))
+    json.dump(manifest, open(f"{a.out}/{name}.manifest.json", "w"), indent=1)
     if rc != 0:
         print(open(f"{a.out}/{name}.log", "rb").read()[-3000:].decode("utf-8", errors="replace"))
 
@@ -151,7 +167,7 @@ def main():
                  if c in d.columns]].to_string(index=False))
         print(d[cols].mean(numeric_only=True).round(4).to_string())
     z = f"{a.out}/{name}_all.zip"
-    subprocess.run(f"cd {a.out} && rm -f {name}_all.zip && zip -qr {name}_all.zip {name}.csv {name}.log {name}.commit.txt "
+    subprocess.run(f"cd {a.out} && rm -f {name}_all.zip && zip -qr {name}_all.zip {name}.csv {name}.log {name}.commit.txt {name}.manifest.json "
                    f"{name}_trace 2>/dev/null", shell=True)
     print("\ndownload:", z if os.path.exists(z) else "(zip failed)")
 

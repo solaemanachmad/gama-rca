@@ -43,6 +43,7 @@ def install_llm_trace(llm, path: str) -> None:
     def generate(prompt, system=None, json_mode=False):
         t0 = time.time()
         tok0, calls0 = getattr(llm, "total_tokens_used", 0), getattr(llm, "total_calls", 0)
+        in0, out0 = getattr(llm, "input_tokens", 0), getattr(llm, "output_tokens", 0)
         trunc0 = getattr(llm, "truncated_prompts", 0)
         err, raw = None, None
         try:
@@ -56,6 +57,7 @@ def install_llm_trace(llm, path: str) -> None:
                    "latency_s": round(time.time() - t0, 2), "system_message": system, "prompt": prompt, "output": raw,
                    "prompt_chars": len(prompt or ""), "tokens_total_delta": getattr(llm, "total_tokens_used", 0) - tok0,
                    "calls_delta": getattr(llm, "total_calls", 0) - calls0,
+                   "input_tokens": getattr(llm, "input_tokens", 0) - in0, "output_tokens": getattr(llm, "output_tokens", 0) - out0,
                    "truncated": getattr(llm, "truncated_prompts", 0) > trunc0,
                    "system_merged": bool(getattr(getattr(llm, "tokenizer", None), "system_merged", False)), "error": err}
             with open(path, "a", encoding="utf-8") as f:

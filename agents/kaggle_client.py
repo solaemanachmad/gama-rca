@@ -220,6 +220,9 @@ class KaggleTransformersClient:
         self.total_calls += 1
         new_tokens = outputs[0][input_len:]
         self.total_tokens_used += input_len + len(new_tokens)
+        self.input_tokens = getattr(self, "input_tokens", 0) + int(input_len)      # cost table (input / output priced apart)
+        self.output_tokens = getattr(self, "output_tokens", 0) + int(len(new_tokens))
+        self.max_input_tokens = max(getattr(self, "max_input_tokens", 0), int(input_len))
 
         if self.processor is not None:
             response = self.processor.decode(new_tokens, skip_special_tokens=True)
@@ -279,6 +282,7 @@ class KaggleTransformersClient:
         sel = torch.log_softmax(logits[ids], dim=-1).tolist()
         self.total_calls += 1
         self.total_tokens_used += int(inputs["input_ids"].shape[-1])
+        self.input_tokens = getattr(self, "input_tokens", 0) + int(inputs["input_ids"].shape[-1])
         return dict(zip(labels, sel))
 
     def generate_json(self, prompt: str, system: Optional[str] = None) -> dict:
@@ -288,6 +292,8 @@ class KaggleTransformersClient:
 
     def usage_stats(self) -> dict:
         return {"total_calls": self.total_calls, "total_tokens": self.total_tokens_used,
+                "input_tokens": getattr(self, "input_tokens", 0), "output_tokens": getattr(self, "output_tokens", 0),
+                "max_input_tokens": getattr(self, "max_input_tokens", 0),
                 "truncated_prompts": getattr(self, "truncated_prompts", 0),
                 "oom_retries": getattr(self, "oom_retries", 0),
                 "chunked_prefills": getattr(self, "chunked_prefills", 0),
@@ -298,6 +304,7 @@ class KaggleTransformersClient:
     def reset_usage(self) -> None:
         self.total_calls = 0
         self.total_tokens_used = 0
+        self.input_tokens = self.output_tokens = self.max_input_tokens = 0
         self.truncated_prompts = 0
         self.oom_retries = 0
         self.chunked_prefills = 0
