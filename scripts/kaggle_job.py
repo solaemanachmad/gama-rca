@@ -18,7 +18,7 @@ prints the scores, and writes /kaggle/working/<name>_all.zip (csv, log, trace fo
 Arms, model presets and case lists are the ones of scripts/kaggle_run.py (Cell 3), read from there: one definition only.
 
   --arm     a key of ARMS (python scripts/kaggle_job.py --list shows them)
-  --cases   odd | even | all | dev30 | t001,t003,...      (odd = development half, even = validation half: run once at the end)
+  --cases   all (default) | t001,t003,...   (internal subsets odd / even / dev30 remain available)
   --shard   k/n   run every n-th case starting at k (0-based), e.g. 0/4 .. 3/4 on four accounts
   --model   a key of MODELS (default qwen25_7b; only GPU arms use it)
   --wandb   log to W&B (Secret WANDB_API_KEY; keep the project private)
@@ -59,7 +59,7 @@ def install(model_env):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm")
-    ap.add_argument("--cases", default="odd")
+    ap.add_argument("--cases", default="all")
     ap.add_argument("--shard", default=None)
     ap.add_argument("--model", default="qwen25_7b")
     ap.add_argument("--wandb", action="store_true")

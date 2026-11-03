@@ -590,3 +590,13 @@ Families:
 Logging (from commit after 562fd14): per case input_tokens, output_tokens, max_input_tokens, LLM calls and time; per call the same in
 the trace (llm_calls.jsonl); per run a manifest (commit, arm, modules, model, hardware, library versions, wall time) inside the zip.
 Runs before this commit have total tokens per case and the full prompts / outputs in their traces, so no run has to be repeated.
+
+## Reporting amendment (2026-11-03, before the evaluation runs)
+
+- Name: GAMA-RCA = Graph-aware, Multimodal, Abductive RCA (the method is neither GraphRAG nor multi-agent; README / CITATION updated).
+- The paper reports RCA100 as ONE dataset of 103 cases. All remaining evaluation runs (leave-one-module-out ablations, GAMA + LLM,
+  Evidence->LLM, Direct LLM, cross-model study) run on all 103 cases; the families F1-F4 of "Analysis plan v5" are applied to all 103
+  (`analyze_v5.py --subsets all`, the default).
+- This record is unchanged: the v5 design was developed by looking at the odd-numbered cases, and the even-half result above stays
+  as recorded. Consequently the paper makes no held-out generalisation claim on RCA100; generalisation to an unseen system is tested
+  on AIOps2025 (zero-shot, pre-registered before that run).

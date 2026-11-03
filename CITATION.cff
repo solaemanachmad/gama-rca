@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this code, please cite the manuscript below (draft, not yet peer reviewed)."
-title: "GAMA-RCA: A Graph-Augmented Multi-Agent Framework for Root Cause Analysis on RCA100"
+title: "GAMA-RCA: Graph-aware, Multimodal, Abductive Root Cause Analysis with a Bounded Local LLM"
 type: software
 authors:
   - family-names: Solaeman
@@ -18,5 +18,7 @@ repository-code: "https://github.com/solaemanachmad/gama-rca"
 keywords:
   - root cause analysis
   - AIOps
-  - multi-agent systems
-  - retrieval-augmented generation
+  - microservices
+  - Bayesian inference
+  - abductive reasoning
+  - large language models

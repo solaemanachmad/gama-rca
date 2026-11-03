@@ -224,7 +224,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", action="append", required=True, help="LABEL=path[,path...] (zip / csv / folder; globs allowed)")
     ap.add_argument("--compare", action="append", default=[], help="FAMILY:FIRST>SECOND or FAMILY:FIRST-SECOND")
-    ap.add_argument("--subsets", default="even,odd,all")
+    ap.add_argument("--subsets", default="all")   # the paper reports all 103 cases; even / odd stay available
     ap.add_argument("--out", default=None)
     ap.add_argument("--json", default=None)
     a = ap.parse_args()

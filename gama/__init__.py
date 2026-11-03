@@ -1,5 +1,6 @@
-"""GAMA-RCA: label-free root-cause analysis for microservices -- calibrated evidence, a Bayesian belief over (entity x fault type)
-hypotheses, and a bounded local LLM.
+"""GAMA-RCA: Graph-aware, Multimodal, Abductive root-cause analysis for microservices. Label-free: an abductive belief over
+(entity x fault type) hypotheses is COMPUTED from calibrated multimodal evidence along the service / host topology; a bounded local
+LLM reads text and selects among ranked options (optional).
 
 Principles
   P1 calibrate, do not threshold: every observation is scored against the case's own history and peers; rates, not cut-offs
