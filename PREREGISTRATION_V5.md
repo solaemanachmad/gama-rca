@@ -600,3 +600,18 @@ Runs before this commit have total tokens per case and the full prompts / output
 - This record is unchanged: the v5 design was developed by looking at the odd-numbered cases, and the even-half result above stays
   as recorded. Consequently the paper makes no held-out generalisation claim on RCA100; generalisation to an unseen system is tested
   on AIOps2025 (zero-shot, pre-registered before that run).
+
+## Amendment: Belief->LLM arm (2026-11-03, before any run of it)
+
+Arm BELIEF_LLM (system `belief_llm`, `gama/belief_llm.py`; GPU or API, one call per case, all 103 cases, every backbone of the
+cross-model study). Prompt = the Evidence->LLM prompt (same holding observations, call graph, hosts, log templates, 28 fault types,
+same system message and output format) + one block: GAMA's ranking (top-5 entities with P(root), each with its top-3 fault types and
+P(type | entity)) and GAMA's answer; the task says the LLM may keep the answer or choose another entity / type. No shortlist, no quote
+check; its own chain is scored (as for Evidence->LLM). GAMA itself runs with modules `core` inside the arm.
+
+Hypotheses (family "belief", per backbone, Holm within the family):
+- B1 two-sided: Final(BELIEF_LLM@b) vs Final(GAMA_CORE) -- does a free LLM improve or damage the computed belief? (exploratory;
+  expectation: a 7-8B model damages it, a large model may improve it)
+- B2 one-sided (greater): Final(BELIEF_LLM@b) > Final(EVIDENCE_LLM_FINAL@b) -- does the computed belief help the LLM? (confirmatory)
+- B3 two-sided: BELIEF_LLM@b vs GAMA_LLM@b -- free vs bounded use of the same LLM (exploratory).
+Also reported: how often the LLM keeps GAMA's entity / type, and the share of its overrides that are correct.

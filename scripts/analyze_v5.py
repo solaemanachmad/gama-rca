@@ -5,7 +5,7 @@ them (evaluation/scoring.py); nothing is re-run.
     python scripts/analyze_v5.py --arm A=A_odd.csv,A_even.csv --arm GAMA_CORE="GAMA_CORE_7B_shard*_all.zip" \
         --arm GAMA_CORE_NO_TRACE="GAMA_CORE_NO_TRACE_7B_shard*_all.zip" ... --out report.md --json report.json
 
-Arm labels follow the arm names (A, GAMA_CORE, GAMA_LLM, GAMA_CORE_NO_<M>, EVIDENCE_LLM_FINAL, DIRECT_LLM); a backbone is appended
+Arm labels follow the arm names (A, GAMA_CORE, GAMA_LLM, GAMA_CORE_NO_<M>, EVIDENCE_LLM_FINAL, BELIEF_LLM, DIRECT_LLM); a backbone is appended
 after '@' (GAMA_LLM@llama31_8b). Comparison families are built from the labels present (see FAMILIES); --compare adds more.
 
 Metrics (x100): Final = final_score_nodes (headline; RP = 0.5 chain-node match + 0.5 checkpoint hit rate), EL, FI (exact 28-class),
@@ -213,6 +213,13 @@ def families(labels):
             for other in ("EVIDENCE_LLM_FINAL", "DIRECT_LLM"):
                 if other + sfx in labels:
                     fam[f"llm{sfx}: structure vs LLM-decides"].append((lab, other + sfx, "greater"))
+        if base == "BELIEF_LLM":                                    # computed belief + an LLM that decides freely
+            if "GAMA_CORE" in labels:
+                fam[f"belief{sfx}: does a free LLM improve the belief?"].append((lab, "GAMA_CORE", "two-sided"))
+            if "EVIDENCE_LLM_FINAL" + sfx in labels:
+                fam[f"belief{sfx}: does the belief help the LLM?"].append((lab, "EVIDENCE_LLM_FINAL" + sfx, "greater"))
+            if "GAMA_LLM" + sfx in labels:
+                fam[f"belief{sfx}: free vs bounded LLM"].append((lab, "GAMA_LLM" + sfx, "two-sided"))
     gl = [l for l in labels if l.startswith("GAMA_LLM@")] or [l for l in labels if l == "GAMA_LLM"]
     for g in gl:                                                    # H4: GAMA + small LLM >= EVIDENCE_LLM with a large model
         for e in [l for l in labels if l.startswith("EVIDENCE_LLM_FINAL@") and l.split("@")[1] not in g]:

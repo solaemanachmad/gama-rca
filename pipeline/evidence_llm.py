@@ -25,7 +25,9 @@ MAX_ENT_LINES, MAX_TEXTS, MAX_ENTITIES = 12, 5, 30
 
 
 def build_prompt(alert_text: str, alert: str, op_name: str, callees: Dict[str, List[str]], hosts: Dict[str, List[str]],
-                 ev_by_entity: Dict[str, List[str]], texts: Dict[str, List[str]]) -> str:
+                 ev_by_entity: Dict[str, List[str]], texts: Dict[str, List[str]], belief_block: str = None) -> str:
+    """belief_block: the Belief->LLM arm (gama/belief_llm.py) adds the statistical model's ranking before the fault types and lets
+    the LLM keep or override it; None = the Evidence->LLM prompt, unchanged."""
     edges = [f"{a} -> {b}" for a, bs in sorted(callees.items()) for b in bs]
     host = [f"{s}: {', '.join(ns)}" for s, ns in sorted(hosts.items()) if ns]
     order = sorted(ev_by_entity, key=lambda e: -len(ev_by_entity[e]))[:MAX_ENTITIES]
@@ -41,9 +43,11 @@ def build_prompt(alert_text: str, alert: str, op_name: str, callees: Dict[str, L
               "entity's own baseline (calibrated tests), new Kubernetes events, error status codes and failing dependency calls, "
               "and log templates that are new or clearly more frequent than before the window. Entities not listed showed no "
               "significant change.\n" + ("\n".join(blocks) or "(no significant evidence)")
+            + (f"\n\n{belief_block}" if belief_block else "")
             + f"\n\n{taxonomy_prompt_block()}\n\n"
               "Task: identify the ONE root-cause entity (a service or a node, name exactly as written above) and its fault type "
-              "(one id from the list), and write the causal chain from the root cause to the alerted operation as "
+              "(one id from the list)" + (", keeping the statistical model's answer or choosing another entity or fault type when the "
+                                         "evidence supports it better" if belief_block else "") + ", and write the causal chain from the root cause to the alerted operation as "
               "'cause: ...', 'propagation: ...', 'impact: ...' steps citing signal values from the evidence.\n"
               'Respond as JSON: {"root_cause_entity": "<name>", "predicted_fault_type": "<fault type id>", '
               '"reasoning_chain": ["cause: ...", "propagation: ...", "impact: ..."], "confidence": <0-1>}')

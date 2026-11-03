@@ -116,6 +116,13 @@ def diagnose(db, callees, texts, m: Modules, sensor=None, budget=bd.PROBE_BUDGET
         typ, p_type = _fallback_type(model, ent, level, entity_signals(db, ent)), None
     p_ent = marg[ent]
     top = [{"entity": H[i]["entity"], "type": H[i]["type"], "p": round(float(post[i]), 4)} for i in order[:5]]
+    entity_rank = []                                                                   # top entities, each with its top types
+    for e in sorted(marg, key=lambda x: -marg[x])[:5]:
+        ix = [i for i in range(len(H) - 1) if H[i]["entity"] == e and H[i]["type"] not in (None, ANOM)]
+        ix.sort(key=lambda i: -float(post[i]))
+        entity_rank.append({"entity": e, "level": H[ix[0]]["level"] if ix else next(h["level"] for h in H if h["entity"] == e),
+                            "p": round(float(marg[e]), 4),
+                            "types": [(H[i]["type"], round(float(post[i]) / max(marg[e], 1e-12), 3)) for i in ix[:3]]})
     hb = {**H[best], "type": typ if typ in model.fp else H[best]["type"]}
     if hb["type"] == ANOM:
         hb = H[best]
@@ -133,7 +140,7 @@ def diagnose(db, callees, texts, m: Modules, sensor=None, budget=bd.PROBE_BUDGET
     return {"entity": ent, "level": level, "type": typ, "p": p_ent, "p_type": p_type, "p_h0": float(post[-1]),
             "entropy_bits": round(bd.entropy(post), 3), "top": top, "probes": log, "n_obs": len(obs), "n_hyp": len(H),
             "evidence": contrib[:12], "parts": sorted(m.legacy_parts()), "modules": m.spec(), "pi": b["pi"],
-            "type_rank": type_rank[:8], "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
+            "type_rank": type_rank[:8], "entity_rank": entity_rank, "candidate_types": [t for t in model.fp if LEVEL[t] in (level, "any")],
             "onset_root": onsets.get(ent), "n_onsets": len(onsets), "onsets": onsets,
             "load_explained": sorted({e for e, _ in db["_load_explained"]}),
             "trace_structure": db.get("_trace_structure"),

@@ -175,6 +175,34 @@ def scenarios_reach_the_module_branches():
     print("   modules that changed an output:", sorted(changed))
 
 
+@test
+def belief_llm_adds_only_the_belief_block_to_the_evidence_prompt():
+    """Belief->LLM: the Evidence->LLM prompt + the statistical ranking; the LLM's free answer is used (here: it overrides the type)."""
+    from gama.belief_llm import run_belief_llm
+    from gama.run import run_case
+
+    class Rec:
+        def __init__(self):
+            self.prompts = []
+        def reset_usage(self):
+            pass
+        def usage_stats(self):
+            return {"total_calls": len(self.prompts)}
+        def generate_json(self, prompt, system=None):
+            self.prompts.append(prompt)
+            return {"root_cause_entity": "checkout", "predicted_fault_type": "F011-codeDefect", "reasoning_chain": ["cause: x"],
+                    "confidence": 0.5}
+    ref = run_case(sc_ratelimit(), None, Modules.parse("core"))
+    llm = Rec()
+    r = run_belief_llm(sc_ratelimit(), llm)
+    p = llm.prompts[0]
+    assert len(llm.prompts) == 1 and "Statistical diagnosis" in p and "P(root)" in p and "keeping the statistical model's answer" in p
+    assert f"fault type = {ref.predicted_fault_type}" in p, p[-1500:]
+    assert p.index("Statistical diagnosis") < p.index("Task:") and "http429" in p          # the evidence block is there too
+    assert r.predicted_fault_type == "F011-codeDefect" and r.retrieval_stats["belief_type"] == ref.predicted_fault_type
+    assert r.retrieval_stats["belief_kept_type"] is False
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

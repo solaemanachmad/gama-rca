@@ -193,6 +193,7 @@ ARMS = {                                                          # name -> extr
                                                                         "sigorder2", "loadx2", "xcard"))},              # GPU
     # ---- FROZEN v5 configuration (PREREGISTRATION_V5.md, design freeze 2026-11-02) ----
     "GAMA": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "core"},       # refactored method (gama/); CPU.
+    "BELIEF_LLM": {"_SYSTEM": "belief_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},  # GPU: GAMA belief, LLM decides freely
     "GAMA_FULL": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "full"},  # + LLM (GPU). kaggle_job --modules overrides
     "GAMA_CORE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
                   "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                                    # CPU, no LLM
