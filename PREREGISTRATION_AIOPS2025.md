@@ -63,7 +63,8 @@ entity and modality); false-alarm rate on normal windows (pseudo-windows); run t
 ## Adapter specification v1 (fixed before any run; dataset knowledge only)
 
 A1 Case: case_id = uuid; window [start, end] parsed from the description (both ISO timestamps); no alert entity; alert text = the
-   description. Data loaded from the hourly files covering [start - 3 h, end] (baseline for the calibrated tests), converted
+   description. Data loaded from the hourly files covering [start - 5 h, end] (the calibrated tests use B_SPAN = 4 window lengths of history and
+   K_PSEUDO = 5 pseudo-windows, i.e. about 10 window lengths before the window), converted
    to the canonical observation fields used by `gama/` (metrics: entity_set / entity_name / metric / value; logs:
    _container_name_ / content; traces: traceId / spanId / parentSpanId / serviceName / duration [ns] / statusCode / statusMessage /
    attributes / spanName).
@@ -118,3 +119,21 @@ A6 Output: component = decided entity (pod / service / node name; TiDB pod name)
    Explainability, Efficiency.
 A7 Volume: per case all spans of traces that contain a failing span, plus the spans of a fixed 20% of the other traces (selected
    by a hash of the traceID, independent of content); metrics and logs complete.
+
+## Self-audit of the specification (2026-11-05, before implementation)
+
+| # | Finding | Severity | Resolution (fixed now) |
+|---|---|---|---|
+| 1 | Faults are injected about every hour (input windows at hh:10 for ~20-25 min), so the 4-5 h of history used for calibration contains earlier fault windows. The calibrated tests assume a mostly normal history (on RCA100 the export starts at the window). | High | A8 below: samples inside the windows of the OTHER cases of input.json (label-free: input.json is the agent input) are removed from every history series. |
+| 2 | input.json windows of other cases are used (A8). | Note | They are inputs, not labels; disclosed as a preprocessing step. |
+| 3 | The README's per-type "manifestation" column (metric / trace / log) and the published type list informed the fingerprints. | Note | Public documentation, not per-case labels; disclosed. Fault-type counts (Cai et al. Table 2) are NOT used: priors stay uniform per entity. |
+| 4 | Entity naming of TiDB pods (`tidb-tikv-0`) follows the one published example (Lu et al. Fig. 6b) and the TiDB operator convention. | Low | Disclosed; if the scorer's names differ, LA for TiDB faults is reported both raw and with a documented name normalisation. |
+| 5 | The probe showed real log lines (input data, not labels), e.g. product catalog "Region is unavailable". A3's product catalog -> TiDB edge is justified by the published architecture, not by that line. | Low | Disclosed. No further design from test-set inputs. |
+| 6 | Pods renamed after restarts ("cartservice-2 (deleted)"). | Medium | The suffix " (deleted)" is stripped: same pod entity. |
+| 7 | No JVM metrics and no Kubernetes events: jvm-gc and pod_kill rely on indirect evidence. | Medium | Expected weak types; reported per type. No compensation by tuning. |
+| 8 | A7 trace selection keeps every failing trace and 20% of the others, for the window AND the history alike. | Low | Error rates are compared like-for-like; absolute counts are not used across cases. Disclosed. |
+| 9 | Missing series for some pods on some days. | Low | Missing data = no observation (as on RCA100), never imputed. |
+| 10 | The scorer is a re-implementation; TA embedding fallback unknown. | Medium | TA reported as a lower bound; scorer code published with the paper's artefacts. |
+
+A8 History cleaning: for case i, every metric / log / trace sample in [start_j, end_j + 10 min] of any other case j of input.json is
+   dropped before calibration (the README notes that effects may outlast end_time). The window of case i itself is untouched.
