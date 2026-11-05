@@ -615,3 +615,21 @@ Hypotheses (family "belief", per backbone, Holm within the family):
 - B2 one-sided (greater): Final(BELIEF_LLM@b) > Final(EVIDENCE_LLM_FINAL@b) -- does the computed belief help the LLM? (confirmatory)
 - B3 two-sided: BELIEF_LLM@b vs GAMA_LLM@b -- free vs bounded use of the same LLM (exploratory).
 Also reported: how often the LLM keeps GAMA's entity / type, and the share of its overrides that are correct.
+
+## RESULT -- Belief->LLM, Qwen2.5-7B, all 103 cases (commit ce565ee; 4 shards, GPU T4)
+
+Decision: the LLM kept GAMA's entity and type in 102 / 103 cases; the remaining case (t004) is a parse failure (the JSON answer was
+cut at the 1024-token limit while writing a long chain; its truncated answer also repeated GAMA's). EL 67.9 vs 68.9, FI 43.7 vs
+43.7, exact entity / type / joint 63 / 45 / 39 vs 64 / 45 / 39 (McNemar entity 0:1, type 0:0). So with a 7B model a free decision
+adds nothing: the model defers to the computed belief (B1 for 7B: no improvement, no damage to the decision).
+Chain: the LLM's own chain is weaker than the computed one: chain-node match 51.5 vs 72.7, step-anchored checkpoints 0.0 vs 30.7.
+Final (pre-registered headline) 48.0 [42.6, 53.6] vs 62.9 (-14.9, p = 1.2e-18); Final_step 48.0 vs 56.2 (-8.2 [-9.8, -6.7]).
+Cost: 1 call, 4,585 input + 227 output tokens per case; 152 s per case (GAMA core included).
+
+Measurement note (amendment, recorded with this first result of an arm whose chain is written by an LLM; the Evidence->LLM and
+Direct LLM results are not yet seen): the original checkpoint hit rate is computed over the evidence items a run returns
+(retrieved infrastructure text around the alert; decision-independent, ~76 for every GAMA arm). Arms whose answer is written by
+an LLM return no evidence items, so this half of RP is 0 by construction (here -24 of the -48 RP points). Comparisons between a
+computed chain and an LLM-written chain are therefore reported on (i) the decision: EL, FI, exact entity / type / joint, and (ii)
+Final_step (step-anchored checkpoints, which depend only on the scored chain), next to the pre-registered Final. analyze_v5.py
+prints both for every comparison.

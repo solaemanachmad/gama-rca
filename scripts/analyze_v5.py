@@ -175,6 +175,13 @@ def compare(da, db, ids, alternative):
     out = {"n": len(ids), "diff": round(float(diff.mean()), 1), "diff_ci": (round(lo, 1), round(hi, 1)),
            "better": int((diff > 1e-9).sum()), "worse": int((diff < -1e-9).sum()), "equal": int((np.abs(diff) <= 1e-9).sum()),
            "p": wilcoxon(a, b, alternative), "alternative": alternative}
+    sa, sb = 100 * da.loc[ids, "final_score_step"].astype(float), 100 * db.loc[ids, "final_score_step"].astype(float)
+    ok = sa.notna().values & sb.notna().values                   # Final_step: comparable across chain sources (amendment)
+    if ok.any():
+        ds = sa.values[ok] - sb.values[ok]
+        lo2, hi2 = boot_mean(ds)
+        out["step"] = {"n": int(ok.sum()), "diff": round(float(ds.mean()), 1), "diff_ci": (round(lo2, 1), round(hi2, 1)),
+                       "p": wilcoxon(sa.values[ok], sb.values[ok], alternative)}
     for name, col in (("entity_exact", "rcl_exact"), ("type_exact", "ft_binary")):
         n10, n01, p = mcnemar(da.loc[ids, col].values, db.loc[ids, col].values)
         out[name] = {"only_first": n10, "only_second": n01, "mcnemar_p": round(p, 4)}
@@ -279,12 +286,14 @@ def main():
         if not res:
             continue
         lines += [f"## {name}", "", "| first | second | n | diff [95% CI] | better / worse / equal | p | p (Holm) | entity exact "
-                  "(McNemar p) | type exact (McNemar p) |", "|" + "---|" * 9]
+                  "(McNemar p) | type exact (McNemar p) | Final_step diff [95% CI], p |", "|" + "---|" * 10]
         for r in res:
             lines.append(f"| {r['first']} | {r['second']} | {r['n']} | {r['diff']:+} [{r['diff_ci'][0]}, {r['diff_ci'][1]}] | "
                          f"{r['better']} / {r['worse']} / {r['equal']} | {r['p']:.3g} ({r['alternative']}) | {r['p_holm']:.3g} | "
                          f"{r['entity_exact']['only_first']}:{r['entity_exact']['only_second']} ({r['entity_exact']['mcnemar_p']}) | "
-                         f"{r['type_exact']['only_first']}:{r['type_exact']['only_second']} ({r['type_exact']['mcnemar_p']}) |")
+                         f"{r['type_exact']['only_first']}:{r['type_exact']['only_second']} ({r['type_exact']['mcnemar_p']}) | "
+                         + (f"{r['step']['diff']:+} [{r['step']['diff_ci'][0]}, {r['step']['diff_ci'][1]}], {r['step']['p']:.3g} |"
+                            if r.get("step") else "- |"))
         lines.append("")
     lines += ["## Breakdown (all cases of each arm)", ""]
     for lab, br in rep["breakdown"].items():
