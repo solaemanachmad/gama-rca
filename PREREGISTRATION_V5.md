@@ -669,3 +669,28 @@ equal); exact type 14 : 2 (McNemar p = 0.004); exact entity 10 : 3 (p = 0.09); F
 (application-logic FI 39.5 vs 10.5: the origin's messages and codes name rate limiting / null pointer / 5xx) and the service
 entity (EL 76.2 vs 69.0). It costs node faults: node EL 22.3 with the module vs 33.9 without (t008, t036: the true node wins
 without it, 0.62 -> 0.97 Final) -- the trade-off predicted in the validation note (node support from >= 2 origin services).
+
+## RESULT -- GAMA + bounded LLM (GAMA_LLM = modules `full`), Qwen2.5-7B, all 103 cases
+
+Shards ran at commits 96dacea (shards 0, 2), dc9c57d (1) and ce565ee (3); the GAMA_LLM path is identical across them (equivalence
+206 / 206 incl. every prompt; decoding deterministic). Shards 0 and 2 predate the input / output token split: total tokens for all
+103 cases, the split for 51. GPU T4, 181 s / case (GAMA core: 78 s / case on CPU).
+
+Final 59.2 [53.9, 64.6] / EL 66.5 / FI 35.0 / RP 73.7; Final_step 52.5; entity / type / joint exact 60 / 36 / 30.
+- F3 what the LLM adds (two-sided): GAMA_LLM - GAMA_CORE = -3.7 [-6.4, -1.4], p = 0.008 (2 better, 14 worse, 87 equal); exact type
+  2 : 11 (McNemar p = 0.02), exact entity 0 : 4. **With the 7B model the bounded LLM lowers the score.** Where (post hoc, not acted
+  on): (i) typing (M7 llmtype) changed the computed type in 25 cases (accepted in 88 of 103) and picked the more specific of two types
+  the telemetry cannot separate: cpuFullLoad -> cpuDeadLoop (7 cases), node CPU -> diskIOHigh / nodeMemoryOOM (5 node cases: node FI
+  35.7 -> 14.3), Resource & performance FI 80 -> 20; gains in 2 cases (t014, t098 -> the true type); (ii) text probes (sensor, 0.68
+  per case) moved the entity in 4 cases away from the right one (t006, t017, t020, t026).
+- F3 structure vs LLM-decides (one-sided): GAMA_LLM > EVIDENCE_LLM_FINAL +16.5 [11.8, 21.2], p = 8e-10 (Final_step +9.8, p = 3e-5;
+  exact type 24 : 9); GAMA_LLM > DIRECT_LLM +40.3, p = 1e-17.
+- B3 free vs bounded LLM (two-sided): BELIEF_LLM - GAMA_LLM = -11.2, p = 2e-11; Final_step -4.4, p = 6e-5; exact type 11 : 2 in
+  favour of BELIEF_LLM. Given the posterior, the free 7B model keeps the computed decision (102 / 103); asked to choose a type from
+  the shortlist (bounded typing), it departs from it and mostly errs. The lower Final of BELIEF_LLM is its own written chain (RP).
+- H1 (|EL(GAMA_LLM@7B) - EL(GAMA_CORE)| <= 3): 2.4 points -- holds. H2 (FI gain bounded by shortlist coverage): holds (no gain).
+- H5 cost: 2.7 LLM calls per case (max 5 <= 7), 9.2k tokens per case (max 14.3k; input 9.0k, output 228 on the 51 cases with the
+  split); narrator grounding 0.92 of quoted numbers in the evidence; narrator step-anchored checkpoint rate 0.107 vs 0.306 of the
+  computed chain (keepchain, amendment 22, is what is scored).
+Reading: with a 7B backbone the statistical core carries both localisation and typing; the LLM adds readable narration at a cost in
+FI. Whether a stronger backbone reverses the typing result is H3 / F4 (Llama-3.1-8B, one large API model). No design change.
