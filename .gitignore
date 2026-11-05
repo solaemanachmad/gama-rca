@@ -12,7 +12,7 @@ venv/
 
 # outputs that contain ground-truth columns (gt_*) or are large
 results/
-graphrag_rca_work/
+gama_work/
 topology_exports/
 *.zip
 *.pkl

@@ -67,13 +67,10 @@ def _read_dataset_version():
 
 DATASET_VERSION = _read_dataset_version()
 
-# Working directory (writable). Vector index, logs, results go here.
-WORK_DIR = os.environ.get("RCA100_WORK_DIR", os.path.join(os.getcwd(), "graphrag_rca_work"))
-INDEX_DIR = os.path.join(WORK_DIR, "vector_index")
+# Working directory (writable): default location of the results CSV when main.py gets no --save_path (kaggle_job always passes
+# one). Created only when used.
+WORK_DIR = os.environ.get("RCA100_WORK_DIR", os.path.join(os.getcwd(), "gama_work"))
 RESULTS_DIR = os.path.join(WORK_DIR, "results")
-
-for d in (WORK_DIR, INDEX_DIR, RESULTS_DIR):
-    os.makedirs(d, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Per-case file names (as shipped inside cases/t###/)

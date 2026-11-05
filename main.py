@@ -93,7 +93,9 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     # Fixed up front (not just when saving at the end) so checkpointing and
     # resume both have one stable target path for the whole run.
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
-    save_path = save_path or f"{config.RESULTS_DIR}/{timestamp}_results.csv"
+    if not save_path:
+        os.makedirs(config.RESULTS_DIR, exist_ok=True)
+        save_path = f"{config.RESULTS_DIR}/{timestamp}_results.csv"
 
     rows = []
     done_pairs = set()   # {(case_id, system)} pairs with an existing non-errored row
@@ -327,7 +329,7 @@ if __name__ == "__main__":
     parser.add_argument("--systems", nargs="+", default=None)
     parser.add_argument("--save_path", default=None,
                          help="Override the output CSV path (default: "
-                              "graphrag_rca_work/results/YYYYMMDD_HHMM_results.csv)")
+                              "gama_work/results/YYYYMMDD_HHMM_results.csv)")
     parser.add_argument("--wandb", dest="wandb_enabled", action="store_true", default=False,
                          help="Log this run to Weights & Biases (requires `pip install wandb` "
                               "and `wandb login` first). Off by default.")
