@@ -655,3 +655,17 @@ Evidence->LLM > Direct +23.8, p = 1.3e-13; Belief->LLM > Direct +29.2, p = 7.9e-
 
 Gradation with Qwen2.5-7B (Final / Final_step / EL / FI / exact joint): Direct 18.8 / 18.8 / 28.0 / 14.6 / 0 -> Evidence->LLM
 42.7 / 42.7 / 71.8 / 20.4 / 18 -> Belief->LLM 48.0 / 48.0 / 67.9 / 43.7 / 39 -> GAMA (no LLM) 62.9 / 56.2 / 68.9 / 43.7 / 39.
+
+## RESULT -- equivalence of gama/ with the frozen code on real cases (commit dc9c57d)
+
+`kaggle_job.py --check core,llm --cases all` (4 shards, CPU): 206 / 206 identical (103 cases x {core, full with the stub LLM}):
+entity, type, confidence, chain, evidence items, every stats column and the decision trail; for `llm` also every prompt.
+gama/ may now replace the development arms in reported runs; the legacy code can be archived (tag v5-frozen keeps it).
+
+## RESULT -- leave-one-module-out: without M2 trace (GAMA_CORE_NO_TRACE, all 103 cases, commit dc9c57d)
+
+Final 57.3 [52.0, 62.9] vs 62.9: -5.6 [-9.3, -2.3], Wilcoxon two-sided p = 0.009 (18 cases better with the module, 5 worse, 80
+equal); exact type 14 : 2 (McNemar p = 0.004); exact entity 10 : 3 (p = 0.09); Final_step -5.6. The module mostly helps the TYPE
+(application-logic FI 39.5 vs 10.5: the origin's messages and codes name rate limiting / null pointer / 5xx) and the service
+entity (EL 76.2 vs 69.0). It costs node faults: node EL 22.3 with the module vs 33.9 without (t008, t036: the true node wins
+without it, 0.62 -> 0.97 Final) -- the trade-off predicted in the validation note (node support from >= 2 origin services).
