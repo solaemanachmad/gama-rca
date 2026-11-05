@@ -257,7 +257,8 @@ TWIST_TEXT_TOP_N_SERVICES = 15   # cap on how many services get a synthesized
 # ---------------------------------------------------------------------------
 # LLM settings -- swap backend/model without touching any other file.
 # ---------------------------------------------------------------------------
-LLM_BACKEND = "kaggle"   # the only backend: local transformers model, no server, no external API
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "kaggle")   # "kaggle": local transformers model (default); "api": OpenAI-compatible
+                                                        # chat API (agents/api_client.py; v5 cross-model study only)
 KAGGLE_MODEL_HANDLE = os.environ.get("KAGGLE_MODEL_HANDLE",
                                       "Qwen/Qwen2.5-7B-Instruct")
                                       # Plain Hugging Face Hub repo id (not a Kaggle-catalog

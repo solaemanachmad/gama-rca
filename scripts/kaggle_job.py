@@ -22,7 +22,8 @@ GAMA_LLM, GAMA_CORE_NO_<M>) map to the same code.
   --arm     a key of ARMS (python scripts/kaggle_job.py --list shows them)
   --cases   all (default) | t001,t003,...
   --shard   k/n   run every n-th case starting at k (0-based), e.g. 0/4 .. 3/4 on four accounts
-  --model   a key of MODELS (default qwen25_7b; only GPU arms use it)
+  --model   a key of MODELS (default qwen25_7b; only LLM arms use it; gptoss120b_groq / gptoss120b_cerebras = API, CPU session,
+            key from the Kaggle Secret GROQ_API_KEY / CEREBRAS_API_KEY)
   --wandb   log to W&B (Secret WANDB_API_KEY; keep the project private)
   --data    folder containing cases/ and manifest.txt
   --dry     print what would run, run nothing
@@ -115,6 +116,14 @@ def main():
     print("cases:", " ".join(cases))
     if a.dry:
         return
+    secret = D["MODELS"][a.model].get("API_KEY_SECRET")
+    if secret:                                                # API backbone: the key from a Kaggle Secret (or the environment);
+        key = os.environ.get(secret)                          # never printed, never written to the manifest or the log
+        if not key:
+            from kaggle_secrets import UserSecretsClient
+            key = UserSecretsClient().get_secret(secret)
+        assert key, f"Kaggle Secret {secret} is empty"
+        env["API_KEY"] = key
     if not a.no_install:
         install(D["MODELS"][a.model])
 

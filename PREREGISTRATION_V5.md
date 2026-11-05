@@ -694,3 +694,18 @@ Final 59.2 [53.9, 64.6] / EL 66.5 / FI 35.0 / RP 73.7; Final_step 52.5; entity /
   computed chain (keepchain, amendment 22, is what is scored).
 Reading: with a 7B backbone the statistical core carries both localisation and typing; the LLM adds readable narration at a cost in
 FI. Whether a stronger backbone reverses the typing result is H3 / F4 (Llama-3.1-8B, one large API model). No design change.
+
+## Amendment: the large API model of F4 (2026-11-06, before any run of it)
+
+- Model: **gpt-oss-120b** (OpenAI open-weight, MoE 117B total / 5.1B active), served through an OpenAI-compatible API: Groq
+  (`openai/gpt-oss-120b`, MODELS key `gptoss120b_groq`) or Cerebras (`gpt-oss-120b`, `gptoss120b_cerebras`) -- one provider for all
+  arms; the provider, base URL and model id are written into every row (`llm_model`) and the manifest.
+- Settings fixed now: reasoning_effort = medium; temperature 0; seed 0; max_completion_tokens 8192 (reasoning tokens count against
+  it; the 7B runs had 1024 new tokens and no reasoning); prompts, parsers and stages byte-identical to the 7B runs (no JSON mode,
+  no truncation); retries only on 429 / 5xx / network errors. API decoding is not guaranteed deterministic: every call (prompt,
+  output, tokens incl. reasoning tokens, latency) is stored in the trace, so nothing is re-run.
+- Arms, all 103 cases: GAMA_LLM, EVIDENCE_LLM_FINAL, BELIEF_LLM (DIRECT_LLM optional). Tests: F3 and B1-B3 for this backbone,
+  H3 (narrator step-anchored checkpoint rate, 7B < 120B, exploratory) and H4 (Final(GAMA_LLM@qwen25_7b) vs
+  Final(EVIDENCE_LLM_FINAL@gpt-oss-120b), one-sided greater) as written in Analysis plan v5.
+- Data ethics: the provider's data controls are set to zero data retention / no training before the run; the key is a Kaggle
+  Secret, never logged. Llama-3.1-8B (the second local backbone): decided separately, recorded before its run or dropped here.

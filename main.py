@@ -32,6 +32,8 @@ def _current_model_name() -> str:
     without this, merging chunk files from different backends/sessions
     (e.g. Qwen 7B + Qwen 14B runs) leaves no way to
     tell which row came from which model, purely from the CSV itself."""
+    if config.LLM_BACKEND == "api":
+        return f"api:{os.environ.get('API_BASE_URL', '')}|{os.environ.get('API_MODEL', '')}|effort={os.environ.get('API_REASONING_EFFORT', '')}"
     return config.KAGGLE_MODEL_LOCAL_PATH or config.KAGGLE_MODEL_HANDLE   # the local copy is what is loaded when it is set
 
 

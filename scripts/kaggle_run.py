@@ -31,6 +31,13 @@ MODELS = {
     # Add Input > Models and put its mounted folder in KAGGLE_MODEL_LOCAL_PATH (Llama and Gemma are gated on Hugging Face).
     "qwen25_7b_v5": {"KAGGLE_MODEL_LOCAL_PATH": "/kaggle/input/models/qwen-lm/qwen2.5/transformers/7b-instruct/1"},
     "llama31_8b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "meta-llama/Llama-3.1-8B-Instruct"},
+    # one large API model (F4 / H3 / H4): gpt-oss-120b, reasoning effort fixed at medium; the key comes from the Kaggle Secret named
+    # in API_KEY_SECRET (scripts/kaggle_job.py); provider data controls: zero data retention. CPU session (no GPU needed).
+    "gptoss120b_groq": {"LLM_BACKEND": "api", "API_BASE_URL": "https://api.groq.com/openai/v1", "API_MODEL": "openai/gpt-oss-120b",
+                        "API_KEY_SECRET": "GROQ_API_KEY", "API_REASONING_EFFORT": "medium", "LLM_MAX_TOKENS": "8192"},
+    "gptoss120b_cerebras": {"LLM_BACKEND": "api", "API_BASE_URL": "https://api.cerebras.ai/v1", "API_MODEL": "gpt-oss-120b",
+                            "API_KEY_SECRET": "CEREBRAS_API_KEY", "API_REASONING_EFFORT": "medium", "LLM_MAX_TOKENS": "8192",
+                            "API_MIN_INTERVAL_S": "13"},          # free trial: 5 requests / minute
     "gemma2_9b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "google/gemma-2-9b-it"},
     "qwen3_4b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-4B"},
 }

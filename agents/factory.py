@@ -1,13 +1,16 @@
 """agents/factory.py -- builds the LLM client(s).
 
-Single backend: a local transformers model (agents/kaggle_client.py). No server,
-no external API: RCA100 data never leaves the machine.
+Default backend: a local transformers model (agents/kaggle_client.py); RCA100 data never leaves the machine. LLM_BACKEND=api
+(cross-model study only): an OpenAI-compatible chat API (agents/api_client.py), run with the provider's no-retention setting.
 """
 
 import config
 
 
 def get_llm_client():
+    if config.LLM_BACKEND == "api":                  # v5 cross-model study: one large API model (agents/api_client.py)
+        from agents.api_client import ApiChatClient
+        return ApiChatClient()
     from agents.kaggle_client import KaggleTransformersClient
     return KaggleTransformersClient(model_handle=config.KAGGLE_MODEL_HANDLE,
                                      local_path=config.KAGGLE_MODEL_LOCAL_PATH,
