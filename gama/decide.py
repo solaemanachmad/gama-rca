@@ -16,7 +16,7 @@ from typing import Dict
 import numpy as np
 
 from pipeline import belief_diagnosis as bd
-from pipeline.fault_calibrated import LEVEL, RESIDUAL, _atoms, entity_signals
+from pipeline.fault_calibrated import LEVEL, RESIDUAL, FALLBACK, _atoms, entity_signals
 from gama import evidence
 from gama.belief import ANOM, Model, infer, sigorder_loglik
 from gama.config import Modules
@@ -48,7 +48,7 @@ def _fallback_type(model, ent, level, sig):
         sc = (0 if t in RESIDUAL else 1,) + sc
         if best_score is None or sc > best_score:
             best, best_score = t, sc
-    return best or ("F026-nodeCpuHigh" if level == "node" else "F011-codeDefect")
+    return best or FALLBACK["node" if level == "node" else "service"]
 
 
 def _probes(model, H, logp, texts, sensor, budget, top_m):

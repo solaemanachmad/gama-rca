@@ -23,6 +23,7 @@ from typing import Dict, List
 import numpy as np
 
 from pipeline import belief_diagnosis as bd
+from data.dataset_profile import PROFILE
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms
 from pipeline.fault_v4 import V4_SVC_SIGNALS
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS
@@ -41,6 +42,21 @@ MECHANISM_SIGNALS = ("svc_cpu_rise", "svc_mem_rise", "svc_gc_rise", "svc_thread_
 def fingerprints(m: Modules) -> Dict:
     """Fingerprint table: the taxonomy fingerprints + additions fixed before any v4 run (M0) + origin-message roles (M2)."""
     fp = copy.deepcopy(FINGERPRINTS)
+    if PROFILE == "rca100":
+        _rca100_additions(fp)
+    if m.trace:                                   # the same message / status evidence read at the origin spans
+        for t, f in fp.items():
+            atoms = {a for k in f.get("key", []) + f.get("sup", []) for a in _atoms(k)}
+            extra = [("omsg_" + a[4:]) for a in atoms if a.startswith("msg_")]
+            extra += [("omsg_" + a[4:-5]) for a in atoms if a.startswith("log_") and a.endswith("_rise")]
+            extra += [("o" + a) for a in atoms if a in ("http429", "http403", "http503", "http5xx")]
+            if extra:
+                f["may"] = list(dict.fromkeys(f.get("may", []) + sorted(set(extra))))
+    return fp
+
+
+def _rca100_additions(fp):
+    """M0 additions to the RCA100 taxonomy fingerprints, fixed before any v4 run."""
     fp["F036-replicaScaleDown"]["key"].append("svc_avail_drop")
     fp["F036-replicaScaleDown"]["sup"].append("svc_request_drop")
     fp["F007-memoryPressure"]["sup"].append("svc_cpu_rise")
@@ -54,15 +70,6 @@ def fingerprints(m: Modules) -> Dict:
     for t in ("F034-cpuFullLoad", "F012-cpuDeadLoop", "F002-threadExhaustion"):
         fp[t]["may"] = ["ev_unhealthy", "ev_restart"]
     fp["F039-resourceLimitMisconfig"]["sup"] = [x for x in fp["F039-resourceLimitMisconfig"]["sup"] if x != "svc_mem_rise"]
-    if m.trace:                                   # the same message / status evidence read at the origin spans
-        for t, f in fp.items():
-            atoms = {a for k in f.get("key", []) + f.get("sup", []) for a in _atoms(k)}
-            extra = [("omsg_" + a[4:]) for a in atoms if a.startswith("msg_")]
-            extra += [("omsg_" + a[4:-5]) for a in atoms if a.startswith("log_") and a.endswith("_rise")]
-            extra += [("o" + a) for a in atoms if a in ("http429", "http403", "http503", "http5xx")]
-            if extra:
-                f["may"] = list(dict.fromkeys(f.get("may", []) + sorted(set(extra))))
-    return fp
 
 
 class Model:
@@ -72,6 +79,7 @@ class Model:
         self.m = m
         self.origin_nodes = set()        # M2: nodes hosting >= 2 origin services (set per case)
         self.cpu_up = set()              # M3: entities whose svc_cpu_rise holds (set per case)
+        self.members = {}                # pod -> service, when the case defines memberships (AIOps2025 A4; RCA100: empty)
         self.fp = fingerprints(m)
         self.roles = {}
         for t, f in self.fp.items():
@@ -133,6 +141,11 @@ class Model:
             return max(bd.THETA_P, base) if self.trace_own(o, h, hosts) else base
         if h["type"] is None:
             return base
+        if self.members and h["type"] != ANOM and self.role(h, s) in ("K", "U"):
+            if self.members.get(e) == h["entity"]:           # A4: a service-level fault shows its mechanism in every pod
+                return bd.THETA_P
+            if self.members.get(h["entity"]) == e:           # A4: a pod-level fault shows in its service's aggregate
+                return max(bd.THETA_P, base)
         if e == h["entity"]:
             role = self.role(h, s)
             if role is None and s in self.own_symptoms:
@@ -159,7 +172,7 @@ class Model:
     def trace_own(self, o, h, hosts):
         if h["type"] is None:
             return False
-        if o["entity"] == h["entity"]:
+        if o["entity"] == h["entity"] or self.members.get(o["entity"]) == h["entity"]:   # A4: a pod's origin is its service's
             if self.m.typing and o["signal"] == "trace_err_origin" and h["type"] != ANOM:
                 return self.error_type(h["type"])
             return True
@@ -170,6 +183,9 @@ class Model:
     def may(self, o, h, hosts=None):
         if o["signal"] in TRACE_SIGNALS:                         # absence of a trace origin is uninformative
             return self.trace_own(o, h, hosts)
+        if (self.members and h["type"] not in (None, ANOM) and self.members.get(h["entity"]) == o["entity"]
+                and self.role(h, o["signal"]) in ("K", "U")):
+            return True                                          # A4: absence in the service aggregate is uninformative
         return h["type"] not in (None, ANOM) and o["entity"] == h["entity"] and self.role(h, o["signal"]) == "M"
 
     def propagated(self, o, h, expl, hosts):
@@ -213,6 +229,7 @@ class Model:
 def infer(model: Model, db, callees, obs, alert=None) -> Dict:
     """Posterior log-probabilities over the testable hypotheses (before text probes). Mutates obs (alert) and db (_load_explained)."""
     m = model.m
+    model.members = dict(db.get("memberships") or {})
     if m.typing:
         model.cpu_up = {o["entity"] for o in obs if o["signal"] == "svc_cpu_rise" and o["holds"]}
     H = model.testable(model.hypotheses(db), obs)

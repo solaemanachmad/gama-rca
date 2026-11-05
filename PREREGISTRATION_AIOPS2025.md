@@ -137,3 +137,23 @@ A7 Volume: per case all spans of traces that contain a failing span, plus the sp
 
 A8 History cleaning: for case i, every metric / log / trace sample in [start_j, end_j + 10 min] of any other case j of input.json is
    dropped before calibration (the README notes that effects may outlast end_time). The window of case i itself is untouched.
+
+## Implementation amendments (2026-11-05, before any run on AIOps2025; written from the frozen code and a synthetic release only)
+
+Implemented in `adapters/aiops2025.py` (case), `data/dataset_profile.py` + `data/aiops2025_profile.py` (profile, selected by
+`DATASET_PROFILE=aiops2025`; RCA100 unchanged: golden snapshot of `tests/test_gama.py` identical), `gama/belief.py` (A4 rule, gated by
+the case's memberships), `scripts/aiops2025_run.py` (run / label-free check), `tests/test_aiops2025.py` (synthetic release in the real
+layout: a CPU fault in one pod is located at the pod, in every pod at the service; ground-truth files are never opened).
+
+| # | Item | Change and reason |
+|---|---|---|
+| I1 | A8 history cleaning | **Not applied.** The frozen core tests a window only when its history covers >= 80% of B_SPAN window lengths (`pipeline/fault_v4.MIN_COVERAGE`). Faults are injected hourly at hh:10 for ~22 min, so masking [start_j, end_j + 10 min] of the preceding case removes ~32 of the ~88 min of every real window's history (coverage ~64%): no continuous signal would be testable. Shown label-free on the synthetic release (`--check` with `AIOPS_HISTORY_MASK=drop`: the case with a masked predecessor loses all continuous tests). Contamination is instead absorbed by the frozen statistics: the history scale is median / MAD (robust while < 50% of the history is a previous fault; here <= ~36%), peer re-standardisation rejects shifts shared by the entities of a kind, and a previous fault inside the pseudo-windows makes the empirical null heavier, i.e. conservative (fewer signals hold, never more). The label-free check reports, per entity kind and signal, the share of testable pairs and the share that hold. |
+| I2 | A5 fingerprints | `msg_error` is not an observation of the frozen core (the log family 'error' is not emitted by `entity_signals`); it is dropped from jvm-exception, erroneous-code and io-fault. Everything else as in the A5 table (`data/aiops2025_profile.py`). Fallback type when only the unspecified anomaly is testable: erroneous-code (service level), node_cpu (node level). No residual types (uniform priors). |
+| I3 | A7 logs | Only the log lines the core reads are loaded: those matching the core's text families (`pipeline/fault_fingerprint._TEXT_ANY`) plus the first line of each hourly file (it dates the log history). Equivalent input for the statistical core (the only arm run); an LLM arm would need the full logs. |
+| I4 | A2 metric families | AIOps2025 patterns added to the RCA100 ones: rrt -> latency, timeout -> error, network bytes / packets -> net, TiKV MB/s and filesystem usage -> disk, *_is_up -> ready. Excluded as configuration or bookkeeping, not behaviour: capacities, totals, sizes, uptime, PD region / leader / store counts, socket counts, and the APM `*_ratio` columns (derived from the counts that are kept). Infra-node series are per device / mountpoint. Duplicate samples (renamed pods) are averaged per minute. |
+| I5 | A2 trace status | A span fails when its Jaeger status.code is not 0 (canonical status "2"); the gRPC code is carried as `rpc.grpc.status_code` and HTTP codes as `http.status_code`, so the frozen HTTP / gRPC readers apply. Span service = the pod (process tag name / podName). |
+| I6 | A3 topology | Also tidb-tidb -> tidb-tikv and tidb-tidb -> tidb-pd (published TiDB architecture: the SQL layer reads TiKV and gets timestamps from PD). |
+| I7 | A6 output | One JSON line per case: uuid, component, reason (taxonomy phrase first, then "at <component>" and up to three holding evidence items), time (window start), reasoning_trace = up to 5 steps {step, action: LoadMetrics / TraceAnalysis / LogSearch(<entity>), observation: the evidence text}. |
+
+Run order: (1) `python scripts/aiops2025_run.py --data <release> --check --cases first:5` (adapter coverage, run time, testable / hold
+shares); (2) the full run in shards, once: `--shard k/4`; (3) the scorer (the only code that opens groundtruth.jsonl).

@@ -248,6 +248,7 @@ def _compute(case, alert_ts, text=None):
                 prof["events"][f][str(e.get("reason", ""))] += int(e.get("count") or 1)
 
     return {"_text": text, "services": svc, "nodes": nod, "hosts": {k: sorted(v) for k, v in hosts.items()}, "w0": w0, "w1": w1,
+            "memberships": dict(getattr(case, "memberships", None) or {}),     # pod -> service (AIOps2025 A4; RCA100: empty)
             "log_base_bins": (int((w0 - log_t0).total_seconds() // LOG_BIN_S) if log_t0 and log_t0 < w0 else 0),
             "win_bins": max(1, int(math.ceil((w1 - w0).total_seconds() / LOG_BIN_S)))}
 
@@ -462,6 +463,14 @@ FINGERPRINTS = {
     "F014-httpError5xx":            dict(key=["http5xx"], sup=["error_spans", "svc_error_rise"], con=[]),
     "F011-codeDefect":              dict(key=["error_spans"], sup=["svc_error_rise"], con=[]),
 }
+FALLBACK = {"node": "F026-nodeCpuHigh", "service": "F011-codeDefect"}   # gama/decide._fallback_type
+
+from data.dataset_profile import PROFILE as _PROFILE
+if _PROFILE == "aiops2025":                               # PREREGISTRATION_AIOPS2025.md A5 (RCA100: nothing below runs)
+    import data.aiops2025_profile as _ap
+    FINGERPRINTS, LEVEL, RESIDUAL, FALLBACK = _ap.FINGERPRINTS, _ap.LEVEL, _ap.RESIDUAL, _ap.FALLBACK
+    NODE_SIGNALS.extend(_ap.NODE_EXTRA)
+    SVC_SIGNALS.extend(_ap.SVC_EXTRA)
 _ORDER = {t: i for i, t in enumerate(FINGERPRINTS)}
 
 
