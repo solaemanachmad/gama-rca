@@ -11,22 +11,22 @@ Notebook (2 cells, the same for every run):
   os.chdir("/kaggle/working/gama-rca")
 
   # Cell 2 -- run (change only the arguments)
-  !python scripts/kaggle_job.py --arm V4_RULE_MM_T3_OMSG_FI_DEPB --cases odd --shard 0/4
+  !python scripts/kaggle_job.py --arm GAMA --cases all --shard 0/4
 
 What it does: installs the dependencies, runs main.py for the arm (resume ON: re-running continues), streams the per-case lines,
 prints the scores, and writes /kaggle/working/<name>_all.zip (csv, log, trace folder, commit) to download.
-Arms, model presets and case lists are the ones of scripts/kaggle_run.py (Cell 3), read from there: one definition only.
+Arms, model presets and case lists are defined in scripts/kaggle_run.py (Cell 3), read from there: one definition only.
+Arms: GAMA (CPU) | GAMA_FULL | BELIEF_LLM | EVIDENCE_LLM_FINAL | DIRECT_LLM (GPU); the names of reported runs (A, GAMA_CORE,
+GAMA_LLM, GAMA_CORE_NO_<M>) map to the same code.
 
   --arm     a key of ARMS (python scripts/kaggle_job.py --list shows them)
-  --cases   all (default) | t001,t003,...   (internal subsets odd / even / dev30 remain available)
+  --cases   all (default) | t001,t003,...
   --shard   k/n   run every n-th case starting at k (0-based), e.g. 0/4 .. 3/4 on four accounts
   --model   a key of MODELS (default qwen25_7b; only GPU arms use it)
   --wandb   log to W&B (Secret WANDB_API_KEY; keep the project private)
   --data    folder containing cases/ and manifest.txt
   --dry     print what would run, run nothing
   --modules GAMA module spec for the arms GAMA / GAMA_FULL (gama/config.py): core | full | core,-trace | ...
-  --check   equivalence of gama/ with the frozen code (scripts/equivalence.py): core | loo | llm | base, comma-separated;
-            no --arm needed, e.g.  --check core,llm --cases all --shard 0/4
 """
 import argparse
 import os
@@ -50,7 +50,7 @@ def definitions(data):
 
 
 def install(model_env):
-    pkgs = ["sentence-transformers", "networkx", "drain3", "faiss-cpu", "langgraph", "wandb"]
+    pkgs = ["networkx", "drain3", "wandb"]
     if model_env.get("KAGGLE_USE_4BIT") == "1":
         pkgs.append("bitsandbytes")
     subprocess.run([sys.executable, "-m", "pip", "-q", "install", *pkgs])
@@ -69,7 +69,6 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--dry", action="store_true")
     ap.add_argument("--modules", default=None)
-    ap.add_argument("--check", default=None)
     a = ap.parse_args()
 
     assert os.path.isdir(os.path.join(a.data, "cases")), f"dataset not found: {a.data} (attach RCA100 or pass --data)"
@@ -78,12 +77,10 @@ def main():
         print("ARMS:", ", ".join(D["ARMS"]))
         print("MODELS:", ", ".join(D["MODELS"]))
         return
-    if a.check:
-        a.arm = "GAMA"
     assert a.arm in D["ARMS"], f"unknown arm {a.arm!r}; --list shows the arms"
     assert a.model in D["MODELS"], f"unknown model {a.model!r}; --list shows the models"
 
-    named = {"odd": D["DEV_ODD"], "even": D["VAL_EVEN"], "all": D["ALL_IDS"], "dev30": D["DEV30"]}
+    named = {"all": D["ALL_IDS"], "odd": D["DEV_ODD"], "even": D["VAL_EVEN"]}
     cases = named.get(a.cases) or [c.strip() for c in a.cases.split(",") if c.strip()]
     shard = None
     if a.shard:
@@ -95,7 +92,7 @@ def main():
     commit = subprocess.run("git rev-parse --short HEAD", shell=True, capture_output=True, text=True, cwd=REPO).stdout.strip()
     tag = {"qwen25_7b": "7B"}.get(a.model, a.model)
     mods = a.modules.replace(",", "_").replace("-", "no") if a.modules else ""
-    name = (f"EQUIV_{a.check.replace(',', '_')}" if a.check else f"{a.arm}_{tag}" + (f"_{mods}" if mods else "")
+    name = (f"{a.arm}_{tag}" + (f"_{mods}" if mods else "")
             + ("" if a.model == "qwen25_7b" or a.model in tag else f"_{a.model}")) + (f"_shard{shard[0]}of{shard[1]}" if shard else "")
     arm = dict(D["ARMS"][a.arm])
     if a.modules:
@@ -108,9 +105,6 @@ def main():
            "DEBUG_DUMP_DIR": f"{a.out}/dump_{name}", "SAVE_TYPING_STATE_DIR": f"{a.out}/state_{name}"}
     out_csv = f"{a.out}/{name}.csv"
     cmd = [sys.executable, "main.py", "--case_ids", *cases, "--systems", system, "--save_path", out_csv]
-    if a.check:
-        cmd = [sys.executable, "scripts/equivalence.py", "--data", a.data, "--case_ids", *cases, "--configs", a.check,
-               "--out", out_csv]
     if a.wandb:
         from kaggle_secrets import UserSecretsClient
         env["WANDB_API_KEY"] = UserSecretsClient().get_secret("WANDB_API_KEY")
@@ -125,7 +119,7 @@ def main():
         install(D["MODELS"][a.model])
 
     open(f"{a.out}/{name}.commit.txt", "w").write(commit + "\n")
-    manifest = {"commit": commit, "arm": a.arm, "system": system, "check": a.check, "modules": env.get("GAMA_MODULES"),
+    manifest = {"commit": commit, "arm": a.arm, "system": system, "modules": env.get("GAMA_MODULES"),
                 "v4_parts": env.get("V4_PARTS"), "model": a.model, "model_env": D["MODELS"][a.model], "cases": cases,
                 "shard": a.shard, "python": sys.version.split()[0], "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     try:                                                      # hardware and library versions (efficiency table of the paper)
@@ -145,8 +139,7 @@ def main():
             log.write(raw)
             log.flush()
             line = raw.decode("utf-8", errors="replace").rstrip()
-            if ("entity_loc=" in line or "[error]" in line or "Traceback" in line or "Error" in line[:40]
-                    or "IDENTICAL" in line or "DIFFERENT" in line or "identical ->" in line):
+            if "entity_loc=" in line or "[error]" in line or "Traceback" in line or "Error" in line[:40]:
                 done += ("entity_loc=" in line) + ("[error]" in line)
                 print(f"[{(time.time() - t0) / 60:5.1f} min {done}/{len(cases)}] {line[-170:]}", flush=True)
         rc = p.wait()
@@ -157,7 +150,7 @@ def main():
     if rc != 0:
         print(open(f"{a.out}/{name}.log", "rb").read()[-3000:].decode("utf-8", errors="replace"))
 
-    if os.path.exists(out_csv) and not a.check:
+    if os.path.exists(out_csv):
         import pandas as pd
         d = pd.read_csv(out_csv)
         cols = [c for c in ("entity_localization", "fault_identification_exact", "fault_group_identification", "reasoning_process",

@@ -1,41 +1,9 @@
-# SIMPLER: scripts/kaggle_job.py runs any arm with one command (2 fixed notebook cells, see its docstring); this file keeps the definitions.
-# Kaggle runner. Paste each "# %% Cell N" block into its own notebook cell, in order (Cells 1-6, self-contained).
-# Needs: Secret GITHUB_TOKEN, the RCA100 dataset as input, Accelerator = GPU, Internet ON, a Qwen2.5 model attached (or HF download).
-# Cell 5 is resume-safe (progress is read from the dump files). Decoding is deterministic: temperature 0 and a fixed seed (see Cell 3).
+# Run definitions read by scripts/kaggle_job.py (the notebook never changes: clone + one kaggle_job command). The old notebook cells
+# and the development arms are in archive/scripts/kaggle_run.py (git tag v5-frozen).
 
-# %% Cell 1 -- code (private repo) and data
-import os, subprocess
-
-REPO = "solaemanachmad/gama-rca"                      # private; no leading slash
-DATA = "/kaggle/input/datasets/solaemanachmad/rca100v1-1/RCA100v1.1"   # folder that contains cases/ and manifest.txt
-WORK = "/kaggle/working/gama-rca"
-
-from kaggle_secrets import UserSecretsClient          # Add-ons > Secrets: GITHUB_TOKEN (read-only token for the private repo)
-tok = UserSecretsClient().get_secret("GITHUB_TOKEN")
-subprocess.run(["rm", "-rf", WORK])
-r = subprocess.run(["git", "clone", "--depth", "60", f"https://{tok}@github.com/{REPO}.git", WORK],
-                   capture_output=True, text=True)
-print("clone rc =", r.returncode, (r.stderr or "").replace(tok, "***")[-300:])
-os.chdir(WORK)
-COMMIT = subprocess.run("git rev-parse --short HEAD", shell=True, capture_output=True, text=True).stdout.strip()
-print("COMMIT", COMMIT); print(subprocess.run("git log --oneline | head -5", shell=True, capture_output=True, text=True).stdout)
-assert os.path.isdir(os.path.join(DATA, "cases")), f"dataset path wrong: {DATA}"
-os.environ["RCA100_ROOT"] = DATA
-os.environ["PYTHONHASHSEED"] = "0"
-
-# %% Cell 2 -- dependencies (skip what the notebook image already has)
-import sys, importlib
-subprocess.run([sys.executable, "-m", "pip", "-q", "install", "sentence-transformers", "networkx", "drain3", "faiss-cpu", "langgraph",
-                "bitsandbytes"])                     # bitsandbytes: only the 4-bit model presets (14B/32B) need it
-for m in ("drain3", "faiss", "sentence_transformers", "networkx", "langgraph", "torch", "transformers"):
-    try:
-        importlib.import_module(m); print("ok  ", m)
-    except Exception as e:
-        print("MISSING", m, "->", e)
-
-# %% Cell 3 -- definitions only (BASE, FLAGS, ARMS, run helpers); runs NO model
-import time, glob
-# Model source. Local copy attached via Add Input > Models (qwen-lm / qwen2.5 / transformers / 7b-instruct / 1); None = download the HF default.
+# %% Cell 3 -- definitions only (BASE, FLAGS, MODELS, ARMS, case lists); runs NO model
+import os
+DATA = globals().get("DATA", os.environ.get("RCA100_ROOT", "/kaggle/input/rca100"))   # kaggle_job.definitions() injects DATA
 LOCAL_MODEL = "/kaggle/input/models/qwen-lm/qwen2.5/transformers/7b-instruct/1"
 BASE = dict(
     LLM_BACKEND="kaggle", CHUNKED_PREFILL="1", MAX_INPUT_TOKENS="16000", PREFILL_CHUNK="1024",
@@ -72,263 +40,25 @@ FLAGS = ("ALERT_T0_MODE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "INFRA_A
          "FAULT_FINGERPRINT", "FP_TOP_K", "FP_LEVEL_SWITCH", "FP_SCORING", "FP_ALPHA", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED",
          "ENABLE_THINKING", "LLM_MAX_TOKENS", "KAGGLE_MODEL_HANDLE", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE",
          "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY", "V3_LOG_MODE", "V4_PARTS", "GAMA_MODULES")
-V4_ALL = ("score", "open", "twostage", "fp", "peer", "rnull", "prop", "events", "avail", "onset", "em", "ops", "selfnorm",
-          "llmtype", "conseq", "retry", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg", "cpuspec",
-          "torigin3", "hostcpu", "errclass", "tiebreak", "depconseq", "depbase", "depshare", "sigorder",
-          "sigorder2", "loadx2", "msgtarget", "textx", "textx2", "rpchain", "redchain", "keepchain",
-          "typecheck")                                                                              # = belief_v4.ALL_PARTS
-V4_DEFAULT = tuple(p for p in V4_ALL if p not in ("rnull", "ops", "mm", "xcard", "loadx", "ratio", "torigin", "torigin2", "omsg",
-                                                  "cpuspec", "torigin3", "hostcpu", "errclass", "tiebreak",
-                                                  "depconseq", "depbase", "depshare", "sigorder",
-                                                  "sigorder2", "loadx2", "msgtarget", "textx", "textx2",
-                                                  "rpchain", "redchain", "keepchain",
-                                                  "typecheck"))                                 # = DEFAULT_PARTS
-V5_FINAL = ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2", "msgtarget", "textx2",
-            "redchain")                                           # frozen 2026-11-03 (+textx2 am. 18, +redchain am. 20-21)
-ARMS = {                                                          # name -> extra env, all on the fixed base
-    "A1rT_fixed": {},
-    "A1rT_fixed_ABS_KP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1"},          # main configuration
-    "A1rT_fixed_ABS_KP_P1": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "GROUNDED_FAULT": "1"},    # + grounded fault choice (fault_evidence before the type)
-    "A1rT_fixed_ABS_KP_TYPE": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1"},        # fault type from entity-scoped evidence (+1 short call)
-    "A1rT_fixed_ABS_KP_TYPELEAN": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1"},   # Coordinator: entity + chain only; typing call: taxonomy + KP + entity evidence
-    "A1rT_fixed_ABS_KP_TYPELEAN_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "SPEC_EVIDENCE_ONLY": "1"},
-    "A1rT_fixed_ABS_KP_EVSC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_EVENTS_SCOPED": "1"},      # events only for the neighbourhood services and their nodes
-    "A1rT_fixed_ABS_KP_TYPELEAN_EVSC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "INFRA_EVENTS_SCOPED": "1"},
-    "A1rT_fixed_ABS_KP_TYPECMP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "TYPING_COMPARE": "1"},   # typing call proposes <=3 candidates with supporting/contradicting rows, then chooses
-    "A1rT_fixed_ABS_KP_TYPELEAN_CMP": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "ENTITY_TYPING": "1", "COORD_LEAN": "1", "TYPING_COMPARE": "1"},
-    "A1rT_fixed_ABS_KP_NOSTATS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "USE_CHANGE_STATS": "0", "USE_CHANGE_FACTOR": "0"},   # ablation: no change/z/rank/n appended to numeric rows
-    "A1rT_fixed_ABS_KP_NOSPEC": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "NO_SPECIALISTS": "1"},       # ablation: no specialist calls
-    "A1rT_fixed_ABS_KP_EVOBS": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_EVIDENCE_ONLY": "1"},    # specialists copy observations, no verdict
-    # Fault fingerprints (default scoring: pipeline/fault_calibrated.py; _FIX = pipeline/fault_fingerprint.py fixed thresholds) and the
-    # chain verifier; all on the main configuration
-    "A1rT_fixed_ABS_KP_FPSHOW": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "show"},        # profile + candidates shown, any type allowed
-    "A1rT_fixed_ABS_KP_FPSL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist"},     # typing call constrained to the top-3 candidates
-    "A1rT_fixed_ABS_KP_FPRULE": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule"},        # ablation: top candidate, no typing LLM call
-    "A1rT_fixed_ABS_KP_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "VERIFY_CHAIN": "1"},                   # verifier only
-    "A1rT_fixed_ABS_KP_FPSL_VER": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1"},   # candidate main configuration
-    "A1rT_fixed_ABS_KP_FPRULE_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "rule", "FP_SCORING": "fixed"},   # ablation: fixed thresholds, no calibration
-    "A1rT_fixed_ABS_KP_FPSL_FIX": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "FP_SCORING": "fixed"},
-    "A1rT_fixed_ABS_KP_FPSL_VER_LVL": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "FAULT_FINGERPRINT": "shortlist", "VERIFY_CHAIN": "1", "FP_LEVEL_SWITCH": "1"},
-    # v2 hypothesis-constrained RCA (pipeline/hypothesis_rca.py). "_SYSTEM" picks the system in main.py (not an env variable).
-    # ALERT_T0_MODE=window: the benchmark's own alert_window (task.json) defines window and baseline.
-    "V2": {"_SYSTEM": "hypothesis_rca", "ALERT_T0_MODE": "window", "USE_KNOWLEDGE_POS": "1"},              # main v2 (GPU, 1-2 calls/case)
-    "V2_NOVERIFY": {"_SYSTEM": "hypothesis_rca", "ALERT_T0_MODE": "window", "USE_KNOWLEDGE_POS": "1", "V2_NO_VERIFY": "1"},
-    "V2_RULE": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window"},                                   # Stages 1-3 only (CPU)
-    "V2_RULE_NOTOPO": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_TOPO": "1"},         # ablations (CPU)
-    "V2_RULE_NOEXCL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_EXCLUDE": "1"},
-    "V2_RULE_UNCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_UNCALIBRATED": "1"},
-    "V2_RULE_NOLOCAL": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "window", "V2_NO_LOCALITY": "1"},
-    "V2_RULE_LEGACYWIN": {"_SYSTEM": "hypothesis_rule", "ALERT_T0_MODE": "legacy"},                         # window definition of v1
-    # v3 computed belief states (pipeline/belief_rca.py; PREREGISTRATION_V3.md)
-    "V3": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},                 # proposed (GPU; Amendment 2)
-    "V3_RAWLOG": {"_SYSTEM": "belief_rca", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "raw"},               # frozen v3 sensor input (ablation)
-    "V3_B0": {"_SYSTEM": "belief_rca_b0", "ALERT_T0_MODE": "window"},                                      # no text sensor (GPU, narrator)
-    "V3_RULE": {"_SYSTEM": "belief_rule", "ALERT_T0_MODE": "window"},                                      # no LLM at all (CPU)
-    # v4 (pipeline/belief_v4.py; design claude/RCA_v4_design.md). RCA100 is DEVELOPMENT data for v4 (labels seen in V3_RAWLOG).
-    "V4": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template", "V4_PARTS": "all"},          # GPU
-    "V4_B0": {"_SYSTEM": "belief_v4_b0", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                               # GPU (typing + narrator, no log sensor)
-    "V4_NOLLMTYPE": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                     "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != "llmtype")},                                  # GPU (does the typing stage help?)
-    "V4_RULE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": "all"},                           # CPU
-    **{f"V4_RULE_NO{p.upper()}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                  "V4_PARTS": ",".join(x for x in V4_DEFAULT if x != p)}
-       for p in V4_DEFAULT},                                                                                              # CPU ablations
-    # v5 multimodal alignment (PREREGISTRATION_V5.md amendment 1): run on DEV_ODD while designing, VAL_EVEN once at the end
-    "V4_RULE_MM": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("mm",))},             # CPU
-    "V4_RULE_LOADX": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("loadx",))},       # CPU
-    "V4_RULE_MM_LOADX": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "loadx"))},                                                     # CPU
-    "V4_RULE_RATIO": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("ratio",))},       # CPU
-    "V4_RULE_MM_RATIO": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "ratio"))},                                                     # CPU
-    "V4_RULE_MM_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                 # CPU
-    "V4_RULE_MM_TORIGIN2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                            "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2"))},                                               # CPU
-    "V4_RULE_MM_T2_OMSG_CPU": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                               "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "omsg", "cpuspec"))},                         # CPU
-    "V4_RULE_MM_T2_OMSG": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "omsg"))},                                        # CPU
-    "V4_RULE_MM_T2_CPU": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin2", "cpuspec"))},                                      # CPU
-    "V4_RULE_MM_T3_OMSG": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                           "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg"))},                                        # CPU
-    "V4_RULE_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                              "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak"))},  # CPU
-    "V4_RULE_MM_T3_OMSG_FI_DEP": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                  "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                     "depconseq"))},                                  # CPU
-    "V4_RULE_MM_T3_OMSG_FI_DEPB": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                   "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                      "depconseq", "depbase"))},                       # CPU
-    "V4_RULE_MM_T3_OMSG_FI_DBS": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                  "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                     "depbase", "depshare"))},                         # CPU, no depconseq
-    "V4_RULE_MM_T3_OMSG_FI_ORD": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                  "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                     "sigorder"))},                                    # CPU
-    "V4_MM_T3_OMSG_FI_ORD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                             "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                "sigorder", "xcard"))},                                # GPU
-    "V4_RULE_MM_T3_OMSG_FI_ORD2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                   "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                      "sigorder2"))},                                  # CPU
-    "V4_MM_T3_OMSG_FI_ORD2": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                              "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                 "sigorder2", "xcard"))},                              # GPU
-    "V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass",
-                                                                            "tiebreak", "sigorder2", "loadx"))},       # CPU
-    "V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                          "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass",
-                                                                             "tiebreak", "sigorder2", "loadx2"))},     # CPU
-    "V4_RULE_MM_T3_OMSG_FI_ORD2_MSGT": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                        "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass",
-                                                                           "tiebreak", "sigorder2", "msgtarget"))},    # CPU
-    "V4_RULE_MM_T3_OMSG_FI_ORD2_LOADX2_MSGT": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                                               "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass",
-                                                                                  "tiebreak", "sigorder2", "loadx2", "msgtarget"))},  # CPU
-    "V4_MM_T3_OMSG_FI_ORD2_LOADX2": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                                     "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak",
-                                                                        "sigorder2", "loadx2", "xcard"))},              # GPU
-    # ---- FROZEN v5 configuration (PREREGISTRATION_V5.md, design freeze 2026-11-02) ----
-    "GAMA": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "core"},       # refactored method (gama/); CPU.
-    "BELIEF_LLM": {"_SYSTEM": "belief_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},  # GPU: GAMA belief, LLM decides freely
-    "GAMA_FULL": {"_SYSTEM": "gama", "ALERT_T0_MODE": "window", "GAMA_MODULES": "full"},  # + LLM (GPU). kaggle_job --modules overrides
-    "GAMA_CORE": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                  "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                                    # CPU, no LLM
-    "GAMA_LLM": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                 "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("xcard", "keepchain", "typecheck"))},                             # GPU: + log sensor + LLM typing
-    "GAMA_CORE_TX": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                     "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("textx",))},                                     # CPU, amendment 17
-    "GAMA_CORE_TX2": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                      "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("textx2",))},                                   # CPU, amendment 18
-    "GAMA_CORE_RP": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                     "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("rpchain",))},                                   # CPU, amendment 19
-    "GAMA_CORE_RED": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                      "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL + ("redchain",))},                                 # CPU, amendment 20
-    # leave-one-module-out ablations of the frozen core (run on the EVEN half; PREREGISTRATION_V5.md, evaluation runs)
-    **{f"GAMA_CORE_NO_{mod}": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window",
-                               "V4_PARTS": ",".join(V4_DEFAULT + tuple(x for x in V5_FINAL if x not in drop))}
-       for mod, drop in (("MM", ("mm",)), ("TRACE", ("torigin3", "omsg", "msgtarget")),
-                         ("TYPE", ("hostcpu", "errclass", "tiebreak", "sigorder2")), ("LOAD", ("loadx2",)),
-                         ("TEXT", ("textx2",)))},
-    "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                           "V4_PARTS": ",".join(V4_DEFAULT + V5_FINAL)},                                            # GPU baseline: same evidence, LLM decides
-    "V4_MM_T3_OMSG_FI": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                         "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "xcard"))},  # GPU
-    "V4_MM_T3_OMSG": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                      "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin3", "omsg"))},                                            # GPU
-    "V4_RULE_TORIGIN": {"_SYSTEM": "belief_v4_rule", "ALERT_T0_MODE": "window", "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},   # CPU
-    "V4_MM_TORIGIN": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                      "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "torigin"))},                                                     # GPU
-    "V4_MM_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                    "V4_PARTS": ",".join(V4_DEFAULT + ("mm", "xcard"))},                                                          # GPU
-    "V4_XCARD": {"_SYSTEM": "belief_v4", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                 "V4_PARTS": ",".join(V4_DEFAULT + ("xcard",))},                                                                  # GPU
-    "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                                                # baseline (GPU, 1 call/case)
-    "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template"},
-    "EVIDENCE_LLM_TORIGIN": {"_SYSTEM": "evidence_llm", "ALERT_T0_MODE": "window", "V3_LOG_MODE": "template",
-                             "V4_PARTS": ",".join(V4_DEFAULT + ("torigin",))},                       # same evidence incl. trace origins      # v5 baseline: the LLM decides
-                                                                                                            # from GAMA-RCA's evidence (GPU, 1 call)
-    "A1rT_fixed_ABS_KP_COV": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1"},
-    "A1rT_fixed_ABS_KP_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "SPEC_CHAIN_SEGMENTS": "1"},
-    "A1rT_fixed_ABS_KP_COV_SEG": {"CHAIN_ABSOLUTE_SIGNALS": "1", "USE_KNOWLEDGE_POS": "1", "INFRA_ALL_ENTITIES": "1", "USE_EVENT_DIGEST": "1", "SPEC_CHAIN_SEGMENTS": "1"},
+# Parts of the frozen configuration in the development code's names; the Evidence->LLM baseline reads them (trace origins, text).
+V5_FINAL_PARTS = ("score,open,twostage,fp,peer,prop,events,avail,onset,em,selfnorm,llmtype,conseq,retry,"
+                  "mm,torigin3,omsg,hostcpu,errclass,tiebreak,sigorder2,loadx2,msgtarget,textx2,redchain")
+W = {"ALERT_T0_MODE": "window"}
+ARMS = {                                                          # name -> extra env, on BASE + model preset + FIXED
+    "GAMA": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "core"},                    # CPU; kaggle_job --modules core,-trace ... overrides
+    "GAMA_FULL": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "full"},               # GPU: + bounded local LLM (M7)
+    "BELIEF_LLM": {"_SYSTEM": "belief_llm", **W, "V3_LOG_MODE": "template"},     # GPU: GAMA's belief, the LLM decides freely
+    "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", **W, "V3_LOG_MODE": "template", "V4_PARTS": V5_FINAL_PARTS},   # GPU baseline
+    "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                     # GPU baseline: alert only
+    # names of the reported runs; identical outputs to the frozen development arms (PREREGISTRATION_V5.md, equivalence 206 / 206)
+    "A": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "base"},                       # configuration A (M0 only)
+    "GAMA_CORE": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "core"},
+    "GAMA_LLM": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "full"},
+    **{f"GAMA_CORE_NO_{name}": {"_SYSTEM": "gama", **W, "GAMA_MODULES": f"core,-{mod}"}
+       for name, mod in (("MM", "mm"), ("TRACE", "trace"), ("TYPE", "typing"), ("LOAD", "load"), ("TEXT", "text"), ("CHAIN", "chain"))},
 }
-DEV30 = ["t004","t005","t012","t014","t015","t018","t026","t028","t029","t030","t032","t036","t054","t055","t058",
-         "t065","t070","t072","t076","t078","t082","t087","t091","t092","t093","t095","t097","t099","t100","t101"]
-SUBSET8 = ["t005","t036","t082","t092","t065","t076","t078","t100"]   # node + replica cases, for a quick mechanics check
 ALL_IDS = [l.strip() for l in open(os.path.join(DATA, "manifest.txt")) if l.strip()]
-HELDOUT = [c for c in ALL_IDS if c not in DEV30]
-# v5 protocol (PREREGISTRATION_V5.md): new changes are designed on the ODD cases only; the EVEN cases are run once, after the design is frozen
-DEV_ODD = [c for c in ALL_IDS if int(c[1:]) % 2 == 1]
+DEV_ODD = [c for c in ALL_IDS if int(c[1:]) % 2 == 1]     # internal record of the v5 development protocol (PREREGISTRATION_V5.md)
 VAL_EVEN = [c for c in ALL_IDS if int(c[1:]) % 2 == 0]
 
-# %% Cell 4 -- settings
-import torch
-ARM = "A1rT_fixed_ABS_KP"
-MODEL = "qwen25_7b"           # a key of MODELS (Cell 3)
-CASES = DEV30                 # DEV30 | SUBSET8 | HELDOUT | ALL_IDS | DEV_ODD | VAL_EVEN
-SHARD = None                  # None, or (k, n): run every n-th case starting at k (0-based), e.g. (0, 3) for notebook 1 of 3
-WANDB = False                 # True: log scores live + upload the trace folder to W&B (needs the WANDB_API_KEY secret)
-TAG = {"qwen25_7b": "7B"}.get(MODEL, MODEL)   # "7B" keeps the file names of earlier runs
-if SHARD:
-    CASES = [c for i, c in enumerate(CASES) if i % SHARD[1] == SHARD[0]]
-print(f"{ARM}: {len(CASES)} cases | GPUs free GB:", [round(torch.cuda.mem_get_info(i)[0] / 1e9, 1) for i in range(torch.cuda.device_count())])
-
-# %% Cell 5 -- run (background process, log to file; re-run the cell to resume)
-import sys
-MODEL = globals().get("MODEL", "qwen25_7b")    # notebooks written before the MODEL setting keep the 7B base
-if MODELS[MODEL].get("KAGGLE_USE_4BIT") == "1":
-    subprocess.run([sys.executable, "-m", "pip", "-q", "install", "bitsandbytes"])
-name = f"{ARM}_{TAG}" + ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
-clean = {k: v for k, v in os.environ.items() if k not in FLAGS}
-SYSTEM = ARMS[ARM].get("_SYSTEM", "proposed_hybrid")
-env = {**clean, **BASE, **MODELS[MODEL], **{k: v for k, v in ARMS[ARM].items() if not k.startswith("_")}, **FIXED,
-       "DEBUG_DUMP_DIR": f"/kaggle/working/dump_{name}",
-       "SAVE_TYPING_STATE_DIR": f"/kaggle/working/state_{name}"}   # inputs of the typing step, for scripts/retype.py (no effect on results)
-out = f"/kaggle/working/{name}.csv"
-open(f"/kaggle/working/{name}.commit.txt", "w").write(COMMIT + "\n")
-cmd = ["python", "main.py", "--case_ids", *CASES, "--systems", SYSTEM, "--save_path", out]   # resume ON
-# traces (prompts, outputs, decision trails) go to /kaggle/working/<name>_trace/ in any case; W&B is optional:
-# Add-ons > Secrets > WANDB_API_KEY, then WANDB = True in Cell 4. Keep the W&B project PRIVATE (RCA100 is CC BY-NC-SA).
-if globals().get("WANDB"):
-    from kaggle_secrets import UserSecretsClient
-    env["WANDB_API_KEY"] = UserSecretsClient().get_secret("WANDB_API_KEY")
-    cmd += ["--wandb", "--wandb_project", "gama-rca", "--wandb_group", f"{ARM}_{MODEL}"]
-log = open(f"/kaggle/working/{name}.log", "a")
-p = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
-t0 = time.time()
-while p.poll() is None:
-    try: time.sleep(300)
-    except KeyboardInterrupt: p.kill(); print("stopped; re-run to resume"); break
-    try:                                  # progress from main.py's per-case lines (dump files exist only for the v1 pipeline)
-        _lg = open(f"/kaggle/working/{name}.log", encoding="utf-8", errors="ignore").read()
-        _done = _lg.count("entity_loc=") + _lg.count("[error]")
-        _last = [l for l in _lg.splitlines() if l.strip()][-1:]
-    except Exception:
-        _done, _last = 0, []
-    print(f"{(time.time() - t0) / 60:.0f} min, {_done}/{len(CASES)} cases done | {(_last or [''])[0][-160:]}", flush=True)
-print("rc =", p.poll())
-print(open(f"/kaggle/working/{name}.log", "rb").read()[-1500:].decode("utf-8", errors="replace"))   # a cut multi-byte character is replaced, not fatal
-
-# %% Cell 6 -- health + sanity (dev-30 is for debugging only; this is not a verdict)
-import pandas as pd
-d = pd.read_csv(out)
-cols = [c for c in ("case_id", "error", "coordinator_prompt_chars", "truncated_prompts", "oom_retries", "total_calls", "entity_localization",
-                    "predicted_fault_type", "gt_fault_type", "fault_identification_exact", "fault_group_identification", "final_score",
-                    "cause_entity_mismatch", "fp_candidates", "fp_choice_in_shortlist", "verify_grounded_before", "verify_repaired",
-                    "total_pipeline_time_s") if c in d.columns]
-print(d[cols].to_string(index=False))
-print(d[[c for c in ("entity_localization", "fault_identification_exact", "fault_group_identification", "reasoning_process", "final_score",
-                     "cause_entity_mismatch", "fp_candidates", "fp_choice_in_shortlist", "verify_grounded_before", "verify_repaired",
-                    "total_pipeline_time_s") if c in d.columns]].mean(numeric_only=True))
-print(d.predicted_fault_type.value_counts().to_string())
-
-# %% Cell 7 -- retype: FP arms from the saved state of the reference arm (no Coordinator re-run; see scripts/retype.py)
-# Does nothing unless RETYPE_STEP is set in the notebook ("prepare" | "run"), so notebooks that exec "Cell 6 to the end" are unaffected.
-# Run the reference arm A1rT_fixed_ABS_KP first (Cells 4-6). Then, with CASES / TAG / SHARD / MODEL of THAT run in Cell 4:
-#   RETYPE_STEP = "prepare" (CPU is enough: signal databases, no model), then RETYPE_STEP = "run" for the arms in RETYPE_ARMS
-#   (rule arms need no GPU; show / shortlist arms load the model once and make one call per case).
-RETYPE_STEP = globals().get("RETYPE_STEP")
-RETYPE_ARMS = globals().get("RETYPE_ARMS") or ["A1rT_fixed_ABS_KP_FPRULE", "A1rT_fixed_ABS_KP_FPRULE_FIX",
-                                                "A1rT_fixed_ABS_KP_FPSL", "A1rT_fixed_ABS_KP_FPSHOW"]
-if RETYPE_STEP:
-    import sys
-    MODEL = globals().get("MODEL", "qwen25_7b")
-    sfx = ("" if MODEL == "qwen25_7b" or MODEL in TAG else f"_{MODEL}") + (f"_shard{SHARD[0]}of{SHARD[1]}" if SHARD else "")
-    ref_name = f"A1rT_fixed_ABS_KP_{TAG}{sfx}"
-    REF, STATE = f"/kaggle/working/{ref_name}.csv", f"/kaggle/working/state_{ref_name}"
-    renv = {**{k: v for k, v in os.environ.items() if k not in FLAGS}, **BASE, **MODELS[MODEL], **FIXED}
-    if RETYPE_STEP == "prepare":
-        r = subprocess.run(["python", "scripts/retype.py", "prepare", "--ref", REF, "--state", STATE], env=renv, capture_output=True, text=True)
-        print("prepare rc =", r.returncode, (r.stdout or "")[-1500:], (r.stderr or "")[-1500:])
-    else:
-        for a in RETYPE_ARMS:
-            out = f"/kaggle/working/{a}_{TAG}_retyped{sfx}.csv"
-            if os.path.exists(out):
-                print("exists, skipped:", out)
-                continue
-            r = subprocess.run(["python", "scripts/retype.py", "run", "--ref", REF, "--state", STATE, "--arm", a, "--out", out],
-                               env=renv, capture_output=True, text=True)
-            print(a, "rc =", r.returncode, (r.stdout or "")[-600:], (r.stderr or "")[-1500:])
+# %% Cell end

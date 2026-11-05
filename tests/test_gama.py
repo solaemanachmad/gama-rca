@@ -1,8 +1,7 @@
-"""tests/test_gama.py -- the refactored method (gama/) against the frozen development code (pipeline/belief_v4 via belief_rca.run_case):
-identical outputs on synthetic scenarios for every module configuration (core, each leave-one-out, base) and, with a deterministic
-stub LLM, identical prompts and outputs for the full configuration. No data, no model.
-
-    python tests/test_gama.py
+"""tests/test_gama.py -- gama/ on synthetic scenarios (no data, no model): outputs equal the golden file for every module configuration
+(core, each leave-one-out, base, full with a deterministic stub LLM: prompts included). The golden file was generated when gama/ was
+proven identical to the frozen development code (tag v5-frozen; 206 / 206 on the 103 RCA100 cases). Regenerate ONLY for an intended,
+recorded change:  python tests/test_gama.py --regen
 """
 import datetime as dt
 import os
@@ -10,11 +9,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
-sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)
 
 from test_calibrated import make_case, metric, wspan, W0
-from equivalence import run_pair, diff, configs
+import hashlib
+import json
+from golden import StubLLM, snapshot, diff
 from gama.config import Modules, CORE
 
 T = []
@@ -114,48 +114,64 @@ def sc_node():
 SCENARIOS = [sc_ratelimit, sc_trace_origin, sc_load_and_cpu, sc_msgtarget_and_text, sc_memory_gc_order, sc_node]
 
 
+GOLDEN = os.path.join(HERE, "snapshots", "gama_golden.json")
+CONFIGS = ["core"] + [f"core,-{x}" for x in CORE] + ["base", "full", "full,-chain", "full,-typing"]
+FROZEN_CORE_PARTS = ("score", "open", "twostage", "fp", "peer", "prop", "events", "avail", "onset", "em", "selfnorm", "llmtype",
+                     "conseq", "retry", "mm", "torigin3", "omsg", "hostcpu", "errclass", "tiebreak", "sigorder2", "loadx2",
+                     "msgtarget", "textx2", "redchain")       # V4_DEFAULT + V5_FINAL of the frozen code
+
+
+def gama_snapshot(sc, spec):
+    from gama.run import run_case
+    m = Modules.parse(spec)
+    llm = StubLLM() if m.llm else None
+    return snapshot(run_case(sc(), llm, m), llm)
+
+
+def digest(snap):
+    return hashlib.sha256(json.dumps(snap, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def summary(snap):
+    return {"entity": snap["entity"], "type": snap["type"], "confidence": snap["confidence"], "chain": snap["chain"],
+            "n_llm_calls": len(snap["llm_calls"] or [])}
+
+
+def regen():
+    out = {f"{sc.__name__}|{spec}": {"sha256": digest(s), **summary(s)}
+           for sc in SCENARIOS for spec in CONFIGS for s in [gama_snapshot(sc, spec)]}
+    os.makedirs(os.path.dirname(GOLDEN), exist_ok=True)
+    json.dump(out, open(GOLDEN, "w"), indent=1, sort_keys=True)
+    print(f"wrote {len(out)} golden outputs to {GOLDEN}")
+
+
 @test
 def module_spec_parses_and_maps_to_the_frozen_parts():
     assert Modules.parse("core").on() == CORE and not Modules.parse("core").llm
     assert Modules.parse("full").llm and Modules.parse("core,-trace").on() == tuple(x for x in CORE if x != "trace")
     assert Modules.parse("base").on() == () and Modules.parse("base,mm").on() == ("mm",)
-    src = open(os.path.join(HERE, "..", "scripts", "kaggle_run.py"), encoding="utf-8").read()
-    block = src.split("# %% Cell 3 ")[1].split("# %% Cell ")[0].split("\n", 1)[1]
-    D = {"os": os, "DATA": "/nonexistent"}
-    try:                                                   # the arms are defined before the case lists (which need the data)
-        exec(block, D)
-    except FileNotFoundError:
-        pass
-    assert set(Modules.parse("core").legacy_parts()) == set(D["ARMS"]["GAMA_CORE"]["V4_PARTS"].split(","))
-    assert set(Modules.parse("full").legacy_parts()) == set(D["ARMS"]["GAMA_LLM"]["V4_PARTS"].split(","))
-    for mod in ("MM", "TRACE", "TYPE", "LOAD", "TEXT"):
-        name = {"TYPE": "typing"}.get(mod, mod.lower())
-        assert set(Modules.parse(f"core,-{name}").legacy_parts()) == set(D["ARMS"][f"GAMA_CORE_NO_{mod}"]["V4_PARTS"].split(",")), mod
+    assert set(Modules.parse("core").legacy_parts()) == set(FROZEN_CORE_PARTS)
+    assert set(Modules.parse("full").legacy_parts()) == set(FROZEN_CORE_PARTS) | {"xcard", "keepchain", "typecheck"}
 
 
 @test
-def identical_to_frozen_code_for_every_configuration():
+def outputs_equal_the_golden_file_for_every_configuration():
+    gold = json.load(open(GOLDEN))
     bad = []
     for sc in SCENARIOS:
-        for name, m in configs(["core", "loo", "base"]):
-            s1, s2 = run_pair(sc, m)
-            d = diff(s1, s2)
-            if d:
-                bad.append((sc.__name__, name, d[:3]))
+        for spec in CONFIGS:
+            key = f"{sc.__name__}|{spec}"
+            s = gama_snapshot(sc, spec)
+            if digest(s) != gold[key]["sha256"]:
+                bad.append((key, diff({k: gold[key][k] for k in summary(s)}, summary(s))[:3] or ["(trail / stats differ)"]))
     assert not bad, bad
+    assert len(gold) == len(SCENARIOS) * len(CONFIGS)
 
 
 @test
-def identical_prompts_and_outputs_with_the_llm_module():
-    bad = []
+def the_stub_llm_is_called_in_full_configurations():
     for sc in SCENARIOS:
-        for name, m in configs(["llm", "full,-chain", "full,-typing"]):
-            s1, s2 = run_pair(sc, m)
-            assert s1["llm_calls"], (sc.__name__, "the stub LLM was never called")
-            d = diff(s1, s2)
-            if d:
-                bad.append((sc.__name__, name, d[:3]))
-    assert not bad, bad
+        assert gama_snapshot(sc, "full")["llm_calls"], sc.__name__
 
 
 @test
@@ -204,6 +220,9 @@ def belief_llm_adds_only_the_belief_block_to_the_evidence_prompt():
 
 
 if __name__ == "__main__":
+    if "--regen" in sys.argv:
+        regen()
+        sys.exit(0)
     bad = 0
     for fn in T:
         try:

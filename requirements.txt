@@ -2,9 +2,6 @@
 pandas
 pyarrow
 networkx
-faiss-cpu
-sentence-transformers      # BGE-M3 embeddings
-langgraph                  # agent graph (specialists -> Coordinator)
 drain3                     # log template mining (LOG_TEMPLATE_ENGINE=drain3)
 jieba                      # Chinese word segmentation for alert text (RCA100 alert titles are largely Chinese)
 numpy
@@ -17,4 +14,3 @@ accelerate
 wandb                      # --wandb run logging
 python-dotenv
 requests
-matplotlib                 # scripts/diagnostics/export_topology.py only

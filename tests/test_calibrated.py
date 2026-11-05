@@ -12,7 +12,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import config
 from test_fingerprint import FakeCase, T0
 from pipeline.fault_calibrated import (compute_signal_db, origin_signals, rank_candidates, mwu_greater, false_alarm_rate)
 
@@ -185,27 +184,7 @@ def drifting_metric_is_not_an_anomaly():
     assert far["raw_rate"] > 0.2 and far["rate"] <= 0.1, far
 
 
-@test
-def typing_uses_hypothesis_entity_with_level_switch():
-    from agents import multi_agent as ma
-    c = make_case()
-    metric(c, "k8s.node", "node-a", "node_cpu_usage_rate", 0.30, 0.95)
-
-    class Stub:
-        def generate_json(self, prompt, system=None):
-            return {"fault_evidence": "node cpu", "predicted_fault_type": "F026-nodeCpuHigh", "confidence": 0.8}
-
-    saved = (config.FAULT_FINGERPRINT, config.FP_SCORING, config.FP_LEVEL_SWITCH, config.ENTITY_TYPING)
-    try:
-        config.FAULT_FINGERPRINT, config.FP_SCORING, config.FP_LEVEL_SWITCH, config.ENTITY_TYPING = "shortlist", "calibrated", True, False
-        st = {"alert_text": "a", "fp_db": compute_signal_db(c, T0), "evidence_summary": {},
-              "final_result": {"reasoning_chain": ["cause: cart latency=2", "impact: frontend latency=3"], "predicted_entity_ids": ["cart"],
-                               "predicted_fault_type": "F014-httpError5xx"}}
-        ma._apply_entity_typing(Stub(), st, "taxonomy")
-        fr = st["final_result"]
-        assert fr["predicted_fault_type"] == "F026-nodeCpuHigh" and fr["predicted_entity_ids"] == ["node-a"], fr
-    finally:
-        config.FAULT_FINGERPRINT, config.FP_SCORING, config.FP_LEVEL_SWITCH, config.ENTITY_TYPING = saved
+# typing_uses_hypothesis_entity_with_level_switch tested agents/multi_agent._apply_entity_typing (archived; see archive/agents/).
 
 
 if __name__ == "__main__":

@@ -21,7 +21,6 @@ import config
 from config.args import build_parser, apply_overrides, print_effective_config
 from data.loader import list_case_ids
 from agents.factory import get_llm_client
-from pipeline.pipeline import GraphRAGPipeline
 from pipeline.baselines import BASELINE_REGISTRY
 from evaluation.scoring import load_ground_truth, full_case_report
 from data.loader import Case
@@ -77,8 +76,7 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
              timestamped default (which is different every invocation, so
              a later session would never find the earlier one's file).
     """
-    systems = systems or ["direct_llm", "standard_rag", "graphrag_only",
-                            "multi_agent_only", "proposed_hybrid"]
+    systems = systems or ["gama"]
     if case_ids:
         case_ids = list(case_ids)
     else:
@@ -134,13 +132,12 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         )
 
     # systems that make no LLM call (v2 rule-only) run without loading the model, e.g. on a CPU session
-    _no_llm = {"hypothesis_rule", "belief_rule", "belief_v4_rule"}
+    _no_llm = set()
     if "gama" in systems:                                  # GAMA loads the model only with the LLM module (M7)
         from gama.config import Modules
         if not Modules.from_env().llm:
             _no_llm = _no_llm | {"gama"}
     llm = None if set(systems) <= _no_llm else get_llm_client()
-    hybrid_pipeline = GraphRAGPipeline(llm=llm) if "proposed_hybrid" in systems else None
     # v5 traces (agents/trace.py): every LLM call (prompt as sent, output, tokens) and every case's decision trail, as JSON next to the CSV
     from agents.trace import install_llm_trace, write_case_trace, log_to_wandb
     trace_dir = (str(save_path).rsplit(".", 1)[0] + "_trace") if os.environ.get("TRACE", "1") == "1" else None
@@ -201,11 +198,8 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
             try:
                 if llm is not None and hasattr(llm, "trace_ctx"):
                     llm.trace_ctx = {"case_id": case_id, "system": system_name}
-                if system_name == "proposed_hybrid":
-                    result = hybrid_pipeline.run(case_id)
-                else:
-                    fn = BASELINE_REGISTRY[system_name]
-                    result = fn(case_id, llm)
+                fn = BASELINE_REGISTRY[system_name]
+                result = fn(case_id, llm)
                 trail = result.retrieval_stats.pop("_trace", None)          # never a CSV column
                 report = full_case_report(result, gt, case.topology, evidence_items=result.evidence_items)
                 if trace_dir:

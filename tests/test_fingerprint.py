@@ -8,19 +8,10 @@ import datetime as dt
 import json
 import os
 import sys
-import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-try:
-    import sentence_transformers  # noqa: F401
-except Exception:
-    st = types.ModuleType("sentence_transformers")
-    st.SentenceTransformer = type("SentenceTransformer", (), {})
-    sys.modules["sentence_transformers"] = st
-
 import networkx as nx
 
-import config
 from schema import Entity, Relation, Observation
 from pipeline.fault_fingerprint import compute_signal_db, origin_signals, rank_candidates, profile_text
 
@@ -188,7 +179,7 @@ def unknown_origin():
 
 @scenario
 def verifier_grounding():
-    from agents import multi_agent as ma
+    from agents import grounding as ma
     state = {"propagation_text": "- cart error_rate window=4.0%", "infra_text": "- service cart | request_count base=120 max=15; latency base=0.12 max=2.8",
              "trace_text": "", "evidence_summary": {}}
     pool, _ = ma._evidence_pool(state)
@@ -198,41 +189,7 @@ def verifier_grounding():
     assert g2 == 1.0
 
 
-@scenario
-def typing_shortlist_with_stub_llm():
-    from agents import multi_agent as ma
-    c = FakeCase()
-    baseline_traffic(c)
-    for i in range(8):
-        c.span("checkout", win(i), err=True, code="429", msg="Too Many Requests")
-
-    class Stub:
-        def __init__(self, answer):
-            self.answer, self.prompts = answer, []
-
-        def generate_json(self, prompt, system=None):
-            self.prompts.append(prompt)
-            return {"fault_evidence": "http 429", "predicted_fault_type": self.answer, "confidence": 0.7}
-
-    saved = (config.FAULT_FINGERPRINT, config.ENTITY_TYPING, config.FP_SCORING)
-    config.FP_SCORING = "fixed"
-    try:
-        for mode, answer, expect in (("shortlist", "F014-httpError5xx", "F016-rateLimiting"),      # outside the shortlist -> top candidate
-                                     ("shortlist", "F016", "F016-rateLimiting"),
-                                     ("rule", None, "F016-rateLimiting"),
-                                     ("show", "F011-codeDefect", "F011-codeDefect")):              # show: any type allowed
-            config.FAULT_FINGERPRINT, config.ENTITY_TYPING = mode, False
-            st = {"alert_text": "a", "fp_db": compute_signal_db(c, T0), "evidence_summary": {},
-                  "final_result": {"reasoning_chain": ["cause: checkout http_429=8", "impact: frontend error_count=8"],
-                                   "predicted_entity_ids": ["checkout"], "predicted_fault_type": "F014-httpError5xx"}}
-            llm = Stub(answer)
-            ma._apply_entity_typing(llm, st, "taxonomy")
-            fr = st["final_result"]
-            assert fr["predicted_fault_type"] == expect, (mode, fr)
-            assert (len(llm.prompts) == 0) == (mode == "rule")
-            assert fr["fp_candidates"].startswith("F016-rateLimiting")
-    finally:
-        config.FAULT_FINGERPRINT, config.ENTITY_TYPING, config.FP_SCORING = saved
+# typing_shortlist_with_stub_llm tested agents/multi_agent._apply_entity_typing (archived; see archive/agents/).
 
 
 if __name__ == "__main__":

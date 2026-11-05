@@ -21,7 +21,6 @@ availability / available replicas fall). Uses only the case's telemetry; never r
 from __future__ import annotations
 
 import math
-import re
 from collections import Counter, defaultdict
 from statistics import median
 from typing import Dict, List, Optional, Tuple

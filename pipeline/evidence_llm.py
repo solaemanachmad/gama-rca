@@ -55,7 +55,7 @@ def build_prompt(alert_text: str, alert: str, op_name: str, callees: Dict[str, L
 
 def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     import config
-    from pipeline.belief_rca import callee_map, _ids
+    from gama.chain import callee_map, _ids
     from pipeline.log_preprocess import preprocess_texts
     t0 = time.time()
     llm.reset_usage()
@@ -75,8 +75,8 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     for s_, bad in unavailability(db).items():
         obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
                     "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
-    from pipeline.belief_v4 import parts_from_env                 # same evidence as GAMA-RCA: trace origins when 'torigin' is on
-    _pe = parts_from_env()
+    import os                                                     # same evidence as GAMA-RCA: trace origins when 'torigin' is on
+    _pe = {x.strip() for x in os.environ.get("V4_PARTS", "").split(",") if x.strip()}   # (arm EVIDENCE_LLM_FINAL: the V5_FINAL parts)
     if {"torigin", "torigin2", "torigin3"} & set(_pe):
         from pipeline.trace_structure import trace_observations
         obs += trace_observations(case, db, v2=bool({"torigin2", "torigin3"} & set(_pe)), omsg="omsg" in _pe, v3="torigin3" in _pe,

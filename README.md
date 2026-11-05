@@ -48,7 +48,6 @@ Spec strings: `core` = M1–M6; `full` = M1–M7; `core,-trace` = without M2.
 !python scripts/kaggle_job.py --arm GAMA --cases all --shard 0/4                      # CPU, no LLM
 !python scripts/kaggle_job.py --arm GAMA --modules core,-trace --cases all --shard 0/4 # ablation
 !python scripts/kaggle_job.py --arm GAMA_FULL --cases all --shard 0/4                 # GPU, + local LLM
-!python scripts/kaggle_job.py --check core,llm --cases all --shard 0/4                # equivalence with tag v5-frozen
 ```
 
 Each run writes `<name>_all.zip`: the scored CSV (one row per case), the log, per-case decision trails, every LLM call (prompt,
@@ -69,10 +68,12 @@ python scripts/analyze_v5.py --arm A="results/A_*.zip" --arm GAMA_CORE="results/
 | `data/` | loader and the only dataset-specific settings (`dataset_profile.py`); taxonomy |
 | `evaluation/` | scoring (EL, FI, RP, Final, step-anchored checkpoints) |
 | `agents/` | local LLM client (`transformers`), call trace |
-| `scripts/` | `kaggle_job.py` (runs), `kaggle_run.py` (arms, models), `equivalence.py`, `analyze_v5.py` |
-| `tests/` | synthetic tests (no data, no model): `make test` |
+| `scripts/` | `kaggle_job.py` (runs), `kaggle_run.py` (arms, models), `analyze_v5.py` (statistics), `aiops2025_*.py` (label-free data audit) |
+| `tests/` | synthetic tests and a golden snapshot of `gama/` (no data, no model): `make test` |
+| `archive/` | development code (v1–v4, retrieval/multi-agent arms, equivalence script) kept for provenance; not imported |
 
-The development history (all amendments and their switches) is reproducible from git tag `v5-frozen`.
+The development history (all amendments and their switches) is reproducible from git tag `v5-frozen`; equivalence of `gama/` with
+that code was verified on all 103 cases (206/206 identical) before archiving, and `tests/test_gama.py` pins it with a golden snapshot.
 
 ## Reproducibility
 

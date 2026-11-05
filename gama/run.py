@@ -94,7 +94,7 @@ def run_case(case, llm, m: Modules) -> RCAResult:
         out = llm.generate_json(prompt, system=gllm.NARRATOR_SYSTEM)
         narrative = [str(x) for x in (out.get("reasoning_chain") or [])] if isinstance(out, dict) else []
         if narrative:
-            from agents.multi_agent import _evidence_pool, _grounding
+            from agents.grounding import _evidence_pool, _grounding
             pool, _ = _evidence_pool({"propagation_text": prop.get("text") or "", "infra_text": (infra.get("text") or "") + "\n"
                                       + "\n".join(ev_lines), "trace_text": trace.get("text") or ""})
             g, n, _bad = _grounding(narrative, pool)

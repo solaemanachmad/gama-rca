@@ -89,8 +89,7 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=
     xcard = "xcard" in (res.get("parts") or []) if xcard is None else xcard
     typecheck = "typecheck" in (res.get("parts") or []) if typecheck is None else typecheck
     if model is None and (xcard or typecheck):
-        from pipeline.belief_v4 import Model
-        model = Model(res.get("parts") or [])
+        raise ValueError("llm_type needs the fingerprint model (gama/llm.py passes it)")
     if xcard:                                             # v5: modality tags and expected cross-modal signatures
         from gama.belief import modality
         fp = model.fp

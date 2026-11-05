@@ -72,7 +72,7 @@ def render_chat(tok, messages, enable_thinking):
     that do not support one. The fallback is recorded on the tokenizer object (system_merged = True)."""
     try:
         return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
-    except Exception as e:                                   # jinja2 TemplateError: "System role not supported"
+    except Exception:                                        # jinja2 TemplateError: "System role not supported"
         if not any(m["role"] == "system" for m in messages):
             raise
         try:
