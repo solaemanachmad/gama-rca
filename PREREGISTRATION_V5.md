@@ -633,3 +633,15 @@ an LLM return no evidence items, so this half of RP is 0 by construction (here -
 computed chain and an LLM-written chain are therefore reported on (i) the decision: EL, FI, exact entity / type / joint, and (ii)
 Final_step (step-anchored checkpoints, which depend only on the scored chain), next to the pre-registered Final. analyze_v5.py
 prints both for every comparison.
+
+## RESULT -- Evidence->LLM, Qwen2.5-7B, all 103 cases (commits ce565ee / dc9c57d; evidence path unchanged between them)
+
+Reproducibility: 64 cases were run twice (two submissions, two commits): identical answers in 64 / 64.
+Evidence->LLM: Final 42.7 [38.1, 47.4], EL 71.8, FI 20.4, group 44.7, exact entity / type / joint 66 / 21 / 18, Final_step 42.7;
+1 call, 4,128 input + 209 output tokens, 168 s per case. Its type answers concentrate on httpError5xx (28), threadExhaustion (15),
+cpuFullLoad (9); FI by group: JVM 6.2, K8s lifecycle 0.0, node 7.1.
+B2 (confirmatory, one-sided): Belief->LLM > Evidence->LLM: +5.3 Final [0.2, 10.4], Wilcoxon p = 0.025 (47 better, 26 worse, 30
+equal); exact type 33 : 9 (McNemar p = 0.0003); exact entity 8 : 11 (p = 0.65). Supported: the computed belief helps the 7B LLM,
+through the fault type; on the entity the LLM alone is not worse.
+Context (F3 for the core): GAMA (no LLM) vs Evidence->LLM: Final +20.2 [15.0, 25.6], p = 2.8e-10; Final_step +13.5 [8.2, 19.0],
+p = 1.2e-6; exact type 33 : 9 (p = 0.0003), exact entity 8 : 10 (p = 0.81).
