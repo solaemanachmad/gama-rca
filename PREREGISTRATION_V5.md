@@ -645,3 +645,13 @@ equal); exact type 33 : 9 (McNemar p = 0.0003); exact entity 8 : 11 (p = 0.65). 
 through the fault type; on the entity the LLM alone is not worse.
 Context (F3 for the core): GAMA (no LLM) vs Evidence->LLM: Final +20.2 [15.0, 25.6], p = 2.8e-10; Final_step +13.5 [8.2, 19.0],
 p = 1.2e-6; exact type 33 : 9 (p = 0.0003), exact entity 8 : 10 (p = 0.81).
+
+## RESULT -- Direct LLM (alert only), Qwen2.5-7B, all 103 cases (commit dc9c57d)
+
+Final 18.8 [15.3, 22.5], EL 28.0 (partial credit only: 0 exact entities), FI 14.6, group 39.8, exact entity / type / joint 0 / 15
+/ 0; 1 call, 856 input + 127 output tokens, 38 s per case. Types concentrate on trafficSurge (46), httpError5xx (26),
+rateLimiting (21), dbNetworkLatency (10). One-sided Wilcoxon (Holm over the three): GAMA > Direct +44.1 [38.0, 50.3], p = 1.5e-17;
+Evidence->LLM > Direct +23.8, p = 1.3e-13; Belief->LLM > Direct +29.2, p = 7.9e-13 (Final_step differences the same order).
+
+Gradation with Qwen2.5-7B (Final / Final_step / EL / FI / exact joint): Direct 18.8 / 18.8 / 28.0 / 14.6 / 0 -> Evidence->LLM
+42.7 / 42.7 / 71.8 / 20.4 / 18 -> Belief->LLM 48.0 / 48.0 / 67.9 / 43.7 / 39 -> GAMA (no LLM) 62.9 / 56.2 / 68.9 / 43.7 / 39.
