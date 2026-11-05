@@ -89,7 +89,7 @@ A5 Fingerprints (roles over the existing signal vocabulary, plus one family `net
    |---|---|---|---|---|---|
    | cpu_stress | service | svc_cpu_rise | svc_latency_rise | | svc_request_rise |
    | memory_stress | service | svc_mem_rise | svc_latency_rise | | |
-   | jvm-cpu-stress | service | svc_cpu_rise & msg_gc? -> svc_cpu_rise | svc_latency_rise, msg_gc | | svc_request_rise |
+   | jvm-cpu-stress | service | svc_cpu_rise | svc_latency_rise, msg_gc | | svc_request_rise |
    | jvm-gc | service | msg_gc / svc_gc_rise | svc_latency_rise, svc_cpu_rise | | |
    | jvm-latency | service | svc_latency_rise | trace_slow_origin | | svc_cpu_rise |
    | jvm-exception | service | msg_error / svc_error_rise | error_spans, http5xx, trace_err_origin | | |
