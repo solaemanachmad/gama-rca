@@ -709,3 +709,24 @@ FI. Whether a stronger backbone reverses the typing result is H3 / F4 (Llama-3.1
   Final(EVIDENCE_LLM_FINAL@gpt-oss-120b), one-sided greater) as written in Analysis plan v5.
 - Data ethics: the provider's data controls are set to zero data retention / no training before the run; the key is a Kaggle
   Secret, never logged. Llama-3.1-8B (the second local backbone): decided separately, recorded before its run or dropped here.
+
+## RESULT -- GAMA + bounded LLM with gpt-oss-120b (Cerebras, reasoning medium), all 103 cases (commit 0d50bec)
+
+No API error, retry, rate limit or truncated answer; 2.7 calls, 7.6k input + 1.4k output tokens (1.2k reasoning) per case; 128 s per
+case on a CPU session; cost of the arm ~ USD 0.40.
+
+Final 59.4 [54.0, 65.2] / EL 65.7 / FI 36.9 / Final_step 52.7; entity / type / joint exact 59 / 38 / 32.
+- F3@gpt-oss what the LLM adds (two-sided): -3.5 [-6.3, -0.9], p = 0.03 (3 better, 13 worse); exact type 3 : 10 (p = 0.09), exact
+  entity 0 : 5. vs GAMA_LLM@qwen25_7b: +0.2 [-2.2, 2.6], p = 0.62 (8 / 6 / 89): the larger model does not change the outcome.
+- Typing (post hoc): 21 changes of the computed type (7B: 25); 2 to the true type, 7 away from it (7B: 3 / 10). The cpuFullLoad ->
+  cpuDeadLoop pattern of 7B is gone, but node CPU -> diskIO / nodeMemoryOOM remains (t008, t036, t090; node FI 35.7 -> 14.3, as
+  7B) and new: memoryPressure -> fullGC (t024, t044), cpuFullLoad -> threadExhaustion (t041), 5xx -> memoryPressure (t099).
+- Entity: the text probes moved the entity away from the right one in t006, t017, t020, t026 -- the SAME four cases as with 7B --
+  and t032. The same cases under two different models point at the probe mechanism (M7 sensor likelihood), not at model quality.
+- H1 (|EL difference| <= 3 points): 3.2 points -- narrowly NOT met for gpt-oss (met for 7B: 2.4); the five probe moves above.
+- H3 (narrator step-anchored checkpoint rate rises with model strength): 0.284 vs 0.107 for 7B on the same 103 cases; 51 cases
+  higher, 5 lower; one-sided Wilcoxon p = 2e-10 -- supported. The 120B narrator approaches the computed chain (0.307); grounding of
+  its quoted numbers 0.88 (7B 0.92).
+Reading: scale improves the explanation, not the decision. With either backbone the bounded LLM lowers the decision score of the
+statistical core by ~3.5 points through typing and text probes; the computed belief stays the better decision maker. H4 needs
+EVIDENCE_LLM_FINAL@gpt-oss (next run). No design change.
