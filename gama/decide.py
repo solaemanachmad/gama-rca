@@ -51,7 +51,7 @@ def _fallback_type(model, ent, level, sig):
     return best or FALLBACK["node" if level == "node" else "service"]
 
 
-def _probes(model, H, logp, texts, sensor, budget, top_m):
+def _probes(model, H, logp, texts, sensor, budget, top_m, neutral=False):
     log, probed, steps = [], set(), 0
     while sensor is not None and steps < budget:
         post = bd.posterior(logp)
@@ -73,7 +73,15 @@ def _probes(model, H, logp, texts, sensor, budget, top_m):
         cat = sensor(e, texts[e])
         c = bd.CATS.index(cat) if cat in bd.CATS else len(bd.CATS)
         before = float(post.max())
-        logp = logp + np.log(np.array([_probe_dist(h, e)[c] for h in H]))
+        lik = np.array([_probe_dist(h, e)[c] for h in H])
+        if neutral:                                       # v6 G3 'calsensor': re-weights the probed entity's types, P(entity) unchanged
+            idx = np.array([i for i, h in enumerate(H) if h["entity"] == e])
+            pe = post[idx]
+            mean = float((pe * lik[idx]).sum() / pe.sum()) if pe.sum() > 0 else 1.0
+            logp = logp.copy()
+            logp[idx] = logp[idx] + np.log(lik[idx]) - math.log(mean)
+        else:
+            logp = logp + np.log(lik)
         probed.add(e)
         steps += 1
         log.append({"probe": e, "eig_bits": round(g, 3), "category": cat, "max_belief_before": round(before, 3),
@@ -82,20 +90,30 @@ def _probes(model, H, logp, texts, sensor, budget, top_m):
 
 
 def diagnose(db, callees, texts, m: Modules, sensor=None, budget=bd.PROBE_BUDGET, top_m=8, alert=None, case=None,
-             debug=None) -> Dict:
+             debug=None, keep_state=False) -> Dict:
     model = Model(m)
     obs = evidence.observations(db, callees, case, m, model)                           # stage 1
     b = infer(model, db, callees, obs, alert=alert)                                    # stage 2
     H, bg, expl = b["H"], b["bg"], b["expl"]
-    logp, log = _probes(model, H, b["logp"], texts, sensor, budget, top_m)             # stage 4 sensor (M7)
-    post = bd.posterior(logp)
+    logp, log = _probes(model, H, b["logp"], texts, sensor, budget, top_m, neutral=m.calsensor)   # stage 4 sensor (M7)
     if debug is not None:
         debug.update(model=model, obs=obs, bg=bg, expl=expl, H=H, logp=logp, pi=b["pi"])
+    res = decide(model, obs, b, logp, log, db, m)
+    if keep_state:                                                                     # v6 G1: re-decide with another entity
+        res["_state"] = (model, obs, b, logp, log)
+    return res
+
+
+def decide(model, obs, b, logp, log, db, m: Modules, force_entity=None) -> Dict:
+    """Stage 3 on a computed posterior. force_entity (v6 G1 'gate'): the root entity is given (the second opinion); the type, the
+    evidence list and everything else are computed as for the model's own choice."""
+    H, bg, expl = b["H"], b["bg"], b["expl"]
+    post = bd.posterior(logp)
     order = np.argsort(-post, kind="stable") if m.typing else np.argsort(-post)
     marg = defaultdict(float)                                                          # stage 3: entity, then type
     for h, p in zip(H[:-1], post[:-1]):
         marg[h["entity"]] += float(p)
-    ent = max(marg, key=marg.get)
+    ent = force_entity if force_entity in marg else max(marg, key=marg.get)
     tpost, torder = post, order
     if m.typing:                                                                       # M3: the signal order types the root
         so = sigorder_loglik(H, db.get("_cal", {}), model)

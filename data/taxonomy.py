@@ -173,3 +173,13 @@ def knowledge_prompt_block_pos() -> str:
         "load balancer misconfigured.\n"
         "- F025-diskIOHigh = abnormal disk IOPS or latency slows reads and writes."
     )
+
+
+# AIOps2025 profile (PREREGISTRATION_V6.md, AIOps2025 arms): the LLM roles see that dataset's 20 types and their definitions instead.
+# Read once at import, like data/dataset_profile.PROFILE; with the default profile nothing changes.
+from data.dataset_profile import PROFILE as _PROFILE  # noqa: E402
+if _PROFILE == "aiops2025":
+    import data.aiops2025_profile as _ap
+    FAULT_DEFINITIONS = dict(_ap.DEFINITIONS)
+    FAULT_TYPE_LABELS = list(_ap.FINGERPRINTS)
+    _TAXONOMY_CACHE = None

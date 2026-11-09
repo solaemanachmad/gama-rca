@@ -35,7 +35,10 @@ def belief_block(res) -> str:
     return "\n".join(lines)
 
 
-def run_belief_llm(case, llm) -> RCAResult:
+def run_belief_llm(case, llm, with_belief: bool = True) -> RCAResult:
+    """with_belief=False: the Evidence->LLM reference arm on any case object (PREREGISTRATION_V6.md, AIOps2025), i.e. the same prompt
+    without the belief block; the evidence is the observations that hold in GAMA's own evidence (as for the v6 gate). The RCA100
+    EVIDENCE_LLM_FINAL arm (pipeline/evidence_llm.py) is unchanged."""
     from pipeline.evidence_llm import build_prompt, EVIDENCE_SYSTEM
     from pipeline.log_preprocess import preprocess_texts
     config.ALERT_T0_MODE = "window"
@@ -58,7 +61,7 @@ def run_belief_llm(case, llm) -> RCAResult:
         if o["signal"] != "alert":
             ev.setdefault(o["entity"], []).append(f"{o['signal']}: {o['ev']}" if o["ev"] else o["signal"])
     texts, _notes, _stats = preprocess_texts(case, db)
-    block = belief_block(res)
+    block = belief_block(res) if with_belief else None
     prompt = build_prompt(case.alert.alert_text, alert, op_name, callees, db.get("hosts", {}), ev, texts, belief_block=block)
     out = llm.generate_json(prompt, system=EVIDENCE_SYSTEM)
     out = out if isinstance(out, dict) else {}
@@ -70,6 +73,7 @@ def run_belief_llm(case, llm) -> RCAResult:
         low = {k.lower(): v for k, v in ids.items()}
         eid = low.get(name.lower(), name or None)
     stats = {"total_pipeline_time_s": round(time.time() - t0, 1), "evidence_prompt_chars": len(prompt), "evidence_entities": len(ev),
+             "with_belief": with_belief,
              "evidence_answer_entity": name, "belief_entity": res["entity"], "belief_type": res["type"],
              "belief_kept_entity": name == res["entity"], "belief_kept_type": typ == res["type"], **llm.usage_stats(),
              "_trace": {"alert_service": alert, "alert_operation": op_name, "belief_block": block, "evidence_by_entity": ev,

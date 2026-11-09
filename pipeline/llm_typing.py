@@ -44,7 +44,7 @@ def evidence_lines(db, entity: str, texts: Dict[str, List[str]]) -> List[str]:
     return lines[:MAX_LINES]
 
 
-def quote_supports(line: str, roles: Dict[str, str]) -> bool:
+def quote_supports(line: str, roles: Dict[str, str], ok=("K", "U", "M")) -> bool:
     """v5 'typecheck': does an evidence line name a signal that the type's fingerprint expects (key / support / consequence role)?
     A log message line supports the type when its text belongs to a text family the fingerprint names (msg_<f> / log_<f>_rise)."""
     import re
@@ -54,7 +54,6 @@ def quote_supports(line: str, roles: Dict[str, str]) -> bool:
     if len(parts) < 2:
         return False
     sig = parts[1].rstrip(":")
-    ok = ("K", "U", "M")
     if sig == "message":
         return any(roles.get(f"msg_{f}") in ok or roles.get(f"log_{f}_rise") in ok for f, rx in _TEXT_FAMILIES if rx.search(l))
     return roles.get(sig) in ok
@@ -76,8 +75,10 @@ def shortlist(res: Dict, k: int = SHORTLIST) -> List[str]:
     return cands
 
 
-def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=None, typecheck=None) -> Dict:
-    """model / xcard / typecheck: given by GAMA (gama/llm.py); None = derived from res['parts'] (development arms)."""
+def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=None, typecheck=None, discrim=False) -> Dict:
+    """model / xcard / typecheck: given by GAMA (gama/llm.py); None = derived from res['parts'] (development arms).
+    discrim (v6 G2 'defer'): a CHANGE of the computed type is accepted only if a quoted line names a signal that is not a key or
+    support signal of the computed type (evidence that discriminates between the two types)."""
     ent, level = res["entity"], res["level"]
     cands = shortlist(res)
     lines = evidence_lines(db, ent, texts)
@@ -125,6 +126,11 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=
         roles = model.roles.get(t, {})                   # chosen type's fingerprint
         out["quote_supports"] = any(quote_supports(l, roles) for l in quoted)
         grounded = out["quote_supports"]
+    if grounded and discrim and t in cands and t != res["type"]:
+        own = model.roles.get(res["type"], {}) if model is not None else {}
+        out["discriminating"] = any(quote_supports(l, model.roles.get(t, {})) and not quote_supports(l, own, ok=("K", "U"))
+                                    for l in quoted)
+        grounded = out["discriminating"]
     if t in cands and grounded:
         out["accepted"] = True
         out["changed"] = t != res["type"]

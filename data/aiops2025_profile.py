@@ -45,6 +45,32 @@ FINGERPRINTS = {
     "node_network_loss":     dict(key=["node_net_drop", "node_net_rise"], sup=[], con=["node_cpu_rise"]),
 }
 
+# One-line definitions shown to the LLM roles (typing shortlist, narrator, evidence-only reference arm), written like the RCA100 ones
+# (data/taxonomy.py FAULT_DEFINITIONS): from the type names and the Chaos-Mesh fault kinds only, not from any AIOps2025 case or label.
+DEFINITIONS = {
+    "cpu_stress": "A stress process pins the CPU of a service's pod (StressChaos), slowing its request handling.",
+    "memory_stress": "A stress process allocates memory in a service's pod (StressChaos), raising its memory use towards the limit.",
+    "jvm-cpu-stress": "CPU stress injected inside the JVM of a Java service (JVMChaos), raising its CPU use and latency.",
+    "jvm-gc": "Garbage collection is triggered repeatedly inside the JVM of a Java service (JVMChaos), stalling requests.",
+    "jvm-latency": "Latency injected into a method of a Java service (JVMChaos): its calls become slow without a resource rise.",
+    "jvm-exception": "A method of a Java service throws an injected exception (JVMChaos), so its requests fail with errors.",
+    "pod_failure": "A service's pod is made unavailable for a period (PodChaos pod-failure): requests to it are refused or drop.",
+    "pod_kill": "A service's pod is killed and restarted (PodChaos pod-kill): a short outage followed by a restart.",
+    "network_delay": "Added latency on a service's network (NetworkChaos delay): its calls and responses become slow.",
+    "network_loss": "Packet loss on a service's network (NetworkChaos loss): timeouts, retries and errors on its calls.",
+    "network_corrupt": "Packet corruption on a service's network (NetworkChaos corrupt): failed or retried calls and errors.",
+    "dns-error": "DNS resolution fails for a service (DNSChaos): it cannot resolve the names of its dependencies.",
+    "target_port_misconfig": "A Service's target port is misconfigured: connections to the service are refused although its pods run.",
+    "erroneous-code": "Faulty application code (or injected HTTP faults) makes a service return errors, e.g. HTTP 5xx.",
+    "io-fault": "Disk I/O of a service's pod is delayed or fails (IOChaos), slowing reads and writes.",
+    "node_cpu": "CPU stress on a host node: all pods on the node compete for CPU.",
+    "node_memory": "Memory stress on a host node: the node's memory is exhausted for the pods on it.",
+    "node_disk": "Disk stress on a host node: high disk I/O on the node slows the pods on it.",
+    "node_network_delay": "Added network latency on a host node: traffic of all pods on the node is slowed.",
+    "node_network_loss": "Packet loss on a host node: traffic of all pods on the node suffers timeouts and errors.",
+}
+assert set(DEFINITIONS) == set(FINGERPRINTS)
+
 # the `net` family: signals of this profile only (appended to fault_calibrated.NODE_SIGNALS / SVC_SIGNALS at import)
 NODE_EXTRA = [("node_net_rise", ("net",), "up"), ("node_net_drop", ("net",), "down")]
 SVC_EXTRA = [("svc_net_rise", ("net",), "up"), ("svc_net_drop", ("net",), "down")]

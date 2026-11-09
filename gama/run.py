@@ -10,7 +10,7 @@ import time
 
 import config
 from data.loader import Case, find_service_ancestor
-from pipeline.belief_diagnosis import PROBE_BUDGET
+from pipeline.belief_diagnosis import PROBE_BUDGET, STOP_P
 from pipeline.propagation_evidence import compute_propagation_evidence, _node_name
 from pipeline.infra_evidence import compute_infra_evidence
 from pipeline.trace_evidence import compute_trace_evidence
@@ -18,7 +18,7 @@ from schema import RCAResult, EvidenceItem
 from gama import evidence, llm as gllm
 from gama.chain import callee_map, _ids, call_path, chain_step_metrics, rule_chain
 from gama.config import Modules
-from gama.decide import diagnose
+from gama.decide import diagnose, decide
 
 
 def _safe(fn, *a):
@@ -26,6 +26,24 @@ def _safe(fn, *a):
         return fn(*a) or {}
     except Exception as e:
         return {"text": "", "error": repr(e)}
+
+
+def second_opinion(case, db, callees, res, texts, llm, alert, op_name) -> dict:
+    """v6 G1 'gate' (PREREGISTRATION_V6.md): one Evidence->LLM call, WITHOUT the belief (an independent opinion), on the evidence
+    GAMA itself holds; only the entity of the answer is used."""
+    from pipeline.evidence_llm import build_prompt, EVIDENCE_SYSTEM
+    ev = {}
+    for o in res["holding"]:
+        if o["signal"] != "alert":
+            ev.setdefault(o["entity"], []).append(f"{o['signal']}: {o['ev']}" if o["ev"] else o["signal"])
+    prompt = build_prompt(case.alert.alert_text, alert, op_name, callees, db.get("hosts", {}), ev, texts)
+    out = llm.generate_json(prompt, system=EVIDENCE_SYSTEM)
+    out = out if isinstance(out, dict) else {}
+    name = str(out.get("root_cause_entity", "")).strip()
+    known = list(db["services"]) + list(db["nodes"])
+    ent = name if name in known else {k.lower(): k for k in known}.get(name.lower())   # case / whitespace tolerance only
+    return {"v6_gate_called": True, "v6_gate_answer": name, "v6_gate_entity": ent, "v6_gate_prompt_chars": len(prompt),
+            "v6_gate_changed": bool(ent and ent != res["entity"]), "v6_gate_llm_type": str(out.get("predicted_fault_type", ""))}
 
 
 def run_case(case, llm, m: Modules) -> RCAResult:
@@ -46,14 +64,26 @@ def run_case(case, llm, m: Modules) -> RCAResult:
     texts, sensor_log, sensor, pre_stats = {}, [], None, {}
     if llm is not None:
         texts, sensor, pre_stats = gllm.texts_and_sensor(case, db, llm, sensor_log)
-    res = diagnose(db, callees, texts, m, sensor=sensor, budget=budget, alert=alert, case=case)
+    gate = m.gate and llm is not None
+    res = diagnose(db, callees, texts, m, sensor=sensor, budget=budget, alert=alert, case=case, keep_state=gate)
+    state = res.pop("_state", None)
+    gate_stats = {}
+    if gate:                                             # v6 G1: a second opinion only when the computed entity is unsure
+        gate_stats = {"v6_gate_called": False, "v6_p_entity_before": round(res["p"], 4), "v6_entity_before": res["entity"]}
+        if res["p"] < STOP_P:
+            op0 = _node_name(case.topology, entry) if (entry and entry in case.topology) else None
+            gate_stats.update(second_opinion(case, db, callees, res, texts, llm, alert, op0))
+            if gate_stats["v6_gate_changed"]:
+                model0, obs0, b0, logp0, log0 = state
+                res = decide(model0, obs0, b0, logp0, log0, db, m, force_entity=gate_stats["v6_gate_entity"])
     model = res.pop("_model")
     typing_trail, stats_llmtype = None, {}
     if llm is not None:
-        ty = gllm.type_root(llm, db, res, texts, case, model)
+        ty = gllm.type_root(llm, db, res, texts, case, model, discrim=m.defer)
         typing_trail = ty
         stats_llmtype = {"v4_type_bayes": res["type"], "v4_type_llm": ty["llm_type"], "v4_type_llm_accepted": ty["accepted"],
-                         "v4_type_llm_changed": ty["changed"], "v4_typing_prompt_chars": ty["prompt_chars"]}
+                         "v4_type_llm_changed": ty["changed"], "v4_typing_prompt_chars": ty["prompt_chars"],
+                         **({"v6_type_discriminating": ty.get("discriminating")} if m.defer else {}), **gate_stats}
         if ty["accepted"]:
             res["type"] = ty["llm_type"]
     ts_ = res.get("trace_structure") or {}

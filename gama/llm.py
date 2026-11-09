@@ -23,13 +23,13 @@ def texts_and_sensor(case, db, llm, sensor_log):
     return texts, make_sensor(llm, sensor_log, notes), pre_stats
 
 
-def type_root(llm, db, res, texts, case, model):
-    """Shortlist typing of the decided root with signature cards and the fingerprint check of the quoted line."""
+def type_root(llm, db, res, texts, case, model, discrim=False):
+    """Shortlist typing of the decided root with signature cards and the fingerprint check of the quoted line (v6 G2: discrim)."""
     from pipeline.llm_typing import llm_type
     if not texts:
         from pipeline.log_preprocess import preprocess_texts
         texts, _n, _s = preprocess_texts(case, db)
-    return llm_type(llm, db, res, texts, model=model, xcard=True, typecheck=True)
+    return llm_type(llm, db, res, texts, model=model, xcard=True, typecheck=True, discrim=discrim)
 
 
 def narrator_prompt(case, alert, op_name, path, res, ev_lines, tables) -> str:

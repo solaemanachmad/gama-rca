@@ -64,7 +64,8 @@ ARMS = {                                                          # name -> extr
     **{f"GAMA_CORE_NO_{name}": {"_SYSTEM": "gama", **W, "GAMA_MODULES": f"core,-{mod}"}
        for name, mod in (("MM", "mm"), ("TRACE", "trace"), ("TYPE", "typing"), ("LOAD", "load"), ("TEXT", "text"), ("CHAIN", "chain"))},
 }
-ALL_IDS = [l.strip() for l in open(os.path.join(DATA, "manifest.txt")) if l.strip()]
+_MF = os.path.join(DATA, "manifest.txt")                  # absent when only the presets are read (scripts/aiops2025_run.py --model)
+ALL_IDS = [l.strip() for l in open(_MF) if l.strip()] if os.path.exists(_MF) else []
 DEV_ODD = [c for c in ALL_IDS if int(c[1:]) % 2 == 1]     # internal record of the v5 development protocol (PREREGISTRATION_V5.md)
 VAL_EVEN = [c for c in ALL_IDS if int(c[1:]) % 2 == 0]
 

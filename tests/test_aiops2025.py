@@ -155,6 +155,61 @@ def defaultdict_list():
     return defaultdict(list)
 
 
+class Stub:
+    """Scripted LLM (no model): names one entity in the Evidence->LLM prompt, a type in the typing prompt; records the prompts."""
+
+    def __init__(self, entity):
+        self.entity, self.prompts = entity, []
+        self.reset_usage()
+
+    def reset_usage(self):
+        self.total_calls = 0
+
+    def usage_stats(self):
+        return {"total_calls": self.total_calls}
+
+    def generate_json(self, prompt, system=None):
+        self.prompts.append(prompt)
+        self.total_calls += 1
+        if '"root_cause_entity"' in prompt:
+            return {"root_cause_entity": self.entity, "predicted_fault_type": "cpu_stress", "reasoning_chain": ["cause: x"]}
+        return {}
+
+
+def llm_arms(rel, specs, wins) -> int:
+    """PREREGISTRATION_V6.md AIOps2025 arms on the synthetic release: the LLM prompts carry the AIOps2025 taxonomy (not RCA100's), the
+    Evidence->LLM arm maps its answer to a topology entity, and v6 runs end to end with the gate forced (STOP_P = 1.01)."""
+    import gama.run as gr
+    from adapters.aiops2025 import AIOpsCase
+    from gama.belief_llm import run_belief_llm
+    from gama.config import Modules
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+    from aiops2025_run import answer
+    case = AIOpsCase(rel, specs[1], all_windows=wins)
+    st = Stub("currencyservice")
+    r = run_belief_llm(case, st, with_belief=False)
+    p = st.prompts[0]
+    good = ("cpu_stress" in p and "node_network_loss" in p and "F034-cpuFullLoad" not in p and "Statistical diagnosis" not in p
+            and r.predicted_entity_ids == ["currencyservice"])
+    a = answer(case, r)
+    good &= a["component"] == "currencyservice" and a["reason"].startswith("cpu stress at currencyservice") and len(a["reasoning_trace"]) > 0
+    stop, gr.STOP_P = gr.STOP_P, 1.01
+    try:
+        st2 = Stub("frontend")
+        r2 = gr.run_case(case, st2, Modules.parse("v6"))
+    finally:
+        gr.STOP_P = stop
+    s2 = r2.retrieval_stats
+    good &= bool(s2.get("v6_gate_called")) and s2.get("v6_gate_entity") == "frontend" and r2.predicted_entity_ids == ["frontend"]
+    good &= all("F034-cpuFullLoad" not in q for q in st2.prompts)
+    a2 = answer(case, r2)
+    good &= a2["component"] == "frontend"
+    print(f"{'ok  ' if good else 'FAIL'} LLM arms: evidence -> {r.predicted_entity_ids} {r.predicted_fault_type}; v6 gate "
+          f"{s2.get('v6_entity_before')} -> {s2.get('v6_gate_entity')}, decided {r2.predicted_entity_ids} {r2.predicted_fault_type}, "
+          f"{s2.get('total_calls')} calls")
+    return int(good)
+
+
 def main():
     root = tempfile.mkdtemp(prefix="aiops2025_synth_")
     try:
@@ -194,8 +249,9 @@ def main():
             ok += good
             print(f"{'ok  ' if good else 'FAIL'} {want_kind}-level cpu fault: decided {ent} {typ} (p={r.confidence:.2f}); "
                   f"top {r.retrieval_stats.get('v3_top')}")
-        print(f"{ok}/2 passed")
-        sys.exit(0 if ok == 2 else 1)
+        ok += llm_arms(rel, specs, wins)
+        print(f"{ok}/3 passed")
+        sys.exit(0 if ok == 3 else 1)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
