@@ -104,45 +104,40 @@ def apply_overrides(args: argparse.Namespace) -> None:
         config.MAX_RESOLVED_PER_MODALITY = args.max_resolved_per_modality
 
 
-EFFECTIVE_CONFIG_KEYS = [
-    "EMBEDDING_BACKEND", "LLM_BACKEND",
-    "KAGGLE_MODEL_HANDLE", "KAGGLE_MODEL_LOCAL_PATH", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "HYBRID_ALPHA",
-    "HYBRID_BETA", "VECTOR_TOP_K", "DEV_QUICK_TEST", "MAX_OBSERVATIONS_PER_INDEX",
-    "MAX_RESOLVED_PER_MODALITY", "TEMPORAL_BOOST_ENABLED",
-    "USE_PROPAGATION_EVIDENCE", "USE_INFRA_EVIDENCE", "CHAIN_FIRST",
-    "USE_LOG_TEMPLATES", "ENTITY_SOURCE", "ALERT_T0_MODE",
-    "CHAIN_FIRST_ENTITY", "USE_CHANGE_FACTOR", "USE_CHANGE_STATS", "USE_KNOWLEDGE_POS", "USE_TRACE_EVIDENCE", "USE_EVENT_DIGEST", "CHAIN_ABSOLUTE_SIGNALS", "STRICT_MODALITY_ROUTING", "SPECIALIST_ENGLISH", "KAGGLE_USE_4BIT", "KAGGLE_DTYPE", "INFRA_ALL_ENTITIES", "SPEC_CHAIN_SEGMENTS", "GROUNDED_FAULT", "ENTITY_TYPING", "COORD_LEAN", "INFRA_EVENTS_SCOPED", "TYPING_COMPARE", "NO_SPECIALISTS", "SPEC_EVIDENCE_ONLY", "LLM_TEMPERATURE", "LLM_SEED", "LLM_MAX_TOKENS", "FAULT_FINGERPRINT", "FP_SCORING", "FP_ALPHA", "FP_TOP_K", "FP_LEVEL_SWITCH", "VERIFY_CHAIN", "VERIFY_MIN_GROUNDED", "ENABLE_THINKING", "V2_NO_TOPO", "V2_NO_EXCLUDE", "V2_UNCALIBRATED", "V2_NO_VERIFY", "V2_NO_LOCALITY",
-]
-
-# Console summary: hide settings that do not affect the run being started.
-_HIDE_WHEN_LOG_TEMPLATES = ("MAX_OBSERVATIONS_PER_INDEX", "MAX_RESOLVED_PER_MODALITY")
-_ALWAYS_HIDDEN = ("DEV_QUICK_TEST", "GRAPH_HOP_LIMIT", "INFRA_SEARCH_HOP_CAP", "TEMPORAL_BOOST_ENABLED")
-
-
 def get_effective_config() -> dict:
-    """Same fields as print_effective_config(), but as a dict -- reused for
-    wandb.init(config=...) so a run's hyperparameters are traceable in the
-    W&B dashboard, not just in console output."""
+    """Returns only the active hyperparameters and configuration for the current run."""
     import config
-    return {k: getattr(config, k, None) for k in EFFECTIVE_CONFIG_KEYS}
+    backend = getattr(config, "LLM_BACKEND", "kaggle")
+    cfg = {
+        "LLM_BACKEND": backend,
+        "GAMA_MODULES": os.environ.get("GAMA_MODULES", "hybrid"),
+        "ALERT_T0_MODE": getattr(config, "ALERT_T0_MODE", "window"),
+        "FP_SCORING": getattr(config, "FP_SCORING", "calibrated"),
+        "FP_ALPHA": getattr(config, "FP_ALPHA", 0.05),
+        "FP_TOP_K": getattr(config, "FP_TOP_K", 3),
+        "LLM_TEMPERATURE": getattr(config, "LLM_TEMPERATURE", 0.0),
+        "LLM_SEED": getattr(config, "LLM_SEED", 0),
+        "LLM_MAX_TOKENS": getattr(config, "LLM_MAX_TOKENS", 1024),
+    }
+    if backend == "api":
+        cfg["API_MODEL"] = os.environ.get("API_MODEL", "")
+        cfg["API_BASE_URL"] = os.environ.get("API_BASE_URL", "")
+        if os.environ.get("API_REASONING_EFFORT"):
+            cfg["API_REASONING_EFFORT"] = os.environ.get("API_REASONING_EFFORT")
+    elif backend == "kaggle":
+        cfg["KAGGLE_MODEL_HANDLE"] = getattr(config, "KAGGLE_MODEL_HANDLE", "")
+        cfg["KAGGLE_DTYPE"] = getattr(config, "KAGGLE_DTYPE", "bfloat16")
+        cfg["KAGGLE_USE_4BIT"] = getattr(config, "KAGGLE_USE_4BIT", False)
+    return cfg
+
+
+EFFECTIVE_CONFIG_KEYS = list(get_effective_config().keys())
 
 
 def print_effective_config() -> None:
-    """Prints the config values that actually matter for reproducing a run
-    -- handy to log at the start of main.py so results.csv runs
-    are traceable back to the settings that produced them.
-
-    Backend-aware: only shows the model setting for whichever LLM_BACKEND
-    is actually active, not all three possible backends' model names at
-    once. get_effective_config() (used for W&B logging) stays complete/
-    unfiltered, since a full record is useful there for reproducibility;
-    this is just the human-readable console summary."""
+    """Prints a concise summary of the active configuration."""
     cfg = get_effective_config()
-    print("=== Effective config for this run ===")
+    print("=== Active Configuration ===")
     for k, v in cfg.items():
-        if k in _ALWAYS_HIDDEN:
-            continue
-        if cfg.get("USE_LOG_TEMPLATES") and k in _HIDE_WHEN_LOG_TEMPLATES:
-            continue
         print(f"  {k} = {v}")
     print()
