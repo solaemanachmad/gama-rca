@@ -56,8 +56,11 @@ def _step(ts: List[float]) -> float:
 
 
 def _scale(base: List[float], floor: float) -> Tuple[float, float]:
+    if not base:
+        return 0.0, floor
     mb = median(base)
-    mad = median(abs(v - mb) for v in base)
+    devs = [abs(v - mb) for v in base]
+    mad = median(devs) if devs else 0.0
     return mb, max(1.4826 * mad, REL_FLOOR * abs(mb), floor)
 
 
@@ -66,7 +69,8 @@ def shift_z(pts: List[Tuple[float, float]], a: float, b: float, span: float, dir
     """Directional robust shift of window [a, b) against [a - span, a); None if the series is not testable there. pts: (seconds, value),
     sorted by time."""
     if counts:                                              # zero-filled 30 s bins
-        nb, nw = int(round(span / LOG_BIN_S)), max(1, int(round((b - a) / LOG_BIN_S)))
+        nb = max(1, int(round(span / LOG_BIN_S)))
+        nw = max(1, int(round((b - a) / LOG_BIN_S)))
         bins = defaultdict(float)
         for t, v in pts:
             if a - span <= t < b or (closed_end and t == b):
@@ -81,6 +85,8 @@ def shift_z(pts: List[Tuple[float, float]], a: float, b: float, span: float, dir
         if len(base) < MIN_COVERAGE * span / step or len(win) < 0.5 * (b - a) / step or len(base) < 3 or not win:
             return None
         floor = ABS_FLOOR
+    if not base or not win:
+        return None
     mb, sc = _scale(base, floor)
     z = (median(win) - mb) / sc
     return z if direction == "up" else -z
@@ -219,6 +225,8 @@ def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: b
                 continue
             binv = lambda lo, hi: [float(bins.get(i, 0)) for i in range(lo, hi)]
             def z_of(win, base):
+                if not base or not win:
+                    return 0.0
                 mb, sc = _scale(base, COUNT_FLOOR)
                 return (median(win) - mb) / sc
             if db["log_base_bins"] < LOG_B_SPAN * nw:
@@ -414,7 +422,8 @@ def onset_time(pts, a: float, b: float, span: float, direction: str, counts: boo
         for t, v in pts:
             if h0 <= t <= b:
                 bins[int((t - h1) // LOG_BIN_S)] += v
-        n_h, n_s = int(round(span / LOG_BIN_S)), int(round(2 * L / LOG_BIN_S))
+        n_h = max(1, int(round(span / LOG_BIN_S)))
+        n_s = max(1, int(round(2 * L / LOG_BIN_S)))
         hist = [bins.get(i, 0.0) for i in range(-n_h, 0)]
         seq = [(h1 + i * LOG_BIN_S, bins.get(i, 0.0)) for i in range(0, n_s + 1)]
         floor = COUNT_FLOOR
