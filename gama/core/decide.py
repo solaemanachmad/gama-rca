@@ -15,10 +15,10 @@ from typing import Dict
 
 import numpy as np
 
-from pipeline import belief_diagnosis as bd
-from pipeline.fault_calibrated import LEVEL, RESIDUAL, FALLBACK, _atoms, entity_signals
-from gama import evidence
-from gama.belief import ANOM, Model, infer, sigorder_loglik
+from pipeline.calibration import belief as bd
+from pipeline.calibration.calibrated import LEVEL, RESIDUAL, FALLBACK, _atoms, entity_signals
+from gama.core import evidence
+from gama.core.belief import ANOM, Model, infer, sigorder_loglik
 from gama.config import Modules
 
 

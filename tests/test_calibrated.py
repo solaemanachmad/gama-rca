@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_fingerprint import FakeCase, T0
-from pipeline.fault_calibrated import (compute_signal_db, origin_signals, rank_candidates, mwu_greater, false_alarm_rate)
+from pipeline.calibration.calibrated import (compute_signal_db, origin_signals, rank_candidates, mwu_greater, false_alarm_rate)
 
 W0 = T0 - dt.timedelta(minutes=5)
 

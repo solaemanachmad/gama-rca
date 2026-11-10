@@ -4,7 +4,7 @@ The raw sensor input (semantic_probes.collect_texts) keeps the first 20 distinct
 That selection depends on vocabulary, ignores frequency and time order, and cannot tell chronic errors from new ones. Here every log
 line of a service is reduced to a template and tested against the service's own pre-window rate:
 
-  1. Template: regex masking (pipeline.log_templates.mask: ids, IPs, numbers, timestamps) and Drain (He et al., ICWS 2017; drain3, its
+  1. Template: regex masking (pipeline.log.templates.mask: ids, IPs, numbers, timestamps) and Drain (He et al., ICWS 2017; drain3, its
      default similarity 0.4 and depth 4), one parse tree per service. No keyword filter.
   2. Counts per template: n_b lines before the window (the log baseline, ~15 min in RCA100) and n_w lines inside it.
   3. Test: one-sided Poisson test of n_w against the baseline rate, lambda = (n_b + 0.5) * T_w / T_b (0.5: Jeffreys-type continuity so a
@@ -21,8 +21,8 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
-from pipeline.fault_fingerprint import _owner, _naive
-from pipeline.log_templates import mask
+from pipeline.calibration.fingerprint import _owner, _naive
+from pipeline.log.templates import mask
 
 MAX_ITEMS, MAX_CHARS = 20, 200          # = semantic_probes.MAX_LINES / MAX_CHARS (same budget as the raw input)
 BH_Q = 0.05

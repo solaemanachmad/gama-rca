@@ -31,8 +31,8 @@ import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
-from pipeline.propagation_evidence import window_bounds, _node_name, _node_type
-from pipeline.fault_fingerprint import (_owner, _family, _naive, _fmt, _TEXT_FAMILIES, _TEXT_ANY, _EVENT_FAMILIES, _HTTP_RE,
+from pipeline.metric.propagation import window_bounds, _node_name, _node_type
+from pipeline.calibration.fingerprint import (_owner, _family, _naive, _fmt, _TEXT_FAMILIES, _TEXT_ANY, _EVENT_FAMILIES, _HTTP_RE,
                                         _DB_RE, _REDIS_RE, _QUEUE_RE)
 
 ALPHA = 0.05
@@ -493,7 +493,7 @@ def _atoms(expr):
 # Algorithm 2: hypotheses (entity, type)
 # ------------------------------------------------------------------------------------------------------------------------------
 def origin_signals(db: Dict, origin: Optional[str]) -> Dict:
-    """Same interface as pipeline.fault_fingerprint.origin_signals: {"kind", "signals", "host_nodes", "by_entity"}."""
+    """Same interface as pipeline.calibration.fingerprint.origin_signals: {"kind", "signals", "host_nodes", "by_entity"}."""
     if not db or "services" not in db or not origin:
         return {"kind": "unknown", "signals": {}, "host_nodes": [], "by_entity": {}}
     o = str(origin).split("::")[0]

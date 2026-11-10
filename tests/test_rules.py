@@ -57,9 +57,9 @@ class Scripted:
 
 
 def _state(sc, spec="full"):
-    from gama import evidence
-    from gama.chain import callee_map
-    from gama.decide import diagnose
+    from gama.core import evidence
+    from gama.core.chain import callee_map
+    from gama.core.decide import diagnose
     import config
     config.ALERT_T0_MODE = "window"
     c = sc()
@@ -110,7 +110,7 @@ def gate_asks_only_when_unsure_and_types_the_new_entity_with_the_model():
 
 @test
 def defer_rejects_a_type_change_that_quotes_a_shared_signal():
-    from pipeline.llm_typing import llm_type
+    from pipeline.calibration.typing import llm_type
     c, db, m, res, dbg = _state(sc_load_and_cpu)
     model = dbg["model"]
     comp = res["type"]
@@ -136,8 +136,8 @@ def defer_rejects_a_type_change_that_quotes_a_shared_signal():
 
 @test
 def calsensor_keeps_the_probed_entitys_probability():
-    from gama.decide import _probes
-    from pipeline import belief_diagnosis as bd
+    from gama.core.decide import _probes
+    from pipeline.calibration import belief as bd
     for sc in (sc_trace_origin, sc_node, sc_load_and_cpu):
         c, db, m, res, dbg = _state(sc)
         H, logp, model = dbg["H"], dbg["logp"], dbg["model"]

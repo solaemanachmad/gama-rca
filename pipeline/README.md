@@ -1,68 +1,80 @@
 # `pipeline/` — Telemetry Extraction & Statistical Calibration Engines
 
-This directory contains the foundational telemetry extractors and statistical calibration layers supporting the **GAMA-RCA** framework (`gama/`).
+This directory contains the foundational multi-modal telemetry extractors and statistical calibration layers supporting the **GAMA-RCA** framework (`gama/`).
 
-*(Comparative baselines such as Direct LLM and Evidence->LLM are located in the dedicated [`baselines/`](../baselines) package).*
+*(Comparative baselines such as Direct LLM, Evidence->LLM, and Belief->LLM are located in the dedicated [`baselines/`](../baselines) package).*
 
 ---
 
-## 🏛️ Architecture & Functional Clusters
+## 🏛️ Architecture & 4 Functional Subpackages
 
 ```
                      Raw Telemetry (Metrics, Logs, Traces, Events)
                                           │
-                                          ▼
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│ 1. Telemetry & Evidence Extractors                                                │
-│    - propagation_evidence.py   : Call-graph neighbourhood & directional traversal │
-│    - infra_evidence.py         : Node and container CPU/memory telemetry tables   │
-│    - trace_evidence.py         : Per-service HTTP status codes & p95 latencies    │
-│    - trace_structure.py        : Distributed trace origin & deep error detection  │
-│    - log_templates.py          : Regex & Drain3 log message template mining       │
-│    - log_preprocess.py         : Poisson burst test against pre-incident baseline │
-│    - semantic_probes.py        : Text extraction for the bounded LLM sensor       │
-└─────────────────────────────────────────┬─────────────────────────────────────────┘
+        ┌─────────────────────────────────┼─────────────────────────────────┐
+        ▼                                 ▼                                 ▼
+┌──────────────────┐             ┌──────────────────┐             ┌──────────────────┐
+│ 1. metric/       │             │ 2. log/          │             │ 3. trace/        │
+│  - infra.py      │             │  - preprocess.py │             │  - evidence.py   │
+│  - propagation.py│             │  - templates.py  │             │  - structure.py  │
+│                  │             │  - probes.py     │             │                  │
+└────────┬─────────┘             └────────┬─────────┘             └────────┬─────────┘
+         │                                │                                │
+         └────────────────────────────────┼────────────────────────────────┘
                                           │
                                           ▼
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│ 2. Calibration & Statistical Core                                                 │
-│    - fault_fingerprint.py      : Signal patterns for all 28 microservice faults   │
-│    - fault_calibrated.py       : Non-parametric pseudo-window calibration & MWU   │
-│    - fault.py                  : Shift scale estimation (MAD) & event signals     │
-│    - belief_diagnosis.py       : Bayesian likelihood models & hypothesis states   │
-│    - llm_typing.py             : Fine-grained mechanism typing arbitration        │
-└─────────────────────────────────────────┬─────────────────────────────────────────┘
+                         ┌──────────────────────────────────┐
+                         │ 4. calibration/                  │
+                         │  - fault.py                      │
+                         │  - calibrated.py                 │
+                         │  - fingerprint.py                │
+                         │  - belief.py                     │
+                         │  - typing.py                     │
+                         └────────────────┬─────────────────┘
                                           │
                                           ▼
-                           Used by `gama/` Orchestrator
-         (gama/evidence.py ──► gama/belief.py ──► gama/decide.py)
+                            Used by `gama/core/` Engine
+             (gama.core.evidence ──► gama.core.belief ──► gama.core.decide)
 ```
 
 ---
 
-## 📋 File-by-File Reference
+## 📋 Subpackage & File Reference
 
-| File | Category | Responsibility | Section in Paper |
-|:---|:---:|:---|:---:|
-| [`propagation_evidence.py`](propagation_evidence.py) | Evidence | Slices time windows, discovers upstream callers and downstream callees. | §4.1 (Topology) |
-| [`infra_evidence.py`](infra_evidence.py) | Evidence | Builds infrastructure tables (host CPU, memory, replica states). | §4.1 (Metrics) |
-| [`trace_evidence.py`](trace_evidence.py) | Evidence | Aggregates span counts, error rates, and slowest operations. | §4.1 (Traces) |
-| [`trace_structure.py`](trace_structure.py) | Evidence | Identifies deepest failing span to isolate true origin from victims. | §4.1 (Traces) |
-| [`log_templates.py`](log_templates.py) | Evidence | Mines log templates via Drain3 without significance filtering. | §4.1 (Logs) |
-| [`log_preprocess.py`](log_preprocess.py) | Evidence | Runs Poisson test & Benjamini-Hochberg FDR control on log bursts. | §4.1 (Logs) |
-| [`semantic_probes.py`](semantic_probes.py) | Evidence | Prepares entity-scoped log/event quotes for LLM text sensing. | §4.3 (LLM Sensor) |
-| [`fault_fingerprint.py`](fault_fingerprint.py) | Calibration | Formal definitions and discriminating signals for the 28 fault types. | §3.2 (Taxonomy) |
-| [`fault_calibrated.py`](fault_calibrated.py) | Calibration | Empirical null distribution via pseudo-windows & Mann-Whitney U test. | §4.1 (Calibration) |
-| [`fault.py`](fault.py) | Calibration | Robust shift z-score ($1.4826 \times \text{MAD}$) and service-level signals. | §4.1 (Calibration) |
-| [`belief_diagnosis.py`](belief_diagnosis.py) | Calibration | Hypothesis prior/likelihood calculations and probe budget tracking. | §4.2 (Belief) |
-| [`llm_typing.py`](llm_typing.py) | Calibration | One-call mechanism typing for ambiguous root causes. | §4.3 (Typing) |
+### 1. `pipeline/metric/` — Metric & Topology Extractors
+| File | Responsibility | Section in Paper |
+|:---|:---|:---:|
+| [`metric/infra.py`](metric/infra.py) | Builds infrastructure tables (host CPU, memory, replica states). | §4.1 (Metrics) |
+| [`metric/propagation.py`](metric/propagation.py) | Slices time windows, discovers upstream callers and downstream callees. | §4.1 (Topology) |
+
+### 2. `pipeline/log/` — Log Pre-processing & Text Probes
+| File | Responsibility | Section in Paper |
+|:---|:---|:---:|
+| [`log/preprocess.py`](log/preprocess.py) | Runs Poisson test & Benjamini-Hochberg FDR control on log bursts. | §4.1 (Logs) |
+| [`log/templates.py`](log/templates.py) | Mines log templates via Drain3 without significance filtering. | §4.1 (Logs) |
+| [`log/probes.py`](log/probes.py) | Prepares entity-scoped log/event quotes for LLM text sensing. | §4.3 (LLM Sensor) |
+
+### 3. `pipeline/trace/` — Distributed Trace Analyzers
+| File | Responsibility | Section in Paper |
+|:---|:---|:---:|
+| [`trace/evidence.py`](trace/evidence.py) | Aggregates span counts, error rates, and slowest operations. | §4.1 (Traces) |
+| [`trace/structure.py`](trace/structure.py) | Identifies deepest failing span to isolate true origin from victims. | §4.1 (Traces) |
+
+### 4. `pipeline/calibration/` — Statistical Core & Fault Taxonomy
+| File | Responsibility | Section in Paper |
+|:---|:---|:---:|
+| [`calibration/fault.py`](calibration/fault.py) | Robust shift z-score ($1.4826 \times \text{MAD}$) and service-level signals. | §4.1 (Calibration) |
+| [`calibration/calibrated.py`](calibration/calibrated.py) | Empirical null distribution via pseudo-windows & Mann-Whitney U test. | §4.1 (Calibration) |
+| [`calibration/fingerprint.py`](calibration/fingerprint.py) | Formal definitions and discriminating signals for the 28 fault types. | §3.2 (Taxonomy) |
+| [`calibration/belief.py`](calibration/belief.py) | Hypothesis prior/likelihood calculations and probe budget tracking. | §4.2 (Belief) |
+| [`calibration/typing.py`](calibration/typing.py) | One-call mechanism typing for ambiguous root causes. | §4.3 (Typing) |
 
 ---
 
-## 💡 How `pipeline/` Connects to `gama/`
+## 💡 How `pipeline/` Connects to `gama/core/`
 
-The codebase separates **low-level telemetry operations** (`pipeline/`) from **high-level Bayesian reasoning** (`gama/`):
-- `gama/evidence.py` calls `pipeline.fault_calibrated` and `pipeline.fault` to construct calibrated observations.
-- `gama/belief.py` calls `pipeline.belief_diagnosis` to compute prior and posterior probabilities.
-- `gama/chain.py` uses `pipeline.propagation_evidence` to trace the causal graph.
-- `gama/llm.py` uses `pipeline.semantic_probes` and `pipeline.log_preprocess` for faithful quote grounding.
+The codebase separates **telemetry operations** (`pipeline/`) from **Bayesian abduction** (`gama/core/`):
+- `gama.core.evidence` calls `pipeline.calibration.calibrated` and `pipeline.calibration.fault`.
+- `gama.core.belief` calls `pipeline.calibration.belief` to compute prior and posterior probabilities.
+- `gama.core.chain` uses `pipeline.metric.propagation` to trace the causal graph.
+- `gama.core.llm` uses `pipeline.log.probes` and `pipeline.log.preprocess` for quote grounding.

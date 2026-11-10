@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from typing import List
 
-from pipeline import belief_diagnosis as bd
-from pipeline.fault_calibrated import compute_signal_db
-from pipeline.fault import calibrate as calibrate_v4, new_events, unavailability, B_SPAN
+from pipeline.calibration import belief as bd
+from pipeline.calibration.calibrated import compute_signal_db
+from pipeline.calibration.fault import calibrate as calibrate_v4, new_events, unavailability, B_SPAN
 from gama.config import Modules
 
 
@@ -32,7 +32,7 @@ def observations(db, callees, case, m: Modules, model) -> List[dict]:
         obs.append({"entity": s_, "signal": "svc_unavailable", "holds": bad, "kind": "cat",
                     "ev": "deployment available replicas below desired / availability below full in the window" if bad else ""})
     if m.trace and case is not None:
-        from pipeline.trace_structure import trace_observations, origin_nodes
+        from pipeline.trace.structure import trace_observations, origin_nodes
         obs += trace_observations(case, db, v2=True, omsg=True, v3=True, msgtarget=True)
         model.origin_nodes = origin_nodes(obs, db.get("hosts", {}))
     return obs

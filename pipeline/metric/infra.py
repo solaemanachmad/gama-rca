@@ -31,7 +31,7 @@ from typing import Dict, List, Optional
 
 import config
 from data.loader import event_time_bounds, _parse_ts_iso
-from pipeline.propagation_evidence import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
+from pipeline.metric.propagation import (WINDOW_AFTER_S, WINDOW_BEFORE_S, window_bounds,
                                            _calls_graph, _node_name, _node_type)
 
 # Display budgets (characters) per section. Prompt-size control only: the

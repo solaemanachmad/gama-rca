@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import networkx as nx
 
 from schema import Entity, Relation, Observation
-from pipeline.fault_fingerprint import compute_signal_db, origin_signals, rank_candidates, profile_text
+from pipeline.calibration.fingerprint import compute_signal_db, origin_signals, rank_candidates, profile_text
 
 T0 = dt.datetime(2026, 1, 1, 12, 0, 0)          # alert time; window = [T0-5min, T0+1min], baseline before that
 

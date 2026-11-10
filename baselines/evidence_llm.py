@@ -13,10 +13,10 @@ from typing import Dict, List
 
 from data.loader import Case, find_service_ancestor
 from data.taxonomy import taxonomy_prompt_block
-from pipeline import belief_diagnosis as bd
-from pipeline.fault_calibrated import compute_signal_db
-from pipeline.fault import calibrate as calibrate_v4, new_events, unavailability, B_SPAN
-from pipeline.propagation_evidence import _node_name
+from pipeline.calibration import belief as bd
+from pipeline.calibration.calibrated import compute_signal_db
+from pipeline.calibration.fault import calibrate as calibrate_v4, new_events, unavailability, B_SPAN
+from pipeline.metric.propagation import _node_name
 from schema import RCAResult
 
 EVIDENCE_SYSTEM = ("You are a site-reliability engineer performing root cause analysis of a microservice incident from summarised, "
@@ -55,8 +55,8 @@ def build_prompt(alert_text: str, alert: str, op_name: str, callees: Dict[str, L
 
 def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     import config
-    from gama.chain import callee_map, _ids
-    from pipeline.log_preprocess import preprocess_texts
+    from gama.core.chain import callee_map, _ids
+    from pipeline.log.preprocess import preprocess_texts
     t0 = time.time()
     llm.reset_usage()
     case = Case(case_id, cases_dir=cases_dir or config.CASES_DIR)
@@ -78,7 +78,7 @@ def evidence_llm(case_id: str, llm, cases_dir=None) -> RCAResult:
     import os                                                     # same evidence as GAMA-RCA: trace origins when 'torigin' is on
     _pe = {x.strip() for x in os.environ.get("V4_PARTS", "").split(",") if x.strip()}   # (arm EVIDENCE_LLM_FINAL: the V5_FINAL parts)
     if {"torigin", "torigin2", "torigin3"} & set(_pe):
-        from pipeline.trace_structure import trace_observations
+        from pipeline.trace.structure import trace_observations
         obs += trace_observations(case, db, v2=bool({"torigin2", "torigin3"} & set(_pe)), omsg="omsg" in _pe, v3="torigin3" in _pe,
                                   msgtarget="msgtarget" in _pe)
     ev = {}

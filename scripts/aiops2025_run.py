@@ -69,7 +69,7 @@ from data.dataset_profile import PROFILE   # noqa: E402
 from data.aiops2025_profile import phrase  # noqa: E402
 from adapters.aiops2025 import Release, AIOpsCase   # noqa: E402
 from gama.config import Modules            # noqa: E402
-from gama.belief import modality           # noqa: E402
+from gama.core.belief import modality           # noqa: E402
 
 ACTION = {"metrics": "LoadMetrics", "traces": "TraceAnalysis", "logs": "LogSearch", "events": "LoadEvents"}
 MAX_STEPS = 5                               # A6: short reasoning trace (Efficiency)
@@ -105,9 +105,9 @@ def answer(case, r) -> dict:
 
 def check(case, m) -> list:
     """Label-free: testable / holding continuous signals per (entity kind, signal) in the window."""
-    from gama import evidence
-    from gama.chain import callee_map
-    from pipeline.fault import calibrate
+    from gama.core import evidence
+    from gama.core.chain import callee_map
+    from pipeline.calibration.fault import calibrate
     import config
     config.ALERT_T0_MODE = "window"                     # as in gama/run.run_case: evidence window = the case window
     db = evidence.signal_db(case, case.alert.alert_timestamp, m)
@@ -200,7 +200,7 @@ def main():
                 from gama.run import run_case
                 r = run_case(case, llm, m)
             else:
-                from gama.belief_llm import run_belief_llm
+                from baselines.belief_llm import run_belief_llm
                 r = run_belief_llm(case, llm, with_belief=a.arm == "belief_llm")
             ans = answer(case, r)
             jl.write(json.dumps(ans, ensure_ascii=False) + "\n")

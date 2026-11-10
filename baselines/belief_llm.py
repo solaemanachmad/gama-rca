@@ -16,12 +16,12 @@ import time
 
 import config
 from data.loader import Case, find_service_ancestor
-from pipeline.propagation_evidence import _node_name
+from pipeline.metric.propagation import _node_name
 from schema import RCAResult
-from gama import evidence
-from gama.chain import callee_map, _ids
+from gama.core import evidence
+from gama.core.chain import callee_map, _ids
 from gama.config import Modules
-from gama.decide import diagnose
+from gama.core.decide import diagnose
 
 
 def belief_block(res) -> str:
@@ -40,7 +40,7 @@ def run_belief_llm(case, llm, with_belief: bool = True) -> RCAResult:
     without the belief block; the evidence is the observations that hold in GAMA's own evidence (as for the v6 gate). The RCA100
     EVIDENCE_LLM_FINAL arm (pipeline/evidence_llm.py) is unchanged."""
     from baselines.evidence_llm import build_prompt, EVIDENCE_SYSTEM
-    from pipeline.log_preprocess import preprocess_texts
+    from pipeline.log.preprocess import preprocess_texts
     config.ALERT_T0_MODE = "window"
     m = Modules.parse("core")
     t0 = time.time()

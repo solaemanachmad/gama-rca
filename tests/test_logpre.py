@@ -12,8 +12,8 @@ sys.path.insert(0, HERE)
 
 from test_fingerprint import T0
 from test_calibrated import make_case
-from pipeline.fault_calibrated import compute_signal_db
-from pipeline.log_preprocess import preprocess_texts, poisson_sf, bh
+from pipeline.calibration.calibrated import compute_signal_db
+from pipeline.log.preprocess import preprocess_texts, poisson_sf, bh
 
 T = []
 
@@ -105,7 +105,7 @@ def no_baseline_means_no_log_test():
 
 @test
 def sensor_with_notes_rejects_quotes_from_the_counts():
-    from pipeline.semantic_probes import make_sensor
+    from pipeline.log.probes import make_sensor
 
     class L:
         def __init__(self, ans):

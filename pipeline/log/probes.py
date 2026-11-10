@@ -9,8 +9,8 @@ import re
 from collections import defaultdict
 from typing import Dict, List
 
-from pipeline.fault_fingerprint import _owner, _naive, _TEXT_ANY
-from pipeline.belief_diagnosis import CATS
+from pipeline.calibration.fingerprint import _owner, _naive, _TEXT_ANY
+from pipeline.calibration.belief import CATS
 
 MAX_LINES, MAX_CHARS = 20, 200
 _MASK = re.compile(r"\d{4}-\d\d-\d\dT[\d:.+Z-]+|\b[0-9a-f]{8,}\b|\b\d+(\.\d+)?\b", re.I)

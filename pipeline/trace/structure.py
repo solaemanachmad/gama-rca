@@ -188,7 +188,7 @@ def origin_messages(res: Dict, logs=None) -> Dict:
     traces, those log lines. Messages of callers that merely relay a callee's failure ('upstream failed: rate limit') are not counted
     at the caller. Returns {(service, signal): evidence} for omsg_<category> and ohttp<code> (429, 403, 503, 5xx)."""
     import re
-    from pipeline.fault_fingerprint import _TEXT_FAMILIES, _HTTP_RE
+    from pipeline.calibration.fingerprint import _TEXT_FAMILIES, _HTTP_RE
     global _HEX32
     _HEX32 = _HEX32 or re.compile(r"\b[0-9a-f]{32}\b", re.I)
     out = {}
@@ -240,7 +240,7 @@ OMSG_SIGNALS = tuple([f"omsg_{f}" for f in ("npe", "ratelimit", "oom", "gc", "th
 
 def trace_observations(case, db, v2: bool = False, omsg: bool = False, v3: bool = False, msgtarget: bool = False) -> List[Dict]:
     """Window spans of the case -> observations for the services of db (holds True / False for every service with spans)."""
-    from pipeline.fault_fingerprint import _owner, _naive
+    from pipeline.calibration.fingerprint import _owner, _naive
     from data.dataset_profile import TRACE_ERROR_STATUS
     services = list(db["services"])
     w0, w1 = db["w0"], db["w1"]

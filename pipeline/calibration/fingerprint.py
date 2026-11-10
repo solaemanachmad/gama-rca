@@ -24,7 +24,7 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
-from pipeline.propagation_evidence import window_bounds, _node_name, _node_type
+from pipeline.metric.propagation import window_bounds, _node_name, _node_type
 
 # --- a-priori thresholds (fixed before any run; never tuned on RCA100) ---------------------------------------------------------
 RISE_RATIO = 2.0        # metric: window max >= 2x baseline median ...

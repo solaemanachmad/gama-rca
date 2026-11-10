@@ -17,17 +17,17 @@ NARRATOR_SYSTEM = ("You are a site-reliability engineer. The diagnosis has alrea
 
 def texts_and_sensor(case, db, llm, sensor_log):
     """Preprocessed text per entity (log templates tested against the pre-window rate, failing-span messages, events) and the sensor."""
-    from pipeline.log_preprocess import preprocess_texts
-    from pipeline.semantic_probes import make_sensor
+    from pipeline.log.preprocess import preprocess_texts
+    from pipeline.log.probes import make_sensor
     texts, notes, pre_stats = preprocess_texts(case, db)
     return texts, make_sensor(llm, sensor_log, notes), pre_stats
 
 
 def type_root(llm, db, res, texts, case, model, discrim=False):
     """Shortlist typing of the decided root with signature cards and the fingerprint check of the quoted line (v6 G2: discrim)."""
-    from pipeline.llm_typing import llm_type
+    from pipeline.calibration.typing import llm_type
     if not texts:
-        from pipeline.log_preprocess import preprocess_texts
+        from pipeline.log.preprocess import preprocess_texts
         texts, _n, _s = preprocess_texts(case, db)
     return llm_type(llm, db, res, texts, model=model, xcard=True, typecheck=True, discrim=discrim)
 

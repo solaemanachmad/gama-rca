@@ -30,7 +30,7 @@ from typing import Dict, List
 import networkx as nx
 import numpy as np
 
-from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, entity_signals, _atoms
+from pipeline.calibration.calibrated import FINGERPRINTS, LEVEL, RESIDUAL, entity_signals, _atoms
 
 THETA_K, THETA_U, THETA_P, ALPHA_C, ALPHA = 0.8, 0.6, 0.6, 0.05, 0.05
 STOP_P, EIG_MIN, PROBE_BUDGET = 0.8, 0.05, 5

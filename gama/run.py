@@ -10,15 +10,15 @@ import time
 
 import config
 from data.loader import Case, find_service_ancestor
-from pipeline.belief_diagnosis import PROBE_BUDGET, STOP_P
-from pipeline.propagation_evidence import compute_propagation_evidence, _node_name
-from pipeline.infra_evidence import compute_infra_evidence
-from pipeline.trace_evidence import compute_trace_evidence
+from pipeline.calibration.belief import PROBE_BUDGET, STOP_P
+from pipeline.metric.propagation import compute_propagation_evidence, _node_name
+from pipeline.metric.infra import compute_infra_evidence
+from pipeline.trace.evidence import compute_trace_evidence
 from schema import RCAResult, EvidenceItem
-from gama import evidence, llm as gllm
-from gama.chain import callee_map, _ids, call_path, chain_step_metrics, rule_chain
+from gama.core import evidence, llm as gllm
+from gama.core.chain import callee_map, _ids, call_path, chain_step_metrics, rule_chain
 from gama.config import Modules
-from gama.decide import diagnose, decide
+from gama.core.decide import diagnose, decide
 
 
 def _safe(fn, *a):

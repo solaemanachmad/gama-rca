@@ -25,8 +25,8 @@ from collections import Counter, defaultdict
 from statistics import median
 from typing import Dict, List, Optional, Tuple
 
-from pipeline.fault_calibrated import B_SPAN, K_PSEUDO, LOG_B_SPAN, LOG_K, LOG_BIN_S, NODE_SIGNALS, SVC_SIGNALS, _fmt
-from pipeline.fault_fingerprint import _family, _TEXT_FAMILIES
+from pipeline.calibration.calibrated import B_SPAN, K_PSEUDO, LOG_B_SPAN, LOG_K, LOG_BIN_S, NODE_SIGNALS, SVC_SIGNALS, _fmt
+from pipeline.calibration.fingerprint import _family, _TEXT_FAMILIES
 
 MIN_COVERAGE = 0.8
 REL_FLOOR, ABS_FLOOR = 0.05, 1e-6
@@ -304,8 +304,8 @@ def new_events(case, db, horizon_s: float) -> None:
     has a long-run rate of ~0, so any occurrence is new."""
     import json as _json
     from data.loader import event_time_bounds, _parse_ts_iso
-    from pipeline.fault_fingerprint import _owner, _naive, _EVENT_FAMILIES
-    from pipeline.log_preprocess import poisson_sf
+    from pipeline.calibration.fingerprint import _owner, _naive, _EVENT_FAMILIES
+    from pipeline.log.preprocess import poisson_sf
     w0, w1 = db["w0"], db["w1"]
     services, nodes = list(db["services"]), db["nodes"]
     rows = defaultdict(list)

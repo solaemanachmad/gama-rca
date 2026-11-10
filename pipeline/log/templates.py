@@ -22,7 +22,7 @@ import os
 import re
 from typing import Dict, Optional
 
-from pipeline.propagation_evidence import window_bounds
+from pipeline.metric.propagation import window_bounds
 
 _KEEP_KEYS = ("level", "severity", "msg", "message", "error", "err", "reason", "status",
               "statuscode", "code", "event", "method", "path", "route", "type", "name")

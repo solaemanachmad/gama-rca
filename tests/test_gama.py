@@ -194,7 +194,7 @@ def scenarios_reach_the_module_branches():
 @test
 def belief_llm_adds_only_the_belief_block_to_the_evidence_prompt():
     """Belief->LLM: the Evidence->LLM prompt + the statistical ranking; the LLM's free answer is used (here: it overrides the type)."""
-    from gama.belief_llm import run_belief_llm
+    from baselines.belief_llm import run_belief_llm
     from gama.run import run_case
 
     class Rec:

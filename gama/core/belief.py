@@ -22,11 +22,11 @@ from typing import Dict, List
 
 import numpy as np
 
-from pipeline import belief_diagnosis as bd
+from pipeline.calibration import belief as bd
 from data.dataset_profile import PROFILE
-from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms
-from pipeline.fault import SVC_SIGNALS as V4_SVC_SIGNALS
-from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS
+from pipeline.calibration.calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms
+from pipeline.calibration.fault import SVC_SIGNALS as V4_SVC_SIGNALS
+from pipeline.trace.structure import SIGNALS as TRACE_SIGNALS
 from gama.config import Modules
 
 LOAD_SIGNALS = ("svc_request_rise", "op_request_rise", "svc_cpu_rise")

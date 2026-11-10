@@ -207,7 +207,7 @@ def compare(da, db, ids, alternative):
 
 
 def breakdown(d, ids):
-    from pipeline.fault_calibrated import LEVEL
+    from pipeline.calibration.calibrated import LEVEL
     from data.taxonomy import fault_group
     x = d.loc[ids].copy()
     gt = x["gt_fault_type"].fillna("").astype(str) if "gt_fault_type" in x else pd.Series("", index=x.index)

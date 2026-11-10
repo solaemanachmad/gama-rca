@@ -30,7 +30,7 @@ class StubLLM:
         h = int(hashlib.md5(prompt.encode()).hexdigest(), 16)
         msgs = re.findall(r"^- (.+)$", prompt, flags=re.M)
         if "Which ONE category" in prompt:
-            from pipeline.belief_diagnosis import CATS
+            from pipeline.calibration.belief import CATS
             return {"category": CATS[h % len(CATS)], "quote": (msgs[0][:30] if msgs else "")}
         if '"fault_type"' in prompt:
             cands = re.findall(r"^- (F\d+-\w+) \(statistical", prompt, flags=re.M)

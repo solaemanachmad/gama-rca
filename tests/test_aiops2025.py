@@ -180,7 +180,7 @@ def llm_arms(rel, specs, wins) -> int:
     Evidence->LLM arm maps its answer to a topology entity, and v6 runs end to end with the gate forced (STOP_P = 1.01)."""
     import gama.run as gr
     from adapters.aiops2025 import AIOpsCase
-    from gama.belief_llm import run_belief_llm
+    from baselines.belief_llm import run_belief_llm
     from gama.config import Modules
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
     from aiops2025_run import answer

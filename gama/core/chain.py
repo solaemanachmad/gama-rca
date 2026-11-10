@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from pipeline.propagation_evidence import _calls_graph, _node_name, _node_type
+from pipeline.metric.propagation import _calls_graph, _node_name, _node_type
 
 
 def callee_map(topo):
@@ -73,7 +73,7 @@ def chain_step_metrics(case, w0, w1, entities, op_name):
     metrics of the golden-signal families (services / operations: request, error, latency; nodes: cpu, memory, disk), each as
     metric=value with the window extreme in the direction of its change from the baseline median, the largest changes first."""
     import math
-    from pipeline.fault_fingerprint import _naive
+    from pipeline.calibration.fingerprint import _naive
     want = {e for e in entities if e}
     if op_name:
         want.add(op_name)

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Dict, List
 
 from data.taxonomy import FAULT_DEFINITIONS
-from pipeline.fault_calibrated import entity_signals
+from pipeline.calibration.calibrated import entity_signals
 
 TYPING_SYSTEM = "You are a site-reliability engineer classifying the fault mechanism of one component. Respond ONLY with valid JSON."
 MAX_LINES, MAX_TEXTS, P_SHOW, SHORTLIST = 40, 10, 0.2, 5
@@ -48,7 +48,7 @@ def quote_supports(line: str, roles: Dict[str, str], ok=("K", "U", "M")) -> bool
     """v5 'typecheck': does an evidence line name a signal that the type's fingerprint expects (key / support / consequence role)?
     A log message line supports the type when its text belongs to a text family the fingerprint names (msg_<f> / log_<f>_rise)."""
     import re
-    from pipeline.fault_fingerprint import _TEXT_FAMILIES
+    from pipeline.calibration.fingerprint import _TEXT_FAMILIES
     l = re.sub(r"^\[[^\]]*\]\s*", "", line.strip())
     parts = l.split(" ", 2)
     if len(parts) < 2:
@@ -61,7 +61,7 @@ def quote_supports(line: str, roles: Dict[str, str], ok=("K", "U", "M")) -> bool
 
 def signature_card(fp: Dict, t: str) -> str:
     """v5 'xcard': the expected cross-modal signature of a fault type, read from its fingerprint (each signal with its modality)."""
-    from gama.belief import modality
+    from gama.core.belief import modality
     f = fp.get(t, {})
     tag = lambda exprs: ", ".join(f"{e} [{'+'.join(sorted({modality(a) for a in e.replace('|', '&').split('&')}))}]" for e in exprs) or "-"
     return (f"expected: one of {tag(f.get('key', []))}; often with {tag(f.get('sup', []))}; possible consequences "
@@ -92,7 +92,7 @@ def llm_type(llm, db, res: Dict, texts: Dict[str, List[str]], model=None, xcard=
     if model is None and (xcard or typecheck):
         raise ValueError("llm_type needs the fingerprint model (gama/llm.py passes it)")
     if xcard:                                             # v5: modality tags and expected cross-modal signatures
-        from gama.belief import modality
+        from gama.core.belief import modality
         fp = model.fp
         lines = [f"[{modality(l.split(' ')[1].rstrip(':'))}] {l}" if len(l.split(' ')) > 1 else l for l in lines]
         cand_txt = "\n".join(f"- {t} (statistical probability {probs.get(t, 0.0):.2f}): {FAULT_DEFINITIONS.get(t, '')}\n  "
