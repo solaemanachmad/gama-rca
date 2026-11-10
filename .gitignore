@@ -26,8 +26,8 @@ venv/
 env/
 ENV/
 
-# Experiment results and intermediate dumps
-results/
+# Experiment scratch files and temporary dumps
+results/tmp/
 gama_work/
 topology_exports/
 kaggle_upload/

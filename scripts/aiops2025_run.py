@@ -58,6 +58,7 @@ for _mod, _pip in (("networkx", "networkx"), ("drain3", "drain3"), ("pyarrow", "
 
 import argparse          # noqa: E402
 import json              # noqa: E402
+import multiprocessing   # noqa: E402
 import platform          # noqa: E402
 import time              # noqa: E402
 import traceback         # noqa: E402
@@ -67,7 +68,7 @@ import pandas as pd      # noqa: E402
 
 from data.dataset_profile import PROFILE   # noqa: E402
 from data.aiops2025_profile import phrase  # noqa: E402
-from adapters.aiops2025 import Release, AIOpsCase   # noqa: E402
+from adapters.aiops2025 import Release   # noqa: E402
 from gama.config import Modules            # noqa: E402
 from gama.core.belief import modality           # noqa: E402
 
@@ -126,12 +127,66 @@ def check(case, m) -> list:
             for (k, s), n in sorted(tot.items())]
 
 
+def worker_case(task_item):
+    """Executes a single AIOps case for sequential or parallel worker pools."""
+    spec, data_dir, all_windows, is_check, arm_name, mod_spec, need_llm, model_key = task_item
+    t0 = time.time()
+    try:
+        from adapters.aiops2025 import Release as Rel, AIOpsCase as Case
+        rel_obj = Rel(data_dir)
+        case = Case(rel_obj, spec, all_windows=all_windows)
+        cov = case.coverage()
+        from gama.config import Modules as Mods
+        m_obj = Mods.parse(mod_spec)
+        if is_check:
+            chks = check(case, m_obj)
+            row = {"case_id": spec["uuid"], **{k: (json.dumps(v) if isinstance(v, dict) else v) for k, v in cov.items()},
+                   "wall_s": round(time.time() - t0, 1)}
+            return spec["uuid"], row, None, chks, cov, None, round(time.time() - t0, 1)
+
+        llm_client = None
+        if need_llm:
+            from agents.factory import get_llm_client
+            llm_client = get_llm_client()
+
+        if arm_name == "gama":
+            from gama.run import run_case
+            r = run_case(case, llm_client, m_obj)
+        else:
+            from baselines.belief_llm import run_belief_llm
+            r = run_belief_llm(case, llm_client, with_belief=arm_name == "belief_llm")
+
+        ans = answer(case, r)
+        clean_row = {
+            "case_id": spec["uuid"],
+            "component": ans["component"],
+            "fault_type": r.predicted_fault_type,
+            "confidence": round(r.confidence, 4),
+            "reason": ans["reason"],
+            "n_steps": len(ans["reasoning_trace"]),
+            "n_metrics": cov.get("n_metrics", 0),
+            "n_logs": cov.get("n_logs", 0),
+            "n_traces": cov.get("n_traces", 0),
+            "load_time_s": cov.get("load_total_s", 0.0),
+            "pipeline_time_s": r.retrieval_stats.get("total_pipeline_time_s", 0.0),
+            "wall_s": round(time.time() - t0, 1),
+        }
+        return spec["uuid"], clean_row, ans, [], cov, None, round(time.time() - t0, 1)
+    except Exception as exc:
+        traceback.print_exc()
+        err_msg = repr(exc)[:300]
+        empty_ans = {"uuid": spec["uuid"], "component": "", "reason": "", "time": "", "reasoning_trace": []}
+        err_row = {"case_id": spec["uuid"], "error": err_msg, "wall_s": round(time.time() - t0, 1)}
+        return spec["uuid"], err_row, empty_ans, [], {}, err_msg, round(time.time() - t0, 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="/kaggle/input/aiops2025")
     ap.add_argument("--out", default=os.environ.get("OUT_DIR", "/kaggle/working"))
     ap.add_argument("--cases", default="all", help="all | first:N | uuid,uuid,...")
     ap.add_argument("--shard", default=None, help="k/n: every n-th case starting at k")
+    ap.add_argument("--workers", type=int, default=1, help="number of parallel CPU workers (default 1)")
     ap.add_argument("--modules", default="core", help="GAMA arm: core | full | hybrid | core,-trace ...")
     ap.add_argument("--arm", default="gama", choices=("gama", "evidence_llm", "belief_llm"))
     ap.add_argument("--model", default=None, help="key of scripts/kaggle_run.py MODELS (LLM arms, modules with llm)")
@@ -156,10 +211,9 @@ def main():
     m = Modules.parse(a.modules)
     needs_llm = a.arm != "gama" or m.llm
     assert a.check or not needs_llm or MODEL, "this arm uses an LLM: give --model (a key of scripts/kaggle_run.py MODELS)"
-    llm = None
     if needs_llm and not a.check:
         from agents.factory import get_llm_client
-        llm = get_llm_client()
+        get_llm_client()
     commit = subprocess.run("git rev-parse --short HEAD", shell=True, capture_output=True, text=True,
                             cwd=os.path.dirname(HERE)).stdout.strip()
     tag = a.modules if a.arm == "gama" else ""
@@ -187,49 +241,42 @@ def main():
             print(f"resume: {len(done)} cases kept", flush=True)
         specs = [s for s in specs if s["uuid"] not in done]
         jl = open(p_jl, "a", encoding="utf-8")
-    for i, s in enumerate(specs):
-        t0 = time.time()
-        try:
-            case = AIOpsCase(rel, s, all_windows=windows)
-            cov = case.coverage()
-            if a.check:
-                checks += check(case, m)
-                rows.append({"case_id": s["uuid"], **{k: (json.dumps(v) if isinstance(v, dict) else v) for k, v in cov.items()},
-                             "wall_s": round(time.time() - t0, 1)})
-                print(f"[{i + 1}/{len(specs)}] {s['uuid']} {cov}", flush=True)
-                continue
-            if a.arm == "gama":
-                from gama.run import run_case
-                r = run_case(case, llm, m)
+    task_items = [(s, a.data, windows, a.check, a.arm, m.spec(), needs_llm, MODEL) for s in specs]
+    if a.workers > 1:
+        start_method = "fork" if hasattr(os, "fork") and sys.platform != "darwin" else "spawn"
+        proc_ctx = multiprocessing.get_context(start_method)
+        with proc_ctx.Pool(processes=a.workers) as pool:
+            for i, res in enumerate(pool.imap_unordered(worker_case, task_items)):
+                uuid, row, ans, chks, cov, err, wall_s = res
+                rows.append(row)
+                if chks:
+                    checks.extend(chks)
+                if jl and ans:
+                    jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
+                    jl.flush()
+                if err:
+                    print(f"[{i + 1}/{len(specs)}] {uuid} [error] {err}", flush=True)
+                elif a.check:
+                    print(f"[{i + 1}/{len(specs)}] {uuid} {cov}", flush=True)
+                else:
+                    print(f"[{i + 1}/{len(specs)} {(time.time() - t_all) / 60:5.1f} min] {uuid} -> {row.get('component')} "
+                          f"{row.get('fault_type')} p={row.get('confidence', 0):.2f} ({wall_s:.0f}s)", flush=True)
+    else:
+        for i, item in enumerate(task_items):
+            uuid, row, ans, chks, cov, err, wall_s = worker_case(item)
+            rows.append(row)
+            if chks:
+                checks.extend(chks)
+            if jl and ans:
+                jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
+                jl.flush()
+            if err:
+                print(f"[{i + 1}/{len(specs)}] {uuid} [error] {err}", flush=True)
+            elif a.check:
+                print(f"[{i + 1}/{len(specs)}] {uuid} {cov}", flush=True)
             else:
-                from baselines.belief_llm import run_belief_llm
-                r = run_belief_llm(case, llm, with_belief=a.arm == "belief_llm")
-            ans = answer(case, r)
-            jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
-            jl.flush()
-            clean_row = {
-                "case_id": s["uuid"],
-                "component": ans["component"],
-                "fault_type": r.predicted_fault_type,
-                "confidence": round(r.confidence, 4),
-                "reason": ans["reason"],
-                "n_steps": len(ans["reasoning_trace"]),
-                "n_metrics": cov.get("n_metrics", 0),
-                "n_logs": cov.get("n_logs", 0),
-                "n_traces": cov.get("n_traces", 0),
-                "load_time_s": cov.get("load_total_s", 0.0),
-                "pipeline_time_s": r.retrieval_stats.get("total_pipeline_time_s", 0.0),
-                "wall_s": round(time.time() - t0, 1),
-            }
-            rows.append(clean_row)
-            print(f"[{i + 1}/{len(specs)} {(time.time() - t_all) / 60:5.1f} min] {s['uuid']} -> {ans['component']} "
-                  f"{r.predicted_fault_type} p={r.confidence:.2f} ({time.time() - t0:.0f}s)", flush=True)
-        except Exception as e:
-            traceback.print_exc()
-            rows.append({"case_id": s["uuid"], "error": repr(e)[:300], "wall_s": round(time.time() - t0, 1)})
-            if jl:
-                jl.write(json.dumps({"uuid": s["uuid"], "component": "", "reason": "", "time": "", "reasoning_trace": []}) + "\n")
-            print(f"[{i + 1}/{len(specs)}] {s['uuid']} [error] {e!r}", flush=True)
+                print(f"[{i + 1}/{len(specs)} {(time.time() - t_all) / 60:5.1f} min] {uuid} -> {row.get('component')} "
+                      f"{row.get('fault_type')} p={row.get('confidence', 0):.2f} ({wall_s:.0f}s)", flush=True)
     if jl:
         jl.close()
     pd.DataFrame(rows).to_csv(os.path.join(a.out, f"{name}.csv"), index=False)
