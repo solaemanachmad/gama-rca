@@ -21,7 +21,7 @@ import config
 from config.args import build_parser, apply_overrides, print_effective_config
 from data.loader import list_case_ids
 from agents.factory import get_llm_client
-from pipeline.baselines import BASELINE_REGISTRY
+from baselines import BASELINE_REGISTRY
 from evaluation.scoring import load_ground_truth, full_case_report
 from data.loader import Case
 

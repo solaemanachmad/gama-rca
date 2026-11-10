@@ -1,10 +1,12 @@
-# `pipeline/` — Telemetry Extraction, Calibration & Baseline Engines
+# `pipeline/` — Telemetry Extraction & Statistical Calibration Engines
 
-This directory contains the foundational telemetry extractors, statistical calibration layers, and comparative baseline engines that support the **GAMA-RCA** framework (`gama/`).
+This directory contains the foundational telemetry extractors and statistical calibration layers supporting the **GAMA-RCA** framework (`gama/`).
+
+*(Comparative baselines such as Direct LLM and Evidence->LLM are located in the dedicated [`baselines/`](../baselines) package).*
 
 ---
 
-## 🏛️ Architecture & Three Functional Clusters
+## 🏛️ Architecture & Functional Clusters
 
 ```
                      Raw Telemetry (Metrics, Logs, Traces, Events)
@@ -34,15 +36,6 @@ This directory contains the foundational telemetry extractors, statistical calib
                                           ▼
                            Used by `gama/` Orchestrator
          (gama/evidence.py ──► gama/belief.py ──► gama/decide.py)
-
-─────────────────────────────────────────────────────────────────────────────────────
-
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│ 3. Comparative Benchmark Baselines (Table 4 in paper)                            │
-│    - baselines.py              : Central registry for `main.py --systems`         │
-│    - direct_llm.py             : Direct LLM baseline (Alert text only)            │
-│    - evidence_llm.py           : Evidence -> LLM baseline (Telemetry without GAMA)│
-└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -63,9 +56,9 @@ This directory contains the foundational telemetry extractors, statistical calib
 | [`fault.py`](fault.py) | Calibration | Robust shift z-score ($1.4826 \times \text{MAD}$) and service-level signals. | §4.1 (Calibration) |
 | [`belief_diagnosis.py`](belief_diagnosis.py) | Calibration | Hypothesis prior/likelihood calculations and probe budget tracking. | §4.2 (Belief) |
 | [`llm_typing.py`](llm_typing.py) | Calibration | One-call mechanism typing for ambiguous root causes. | §4.3 (Typing) |
-| [`baselines.py`](baselines.py) | Baseline | System registry mapping `--systems` to baseline execution functions. | §5.2 (Baselines) |
-| [`direct_llm.py`](direct_llm.py) | Baseline | Unaugmented LLM baseline deciding purely from alert text. | §5.2 (Table 4) |
-| [`evidence_llm.py`](evidence_llm.py) | Baseline | LLM baseline deciding from calibrated evidence tables without Bayesian core. | §5.2 (Table 4) |
+| [`baselines.py`](baselines.py) | Compatibility | Re-export forwarding to `baselines/` package. | - |
+| [`direct_llm.py`](direct_llm.py) | Compatibility | Re-export forwarding to `baselines/direct_llm.py`. | - |
+| [`evidence_llm.py`](evidence_llm.py) | Compatibility | Re-export forwarding to `baselines/evidence_llm.py`. | - |
 
 ---
 

@@ -31,7 +31,7 @@ def _safe(fn, *a):
 def second_opinion(case, db, callees, res, texts, llm, alert, op_name) -> dict:
     """v6 G1 'gate' (PREREGISTRATION_V6.md): one Evidence->LLM call, WITHOUT the belief (an independent opinion), on the evidence
     GAMA itself holds; only the entity of the answer is used."""
-    from pipeline.evidence_llm import build_prompt, EVIDENCE_SYSTEM
+    from baselines.evidence_llm import build_prompt, EVIDENCE_SYSTEM
     ev = {}
     for o in res["holding"]:
         if o["signal"] != "alert":

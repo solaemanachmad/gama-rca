@@ -39,7 +39,7 @@ def run_belief_llm(case, llm, with_belief: bool = True) -> RCAResult:
     """with_belief=False: the Evidence->LLM reference arm on any case object (PREREGISTRATION_V6.md, AIOps2025), i.e. the same prompt
     without the belief block; the evidence is the observations that hold in GAMA's own evidence (as for the v6 gate). The RCA100
     EVIDENCE_LLM_FINAL arm (pipeline/evidence_llm.py) is unchanged."""
-    from pipeline.evidence_llm import build_prompt, EVIDENCE_SYSTEM
+    from baselines.evidence_llm import build_prompt, EVIDENCE_SYSTEM
     from pipeline.log_preprocess import preprocess_texts
     config.ALERT_T0_MODE = "window"
     m = Modules.parse("core")

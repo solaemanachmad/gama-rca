@@ -1,9 +1,9 @@
 """pipeline
 ========
-Telemetry extraction, statistical calibration, and comparative baseline engines
-supporting the GAMA-RCA framework.
+Telemetry extraction and statistical calibration engines supporting the GAMA-RCA framework.
+(Comparative baselines such as Direct LLM and Evidence->LLM are in the baselines/ package).
 
-Three Functional Clusters:
+Two Functional Clusters:
 1. Evidence Extractors:
    - propagation_evidence: Topology neighborhood & window slicing
    - infra_evidence: Host CPU, memory, and container tables
@@ -19,9 +19,4 @@ Three Functional Clusters:
    - fault: Robust shift z-score scale estimation & event signals
    - belief_diagnosis: Bayesian hypothesis likelihood model
    - llm_typing: Fine-grained mechanism typing arbitration
-
-3. Comparative Baselines:
-   - baselines: System registry for main.py (--systems)
-   - direct_llm: Alert-only LLM decision baseline
-   - evidence_llm: Calibrated-evidence LLM baseline (without Bayesian core)
 """
