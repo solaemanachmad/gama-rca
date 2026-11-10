@@ -3,12 +3,12 @@
 # ==============================================================================
 
 # Data & Ground Truth (License CC BY-NC-SA 4.0; answer keys must remain private)
-RCA100/
-RCA100_src/
-RCA100*/
-aiops2025/
-aiops2025_src/
-aiops2025*/
+/RCA100/
+/RCA100_src/
+/RCA100*/
+/aiops2025/
+/aiops2025_src/
+/aiops2025*/
 answer_key/
 *groundtruth*
 *ground_truth*

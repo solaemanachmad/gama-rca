@@ -9,12 +9,13 @@ RCA100 (OpenTelemetry Demo on Alibaba Cloud ACK, UModel entities) values:"""
 import re
 
 # metric name -> signal family (first match wins, lower-case metric name). RCA100 APM exports the request count as 'workload'.
-METRIC_FAMILY_PATTERNS = [
+METRIC_PATTERNS = [
     ("throttle", r"throttl"), ("gc", r"gc"), ("thread", r"thread"), ("error", r"error|exception|fail"),
     ("latency", r"latency|(^|_)rt($|_)|duration|response_time|elapsed"), ("replica", r"replica"), ("restart", r"restart"),
     ("ready", r"ready"), ("pods", r"pod.*(running|count)|running.*pod"), ("disk", r"disk|(^|_)io($|_)|iops|(^|_)fs_"),
     ("cpu", r"cpu"), ("mem", r"mem|heap"), ("request", r"request|qps|workload|(^|_)count$"),
 ]
+METRIC_FAMILY_PATTERNS = METRIC_PATTERNS   # backward compatibility alias
 # workloads of the fault-injection tooling (present in the benchmark, absent in production): excluded from the evidence
 EXCLUDED_WORKLOADS = re.compile(r"^(l3reg-|chaosblade|chaos-)", re.I)
 # configuration constants exported as metrics (not behaviour): excluded
@@ -25,11 +26,13 @@ TRACE_ERROR_STATUS = "2"
 # entity types of the topology (UModel). Other benchmarks: derive services from trace serviceName and nodes from host metrics.
 SERVICE_ENTITY_TYPES = ("apm.service", "apm.svc")
 NODE_ENTITY_TYPES = ("k8s.node",)
+SERVICE_TYPES = SERVICE_ENTITY_TYPES
+NODE_TYPES = NODE_ENTITY_TYPES
 
 # ------------------------------------------------------------------------------------------------------------------------------
 # Profile selection (PREREGISTRATION_AIOPS2025.md A2). DATASET_PROFILE is read once at import; unset = RCA100 (values above,
 # unchanged). The AIOps2025 values below are dataset knowledge only (metric names of the release, injection tooling), written
-# without AIOps2025 labels. Fingerprints of the AIOps2025 taxonomy: data/aiops2025_profile.py.
+# without AIOps2025 labels. Fingerprints of the AIOps2025 taxonomy: data/aiops2025/taxonomy.py.
 # ------------------------------------------------------------------------------------------------------------------------------
 import os
 
@@ -40,7 +43,7 @@ if PROFILE == "aiops2025":
     # AIOps2025 metric names (APM: request, response, rrt [ms], rrt_max, error, client_error, server_error, timeout, *_ratio;
     # infra_pod / infra_node / TiDB / TiKV / PD kpi_key names). Added to the RCA100 patterns: rrt -> latency, timeout -> error,
     # network bytes / packets -> net (new family, this profile only), TiKV MB/s and filesystem usage -> disk, *_is_up -> ready.
-    METRIC_FAMILY_PATTERNS = [
+    METRIC_PATTERNS = [
         ("net", r"network_(?:receive|transmit)"),
         ("throttle", r"throttl"), ("gc", r"(^|_)gc"), ("thread", r"thread"), ("error", r"error|exception|fail|timeout"),
         ("latency", r"latency|(^|_)rr?t($|_)|duration|response_time|elapsed|_wait$|write_stall"), ("replica", r"replica"),
@@ -48,6 +51,7 @@ if PROFILE == "aiops2025":
         ("disk", r"disk|(^|_)io($|_)|iops|(^|_)fs_|_mbps$|filesystem_usage"),
         ("cpu", r"cpu"), ("mem", r"mem|heap"), ("request", r"request|qps|workload|(^|_)count$"),
     ]
+    METRIC_FAMILY_PATTERNS = METRIC_PATTERNS
     # Chaos-Mesh / injection tooling and the k6 load generator are not entities of the system
     EXCLUDED_WORKLOADS = re.compile(r"^(chaos-|chaos-mesh|chaos-daemon|k6)", re.I)
     # capacities, totals, sizes, topology counts and uptime describe configuration or bookkeeping, not behaviour

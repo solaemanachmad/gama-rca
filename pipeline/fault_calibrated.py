@@ -467,7 +467,10 @@ FALLBACK = {"node": "F026-nodeCpuHigh", "service": "F011-codeDefect"}   # gama/d
 
 from data.dataset_profile import PROFILE as _PROFILE
 if _PROFILE == "aiops2025":                               # PREREGISTRATION_AIOPS2025.md A5 (RCA100: nothing below runs)
-    import data.aiops2025_profile as _ap
+    try:
+        import data.aiops2025.taxonomy as _ap
+    except ImportError:
+        import data.aiops2025_profile as _ap
     FINGERPRINTS, LEVEL, RESIDUAL, FALLBACK = _ap.FINGERPRINTS, _ap.LEVEL, _ap.RESIDUAL, _ap.FALLBACK
     NODE_SIGNALS.extend(_ap.NODE_EXTRA)
     SVC_SIGNALS.extend(_ap.SVC_EXTRA)
