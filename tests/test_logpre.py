@@ -126,6 +126,11 @@ def sensor_with_notes_rejects_quotes_from_the_counts():
     assert raw.prompt.startswith("Messages observed for 'checkout' during an incident window (ids and numbers may be masked):\n- ERROR")
 
 
+def test_suite():
+    for fn in T:
+        fn()
+
+
 if __name__ == "__main__":
     bad = 0
     for fn in T:

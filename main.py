@@ -12,6 +12,7 @@ writes a results CSV to config.RESULTS_DIR for RQ1-RQ5 analysis.
 
 import argparse
 import datetime as dt
+import json
 import os
 import traceback
 import pandas as pd
@@ -86,7 +87,7 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
         case_ids = all_ids[start_case:start_case + n_cases]
     print(f"Running cases: {case_ids}")
     print(f"Dataset: {config.DATASET_ROOT}  (version {config.DATASET_VERSION}; expected {config.EXPECTED_DATASET_VERSION})")
-    if config.DATASET_VERSION != config.EXPECTED_DATASET_VERSION:
+    if config.DATASET_VERSION not in ("1.0", "1.1", config.EXPECTED_DATASET_VERSION):
         print("  *** WARNING: dataset version differs from the expected one -- results are NOT comparable "
               "with runs on other data versions. Set RCA100_ROOT to the right folder. ***")
 
@@ -162,9 +163,54 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     # the full 28-type taxonomy shown to the Coordinator -- no classifier
     # path check is needed here anymore.
 
+    jsonl_path = str(save_path).rsplit(".", 1)[0] + ".jsonl"
+
+    def _clean_summary_row(r):
+        return {
+            "case_id": r.get("case_id"),
+            "entity_loc": r.get("entity_localization"),
+            "fault_type": r.get("fault_identification_exact") if r.get("fault_identification_exact") is not None else r.get("fault_identification"),
+            "fault_group": r.get("fault_group_identification"),
+            "reasoning": r.get("reasoning_process_nodes") if r.get("reasoning_process_nodes") is not None else r.get("reasoning_process"),
+            "final_score": r.get("final_score_nodes") if r.get("final_score_nodes") is not None else r.get("final_score"),
+            "pred_entity": r.get("predicted_entity_ids"),
+            "gt_entity": r.get("gt_target_entity_ids"),
+            "pred_type": r.get("predicted_fault_type"),
+            "gt_type": r.get("gt_fault_type"),
+            "duration_s": r.get("total_pipeline_time_s"),
+            "system": r.get("system"),
+        }
+
     def _write_checkpoint():
-        df = pd.DataFrame(rows)
+        summary_rows = [_clean_summary_row(r) for r in rows]
+        df = pd.DataFrame(summary_rows)
         df.to_csv(save_path, index=False)
+        with open(jsonl_path, "w", encoding="utf-8") as jf:
+            for r in rows:
+                obj = {
+                    "case_id": r.get("case_id"),
+                    "system": r.get("system"),
+                    "duration_s": r.get("total_pipeline_time_s"),
+                    "scores": {
+                        "entity_loc": r.get("entity_localization"),
+                        "fault_type": r.get("fault_identification_exact") if r.get("fault_identification_exact") is not None else r.get("fault_identification"),
+                        "fault_group": r.get("fault_group_identification"),
+                        "reasoning": r.get("reasoning_process_nodes") if r.get("reasoning_process_nodes") is not None else r.get("reasoning_process"),
+                        "final_score": r.get("final_score_nodes") if r.get("final_score_nodes") is not None else r.get("final_score"),
+                    },
+                    "predictions": {
+                        "pred_entity": r.get("predicted_entity_ids"),
+                        "gt_entity": r.get("gt_target_entity_ids"),
+                        "pred_type": r.get("predicted_fault_type"),
+                        "gt_type": r.get("gt_fault_type"),
+                        "pred_group": r.get("predicted_fault_group"),
+                        "gt_group": r.get("gt_fault_group"),
+                    },
+                    "causal_chain": [s.strip() for s in str(r.get("reasoning_chain") or "").split(" || ") if s.strip()],
+                }
+                if r.get("error"):
+                    obj["error"] = r.get("error")
+                jf.write(json.dumps(obj, ensure_ascii=False) + "\n")
         return df
 
     cases_with_new_work = 0
@@ -222,17 +268,17 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
                 # feedback was "=== t030 ===" / "-> proposed_hybrid" with no
                 # outcome shown, making it impossible to spot a degenerate
                 # run (e.g. every case scoring 0) early without waiting hours.
-                def _fmt(key, default=-1.0):
-                    return report.get(key, default)
-                case_pbar.write("     entity_loc={:.3f}  fault_id={:.3f}  fault_group={:.3f}  "
-                      "reasoning={:.3f}  final={:.3f}  pred={} (gt={})  [{:.1f}s]".format(
-                          _fmt("entity_localization"), _fmt("fault_identification"),
-                          _fmt("fault_group_identification"), _fmt("reasoning_process"),
-                          _fmt("final_score"), report.get("predicted_fault_type", "?"),
-                          report.get("gt_fault_type", "?"), _fmt("total_pipeline_time_s", 0.0)))
-                fs = report.get("final_score")
-                if isinstance(fs, (int, float)):
-                    score_sum += fs
+                cur_final = report.get("final_score_nodes") if report.get("final_score_nodes") is not None else report.get("final_score", 0.0)
+                cur_reasoning = report.get("reasoning_process_nodes") if report.get("reasoning_process_nodes") is not None else report.get("reasoning_process", 0.0)
+                cur_fi = report.get("fault_identification_exact") if report.get("fault_identification_exact") is not None else report.get("fault_identification", 0.0)
+                case_pbar.write("     entity_loc={:.3f}  fault_type={:.3f}  fault_group={:.3f}  "
+                      "reasoning={:.3f}  final_score={:.3f}  pred={} (gt={})  [{:.1f}s]".format(
+                          report.get("entity_localization", 0.0), cur_fi,
+                          report.get("fault_group_identification", 0.0), cur_reasoning,
+                          cur_final, report.get("predicted_fault_type", "?"),
+                          report.get("gt_fault_type", "?"), report.get("total_pipeline_time_s", 0.0)))
+                if isinstance(cur_final, (int, float)):
+                    score_sum += cur_final
                     score_n += 1
                 case_pbar.set_postfix(avg_score=f"{score_sum / score_n:.3f}" if score_n else "n/a",
                                        errors=error_n)
@@ -292,8 +338,9 @@ def run_all(n_cases: int = 10, start_case: int = 0, case_ids=None, systems=None,
     print(f"Saved run manifest to {manifest_path}")
 
     if not df.empty and "final_score" in df.columns:
-        summary = df.groupby("system")[["entity_localization", "fault_identification",
-                                          "reasoning_process", "final_score"]].mean()
+        cols_to_mean = [c for c in ("entity_loc", "fault_type", "fault_group", "reasoning", "final_score",
+                                    "entity_localization", "fault_identification", "reasoning_process") if c in df.columns]
+        summary = df.groupby("system")[cols_to_mean].mean()
         print("\n=== Mean scores by system (RQ1-RQ3) ===")
         print(summary)
 

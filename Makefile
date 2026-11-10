@@ -23,7 +23,7 @@ ablation:    ## Run leave-one-out ablation suite
 	@$(PYTHON) scripts/ablation.py
 
 lint:        ## Run pyflakes linter on active code
-	$(PYTHON) -m pyflakes $$(git ls-files '*.py' 2>/dev/null | grep -v '^\.venv/' | grep -v '^archive/')
+	$(PYTHON) -m pyflakes $$(git ls-files '*.py' 2>/dev/null | grep -v '^\.venv/')
 
 paper:       ## Compile LaTeX manuscript (paper/main.pdf)
 	cd paper && (latexmk -pdf main.tex 2>/dev/null || pdflatex -interaction=nonstopmode main.tex)

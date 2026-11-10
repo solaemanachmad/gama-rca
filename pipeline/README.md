@@ -56,9 +56,6 @@ This directory contains the foundational telemetry extractors and statistical ca
 | [`fault.py`](fault.py) | Calibration | Robust shift z-score ($1.4826 \times \text{MAD}$) and service-level signals. | §4.1 (Calibration) |
 | [`belief_diagnosis.py`](belief_diagnosis.py) | Calibration | Hypothesis prior/likelihood calculations and probe budget tracking. | §4.2 (Belief) |
 | [`llm_typing.py`](llm_typing.py) | Calibration | One-call mechanism typing for ambiguous root causes. | §4.3 (Typing) |
-| [`baselines.py`](baselines.py) | Compatibility | Re-export forwarding to `baselines/` package. | - |
-| [`direct_llm.py`](direct_llm.py) | Compatibility | Re-export forwarding to `baselines/direct_llm.py`. | - |
-| [`evidence_llm.py`](evidence_llm.py) | Compatibility | Re-export forwarding to `baselines/evidence_llm.py`. | - |
 
 ---
 

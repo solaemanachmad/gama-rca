@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """kaggle_job.py -- one command per run on Kaggle. The notebook never changes; only the arguments do.
 
 Notebook (2 cells, the same for every run):
@@ -7,7 +8,7 @@ Notebook (2 cells, the same for every run):
   from kaggle_secrets import UserSecretsClient
   tok = UserSecretsClient().get_secret("GITHUB_TOKEN")
   subprocess.run("rm -rf /kaggle/working/gama-rca", shell=True)
-  subprocess.run(["git", "clone", "-q", "--depth", "1", f"https://{tok}@github.com/solaemanachmad/gama-rca.git", "/kaggle/working/gama-rca"])
+  subprocess.run(["git", "clone", "-q", "--depth", "1", f"https://{tok}@github.com/solaemanachmad/gamarca.git", "/kaggle/working/gama-rca"])
   os.chdir("/kaggle/working/gama-rca")
 
   # Cell 2 -- run (change only the arguments)
@@ -35,10 +36,17 @@ import subprocess
 import sys
 import time
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-DEFAULT_DATA = "/kaggle/input/datasets/solaemanachmad/rca100v1-1/RCA100v1.1"
-OUT = "/kaggle/working"
+LOCAL_DATA = os.path.expanduser("~/Developments/RCA100")
+DEFAULT_DATA = os.environ.get("RCA100_ROOT", LOCAL_DATA if os.path.isdir(LOCAL_DATA) else "/kaggle/input/datasets/solaemanachmad/rca100v1-1/RCA100v1.1")
+OUT = os.environ.get("OUT_DIR", "./results" if not os.path.isdir("/kaggle") else "/kaggle/working")
 
 
 def definitions(data):
@@ -72,17 +80,16 @@ def main():
     ap.add_argument("--modules", default=None)
     a = ap.parse_args()
 
-    assert os.path.isdir(os.path.join(a.data, "cases")), f"dataset not found: {a.data} (attach RCA100 or pass --data)"
     D = definitions(a.data)
     if a.list:
         print("ARMS:", ", ".join(D["ARMS"]))
         print("MODELS:", ", ".join(D["MODELS"]))
         return
+    assert os.path.isdir(os.path.join(a.data, "cases")), f"dataset not found: {a.data} (attach RCA100 or pass --data)"
     assert a.arm in D["ARMS"], f"unknown arm {a.arm!r}; --list shows the arms"
     assert a.model in D["MODELS"], f"unknown model {a.model!r}; --list shows the models"
 
-    named = {"all": D["ALL_IDS"], "odd": D["DEV_ODD"], "even": D["VAL_EVEN"]}
-    cases = named.get(a.cases) or [c.strip() for c in a.cases.split(",") if c.strip()]
+    cases = D["ALL_IDS"] if a.cases == "all" else [c.strip() for c in a.cases.split(",") if c.strip()]
     shard = None
     if a.shard:
         k, n = (int(x) for x in a.shard.split("/"))
@@ -117,16 +124,20 @@ def main():
     if a.dry:
         return
     secret = D["MODELS"][a.model].get("API_KEY_SECRET")
-    if secret:                                                # API backbone: the key from a Kaggle Secret (or the environment);
-        key = os.environ.get(secret)                          # never printed, never written to the manifest or the log
+    if secret:                                                # API backbone: key from environment or Kaggle Secret
+        key = os.environ.get(secret) or os.environ.get("API_KEY")
         if not key:
-            from kaggle_secrets import UserSecretsClient
-            key = UserSecretsClient().get_secret(secret)
-        assert key, f"Kaggle Secret {secret} is empty"
+          try:
+              from kaggle_secrets import UserSecretsClient
+              key = UserSecretsClient().get_secret(secret)
+          except Exception:
+              pass
+        assert key, f"API key not found: please set environment variable {secret}=... (or export API_KEY=...)"
         env["API_KEY"] = key
-    if not a.no_install:
+    if not a.no_install and os.path.isdir("/kaggle"):
         install(D["MODELS"][a.model])
 
+    os.makedirs(a.out, exist_ok=True)
     open(f"{a.out}/{name}.commit.txt", "w").write(commit + "\n")
     manifest = {"commit": commit, "arm": a.arm, "system": system, "modules": env.get("GAMA_MODULES"),
                 "v4_parts": env.get("V4_PARTS"), "model": a.model, "model_env": D["MODELS"][a.model], "cases": cases,
@@ -162,14 +173,17 @@ def main():
     if os.path.exists(out_csv):
         import pandas as pd
         d = pd.read_csv(out_csv)
-        cols = [c for c in ("entity_localization", "fault_identification_exact", "fault_group_identification", "reasoning_process",
-                            "final_score", "total_pipeline_time_s") if c in d.columns]
+        cols = [c for c in ("entity_loc", "fault_type", "fault_group", "reasoning", "final_score", "duration_s",
+                            "entity_localization", "fault_identification_exact", "fault_group_identification",
+                            "reasoning_process", "total_pipeline_time_s") if c in d.columns]
         print(f"\n{len(d)} rows")
-        print(d[[c for c in ("case_id", "entity_localization", "predicted_fault_type", "gt_fault_type", "final_score")
-                 if c in d.columns]].to_string(index=False))
+        show_cols = [c for c in ("case_id", "entity_loc", "pred_entity", "gt_entity", "pred_type", "gt_type",
+                                 "final_score", "entity_localization", "predicted_fault_type", "gt_fault_type")
+                     if c in d.columns]
+        print(d[show_cols].to_string(index=False))
         print(d[cols].mean(numeric_only=True).round(4).to_string())
     z = f"{a.out}/{name}_all.zip"
-    subprocess.run(f"cd {a.out} && rm -f {name}_all.zip && zip -qr {name}_all.zip {name}.csv {name}.log {name}.commit.txt {name}.manifest.json "
+    subprocess.run(f"cd {a.out} && rm -f {name}_all.zip && zip -qr {name}_all.zip {name}.csv {name}.jsonl {name}.log {name}.commit.txt {name}.manifest.json "
                    f"{name}_trace 2>/dev/null", shell=True)
     print("\ndownload:", z if os.path.exists(z) else "(zip failed)")
 

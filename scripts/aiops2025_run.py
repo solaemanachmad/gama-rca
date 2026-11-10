@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """GAMA-RCA on AIOps2025, zero-shot (PREREGISTRATION_AIOPS2025.md). Reads input.json and the telemetry; never opens ground truth.
 
     python scripts/aiops2025_run.py --data /kaggle/input/aiops2025 --out /kaggle/working --shard 0/4            # diagnose
@@ -7,8 +8,8 @@ Writes <name>.jsonl (one answer per case, the benchmark's submission format: uui
 <name>.csv (decision statistics per case), <name>.manifest.json. --check writes <name>_check.csv: adapter coverage and, per entity
 kind and signal, how many (entity, signal) pairs are testable in the window and how many hold (false-alarm view).
 
-LLM arms (PREREGISTRATION_V6.md; API backbone on a CPU session, the key from the Kaggle Secret named in the preset, never printed):
-    python scripts/aiops2025_run.py --modules v6 --model gptoss120b_cerebras --shard 0/4             # GAMA v6
+LLM arms (API backbone on a CPU session, the key from the Kaggle Secret named in the preset, never printed):
+    python scripts/aiops2025_run.py --modules hybrid --model gptoss120b_cerebras --shard 0/4         # GAMA Hybrid
     python scripts/aiops2025_run.py --arm evidence_llm --model gptoss120b_cerebras --shard 0/4       # Evidence->LLM reference
 --model takes a key of MODELS in scripts/kaggle_run.py (the same presets as the RCA100 runs). Re-running the same command resumes:
 cases already answered without error are kept.
@@ -106,13 +107,13 @@ def check(case, m) -> list:
     """Label-free: testable / holding continuous signals per (entity kind, signal) in the window."""
     from gama import evidence
     from gama.chain import callee_map
-    from pipeline.fault_v4 import calibrate_v4
+    from pipeline.fault import calibrate
     import config
     config.ALERT_T0_MODE = "window"                     # as in gama/run.run_case: evidence window = the case window
     db = evidence.signal_db(case, case.alert.alert_timestamp, m)
     if "services" not in db:
         return [{"case": case.case_id, "error": db.get("error")}]
-    calibrate_v4(db, peer=True, robust_null=False, ops_level=False, selfnorm=True, ratio=False, callees=callee_map(case.topology))
+    calibrate(db, peer=True, robust_null=False, ops_level=False, selfnorm=True, ratio=False, callees=callee_map(case.topology))
     kind = {e: ("node" if e in db["nodes"] else ("pod" if e in db.get("memberships", {}) else "service"))
             for e in list(db["services"]) + list(db["nodes"])}
     tot, hold, ent = Counter(), Counter(), Counter(kind.values())
@@ -131,7 +132,7 @@ def main():
     ap.add_argument("--out", default=os.environ.get("OUT_DIR", "/kaggle/working"))
     ap.add_argument("--cases", default="all", help="all | first:N | uuid,uuid,...")
     ap.add_argument("--shard", default=None, help="k/n: every n-th case starting at k")
-    ap.add_argument("--modules", default="core", help="GAMA arm: core | full | v6 | core,-trace ...")
+    ap.add_argument("--modules", default="core", help="GAMA arm: core | full | hybrid | core,-trace ...")
     ap.add_argument("--arm", default="gama", choices=("gama", "evidence_llm", "belief_llm"))
     ap.add_argument("--model", default=None, help="key of scripts/kaggle_run.py MODELS (LLM arms, modules with llm)")
     ap.add_argument("--check", action="store_true", help="label-free adapter / signal checks only (no diagnosis)")

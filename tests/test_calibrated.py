@@ -65,9 +65,12 @@ def types(c, origin):
 T = []
 
 
-def test(fn):
+def register(fn):
     T.append(fn)
     return fn
+
+
+test = register
 
 
 @test
@@ -185,6 +188,11 @@ def drifting_metric_is_not_an_anomaly():
 
 
 # typing_uses_hypothesis_entity_with_level_switch tested agents/multi_agent._apply_entity_typing (archived; see archive/agents/).
+
+
+def test_suite():
+    for fn in T:
+        fn()
 
 
 if __name__ == "__main__":

@@ -1,30 +1,76 @@
-# data & answer key (license CC BY-NC-SA; answer_key must never be public)
+# ==============================================================================
+# GAMARCA Git Ignore Rules
+# ==============================================================================
+
+# Data & Ground Truth (License CC BY-NC-SA 4.0; answer keys must remain private)
 RCA100/
 RCA100_src/
 RCA100*/
+aiops2025/
+aiops2025_src/
+aiops2025*/
 answer_key/
+*groundtruth*
+*ground_truth*
 *.parquet
+*.tar.gz
 
-# secrets / env
+# Secrets and Local Environment
 .env
+.env.*
+!.env.example
+.venv
 .venv/
+venv
 venv/
+env/
+ENV/
 
-# outputs that contain ground-truth columns (gt_*) or are large
+# Experiment results and intermediate dumps
 results/
 gama_work/
 topology_exports/
-*.zip
-*.pkl
-
-# local copies / scratch
 kaggle_upload/
 scripts_tmp/
+wandb/
+*.zip
+*.pkl
+*.log
 
-# python / OS
+# Python cache and build artifacts
 __pycache__/
-*.pyc
-.DS_Store
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# archived dead code / old results (local only)
-_archive*/
+# OS and IDE specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# LaTeX compilation artifacts (keep only sources and final PDF in paper/)
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+paper/build/*.aux
+paper/build/*.log

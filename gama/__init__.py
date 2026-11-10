@@ -18,7 +18,7 @@ Stages (files)                                          Modules (one switch each
                                                           M7 llm     sensor, shortlist typing, narrator
 
 Lower-level evidence extraction (dataset adapters and tests) stays in pipeline/: fault_calibrated.py (signal database, fingerprints),
-fault_v4.py (shift scoring, peers, events), trace_structure.py, belief_diagnosis.py (constants, background, explainers, probe model),
+fault.py (shift scoring, peers, events), trace_structure.py, belief_diagnosis.py (constants, background, explainers, probe model),
 log_preprocess.py / semantic_probes.py (text for the LLM), llm_typing.py; data/dataset_profile.py holds the only dataset-specific
 knowledge. The development history (all amendments and their switches) is reproducible from git tag v5-frozen.
 """

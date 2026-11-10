@@ -192,6 +192,11 @@ def verifier_grounding():
 # typing_shortlist_with_stub_llm tested agents/multi_agent._apply_entity_typing (archived; see archive/agents/).
 
 
+def test_suite():
+    for fn in SCENARIOS:
+        fn()
+
+
 if __name__ == "__main__":
     failed = 0
     for fn in SCENARIOS:

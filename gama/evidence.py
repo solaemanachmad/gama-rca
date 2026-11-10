@@ -2,7 +2,7 @@
 
 Each continuous signal (request, error, latency, CPU, memory, GC, threads, disk ...) is scored by the size of its shift against the
 same signal before the window, re-standardised against the peers of its kind (common-mode rejection) and against the entity's own
-pseudo-windows (volatile entities) -- pipeline/fault_v4.calibrate_v4. Categorical evidence: Kubernetes events whose rate in the window
+pseudo-windows (volatile entities) -- pipeline/fault.calibrate. Categorical evidence: Kubernetes events whose rate in the window
 exceeds their own long-run rate (Poisson test), availability below desired, HTTP / gRPC status and messages of failing spans, log text
 families. Every observation is binary (holds / absent) with a calibrated rate (P1: calibrate, do not threshold).
 
@@ -15,7 +15,7 @@ from typing import List
 
 from pipeline import belief_diagnosis as bd
 from pipeline.fault_calibrated import compute_signal_db
-from pipeline.fault_v4 import calibrate_v4, new_events, unavailability, B_SPAN
+from pipeline.fault import calibrate as calibrate_v4, new_events, unavailability, B_SPAN
 from gama.config import Modules
 
 

@@ -58,5 +58,9 @@ def main():
     print("3/3 passed")
 
 
+def test_suite():
+    main()
+
+
 if __name__ == "__main__":
     main()

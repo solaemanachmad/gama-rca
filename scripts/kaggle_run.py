@@ -38,6 +38,8 @@ MODELS = {
     "gptoss120b_cerebras": {"LLM_BACKEND": "api", "API_BASE_URL": "https://api.cerebras.ai/v1", "API_MODEL": "gpt-oss-120b",
                             "API_KEY_SECRET": "CEREBRAS_API_KEY", "API_REASONING_EFFORT": "medium", "LLM_MAX_TOKENS": "8192",
                             "API_MIN_INTERVAL_S": "13"},          # free trial: 5 requests / minute
+    "qwen27b_cerebras": {"LLM_BACKEND": "api", "API_BASE_URL": "https://api.cerebras.ai/v1", "API_MODEL": "qwen-3.8-27b",
+                         "API_KEY_SECRET": "CEREBRAS_API_KEY", "LLM_MAX_TOKENS": "4096", "API_MIN_INTERVAL_S": "2"},
     "gemma2_9b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "google/gemma-2-9b-it"},
     "qwen3_4b": {"KAGGLE_MODEL_LOCAL_PATH": "", "KAGGLE_MODEL_HANDLE": "Qwen/Qwen3-4B"},
 }
@@ -56,19 +58,21 @@ W = {"ALERT_T0_MODE": "window"}
 ARMS = {                                                          # name -> extra env, on BASE + model preset + FIXED
     "GAMA": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "core"},                    # CPU; kaggle_job --modules core,-trace ... overrides
     "GAMA_FULL": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "full"},               # GPU: + bounded local LLM (M7)
+    "GAMA_HYBRID": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "hybrid"},           # GAMA + Bounded LLM
     "BELIEF_LLM": {"_SYSTEM": "belief_llm", **W, "V3_LOG_MODE": "template"},     # GPU: GAMA's belief, the LLM decides freely
+    "EVIDENCE_LLM": {"_SYSTEM": "evidence_llm", **W, "V3_LOG_MODE": "template", "V4_PARTS": V5_FINAL_PARTS},   # GPU baseline
     "EVIDENCE_LLM_FINAL": {"_SYSTEM": "evidence_llm", **W, "V3_LOG_MODE": "template", "V4_PARTS": V5_FINAL_PARTS},   # GPU baseline
     "DIRECT_LLM": {"_SYSTEM": "direct_llm"},                                     # GPU baseline: alert only
     # names of the reported runs; identical outputs to the frozen development arms (PREREGISTRATION_V5.md, equivalence 206 / 206)
     "A": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "base"},                       # configuration A (M0 only)
     "GAMA_CORE": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "core"},
     "GAMA_LLM": {"_SYSTEM": "gama", **W, "GAMA_MODULES": "full"},
-    **{f"GAMA_CORE_NO_{name}": {"_SYSTEM": "gama", **W, "GAMA_MODULES": f"core,-{mod}"}
+    **{f"GAMA_CORE_NO_{name}": {"_SYSTEM": "gama", **W, "GAMA_MODULES": f"no_{mod}"}
+       for name, mod in (("MM", "mm"), ("TRACE", "trace"), ("TYPE", "typing"), ("LOAD", "load"), ("TEXT", "text"), ("CHAIN", "chain"))},
+    **{f"NO_{name}": {"_SYSTEM": "gama", **W, "GAMA_MODULES": f"no_{mod}"}
        for name, mod in (("MM", "mm"), ("TRACE", "trace"), ("TYPE", "typing"), ("LOAD", "load"), ("TEXT", "text"), ("CHAIN", "chain"))},
 }
 _MF = os.path.join(DATA, "manifest.txt")                  # absent when only the presets are read (scripts/aiops2025_run.py --model)
 ALL_IDS = [l.strip() for l in open(_MF) if l.strip()] if os.path.exists(_MF) else []
-DEV_ODD = [c for c in ALL_IDS if int(c[1:]) % 2 == 1]     # internal record of the v5 development protocol (PREREGISTRATION_V5.md)
-VAL_EVEN = [c for c in ALL_IDS if int(c[1:]) % 2 == 0]
 
 # %% Cell end

@@ -184,8 +184,8 @@ def scenarios_reach_the_module_branches():
         for x in ("mm", "trace", "typing", "load", "text", "chain"):
             r = run_case(sc(), None, Modules.parse(f"core,-{x}"))
             if (r.predicted_entity_ids, r.predicted_fault_type, r.reasoning_chain, round(r.confidence, 9),
-                    r.retrieval_stats.get("v3_top")) != (ref.predicted_entity_ids, ref.predicted_fault_type, ref.reasoning_chain,
-                                                         round(ref.confidence, 9), ref.retrieval_stats.get("v3_top")):
+                    r.retrieval_stats.get("top_hyp")) != (ref.predicted_entity_ids, ref.predicted_fault_type, ref.reasoning_chain,
+                                                         round(ref.confidence, 9), ref.retrieval_stats.get("top_hyp")):
                 changed.add(x)
     assert changed >= {"trace", "load", "chain"}, changed
     print("   modules that changed an output:", sorted(changed))
@@ -217,6 +217,11 @@ def belief_llm_adds_only_the_belief_block_to_the_evidence_prompt():
     assert p.index("Statistical diagnosis") < p.index("Task:") and "http429" in p          # the evidence block is there too
     assert r.predicted_fault_type == "F011-codeDefect" and r.retrieval_stats["belief_type"] == ref.predicted_fault_type
     assert r.retrieval_stats["belief_kept_type"] is False
+
+
+def test_suite():
+    for fn in T:
+        fn()
 
 
 if __name__ == "__main__":

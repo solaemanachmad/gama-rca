@@ -25,7 +25,7 @@ import numpy as np
 from pipeline import belief_diagnosis as bd
 from data.dataset_profile import PROFILE
 from pipeline.fault_calibrated import FINGERPRINTS, LEVEL, RESIDUAL, NODE_SIGNALS, _atoms
-from pipeline.fault_v4 import V4_SVC_SIGNALS
+from pipeline.fault import SVC_SIGNALS as V4_SVC_SIGNALS
 from pipeline.trace_structure import SIGNALS as TRACE_SIGNALS
 from gama.config import Modules
 

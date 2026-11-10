@@ -261,7 +261,8 @@ def calibrate_v4(db, peer: bool = False, robust_null: bool = False, ops_level: b
             else:
                 r["p"] = (1 + sum(1 for x in nl if x >= r["z"])) / (len(nl) + 1)
             cal[ent][name] = r
-    db["_cal"], db["_null"], db["_v4_peer"] = cal, null, peer
+    db["_cal"], db["_null"], db["_peer"] = cal, null, peer
+    db["_v4_peer"] = peer
     return cal
 
 
@@ -454,3 +455,7 @@ def self_adjust(raw: Dict) -> None:
                 sc = max(1.4826 * median(abs(v - med) for v in ref), SELF_FLOOR)
                 new[i] = (z - med) / sc
             r["zs"] = new
+
+
+calibrate = calibrate_v4
+

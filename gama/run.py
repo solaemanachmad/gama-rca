@@ -29,8 +29,7 @@ def _safe(fn, *a):
 
 
 def second_opinion(case, db, callees, res, texts, llm, alert, op_name) -> dict:
-    """v6 G1 'gate' (PREREGISTRATION_V6.md): one Evidence->LLM call, WITHOUT the belief (an independent opinion), on the evidence
-    GAMA itself holds; only the entity of the answer is used."""
+    """Entropy gate: one Evidence->LLM call, WITHOUT the belief (independent opinion), on holding evidence."""
     from baselines.evidence_llm import build_prompt, EVIDENCE_SYSTEM
     ev = {}
     for o in res["holding"]:
@@ -42,8 +41,8 @@ def second_opinion(case, db, callees, res, texts, llm, alert, op_name) -> dict:
     name = str(out.get("root_cause_entity", "")).strip()
     known = list(db["services"]) + list(db["nodes"])
     ent = name if name in known else {k.lower(): k for k in known}.get(name.lower())   # case / whitespace tolerance only
-    return {"v6_gate_called": True, "v6_gate_answer": name, "v6_gate_entity": ent, "v6_gate_prompt_chars": len(prompt),
-            "v6_gate_changed": bool(ent and ent != res["entity"]), "v6_gate_llm_type": str(out.get("predicted_fault_type", ""))}
+    return {"gate_called": True, "gate_answer": name, "gate_entity": ent, "gate_chars": len(prompt),
+            "gate_changed": bool(ent and ent != res["entity"]), "gate_type": str(out.get("predicted_fault_type", ""))}
 
 
 def run_case(case, llm, m: Modules) -> RCAResult:
@@ -68,41 +67,41 @@ def run_case(case, llm, m: Modules) -> RCAResult:
     res = diagnose(db, callees, texts, m, sensor=sensor, budget=budget, alert=alert, case=case, keep_state=gate)
     state = res.pop("_state", None)
     gate_stats = {}
-    if gate:                                             # v6 G1: a second opinion only when the computed entity is unsure
-        gate_stats = {"v6_gate_called": False, "v6_p_entity_before": round(res["p"], 4), "v6_entity_before": res["entity"]}
+    if gate:                                             # entropy gate: ask second opinion when computed entity is unsure
+        gate_stats = {"gate_called": False, "prior_p": round(res["p"], 4), "prior_entity": res["entity"]}
         if res["p"] < STOP_P:
             op0 = _node_name(case.topology, entry) if (entry and entry in case.topology) else None
             gate_stats.update(second_opinion(case, db, callees, res, texts, llm, alert, op0))
-            if gate_stats["v6_gate_changed"]:
+            if gate_stats["gate_changed"]:
                 model0, obs0, b0, logp0, log0 = state
-                res = decide(model0, obs0, b0, logp0, log0, db, m, force_entity=gate_stats["v6_gate_entity"])
+                res = decide(model0, obs0, b0, logp0, log0, db, m, force_entity=gate_stats["gate_entity"])
     model = res.pop("_model")
     typing_trail, stats_llmtype = None, {}
     if llm is not None:
         ty = gllm.type_root(llm, db, res, texts, case, model, discrim=m.defer)
         typing_trail = ty
-        stats_llmtype = {"v4_type_bayes": res["type"], "v4_type_llm": ty["llm_type"], "v4_type_llm_accepted": ty["accepted"],
-                         "v4_type_llm_changed": ty["changed"], "v4_typing_prompt_chars": ty["prompt_chars"],
-                         **({"v6_type_discriminating": ty.get("discriminating")} if m.defer else {}), **gate_stats}
+        stats_llmtype = {"type_bayes": res["type"], "type_llm": ty["llm_type"], "type_accepted": ty["accepted"],
+                         "type_changed": ty["changed"], "typing_chars": ty["prompt_chars"],
+                         **({"type_discrim": ty.get("discriminating")} if m.defer else {}), **gate_stats}
         if ty["accepted"]:
             res["type"] = ty["llm_type"]
     ts_ = res.get("trace_structure") or {}
-    stats = {"v3_alert_service": alert, "v3_answer_p": round(res["p"], 4), "v3_p_h0": round(res["p_h0"], 4),
-             "v3_entropy_bits": res["entropy_bits"], "v3_n_obs": res["n_obs"], "v3_n_hyp": res["n_hyp"], "v3_probes": len(res["probes"]),
-             "v3_probe_log": "|".join(f"{p['probe']}:{p['category']}:{p['eig_bits']}" for p in res["probes"]),
-             "v3_sensor_quote_ok": sum(1 for s in sensor_log if s["quote_ok"]),
-             "v3_top": "|".join(f"{t['entity']}:{t['type']}:{t['p']}" for t in res["top"]),
-             "v3_budget": budget, "v4_parts": ",".join(res.get("parts", [])), "gama_modules": res["modules"],
-             "v4_p_type": res.get("p_type"), "v3_log_mode": "template" if llm is not None else "",
-             "v3_text_entities": len(texts), "v3_sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats,
-             "v4_pi": round(res["pi"], 4) if res.get("pi") is not None else None, "v4_onset_root": res.get("onset_root"),
-             "v4_n_onsets": res.get("n_onsets"), "v5_mm_k": res.get("mm_k"), "v5_mm_beta": res.get("mm_beta"),
-             "v5_mm_n_corroborated": res.get("mm_n_corroborated"), "v5_load_explained": "|".join(res.get("load_explained") or []),
-             **({"v5_err_traces": ts_.get("n_err_traces"),
-                 "v5_err_origin": "|".join(f"{k}:{v}" for k, v in sorted((ts_.get("err_origin") or {}).items(), key=lambda kv: -kv[1])[:3]),
-                 "v5_relayed": "|".join(f"{k}:{v}" for k, v in (ts_.get("relayed_to_callee") or {}).items()),
-                 "v5_origin_msgs": "|".join(sorted((ts_.get("origin_messages") or {}).keys())),
-                 "v5_slow_origin": "|".join(f"{k}:{v}" for k, v in sorted((ts_.get("slow_origin") or {}).items(), key=lambda kv: -kv[1])[:3])}
+    stats = {"alert_service": alert, "answer_p": round(res["p"], 4), "p_h0": round(res["p_h0"], 4),
+             "entropy": res["entropy_bits"], "obs_count": res["n_obs"], "hyp_count": res["n_hyp"], "probes": len(res["probes"]),
+             "probe_log": "|".join(f"{p['probe']}:{p['category']}:{p['eig_bits']}" for p in res["probes"]),
+             "sensor_ok": sum(1 for s in sensor_log if s["quote_ok"]),
+             "top_hyp": "|".join(f"{t['entity']}:{t['type']}:{t['p']}" for t in res["top"]),
+             "budget": budget, "parts": ",".join(res.get("parts", [])), "modules": res["modules"],
+             "type_p": res.get("p_type"), "log_mode": "template" if llm is not None else "",
+             "text_entities": len(texts), "sensor_lines": "|".join(str(x["n_lines"]) for x in sensor_log), **pre_stats,
+             "pi": round(res["pi"], 4) if res.get("pi") is not None else None, "onset_root": res.get("onset_root"),
+             "onset_count": res.get("n_onsets"), "mm_k": res.get("mm_k"), "mm_beta": res.get("mm_beta"),
+             "mm_corroborated": res.get("mm_n_corroborated"), "load_explained": "|".join(res.get("load_explained") or []),
+             **({"err_traces": ts_.get("n_err_traces"),
+                 "err_origin": "|".join(f"{k}:{v}" for k, v in sorted((ts_.get("err_origin") or {}).items(), key=lambda kv: -kv[1])[:3]),
+                 "relayed": "|".join(f"{k}:{v}" for k, v in (ts_.get("relayed_to_callee") or {}).items()),
+                 "origin_msgs": "|".join(sorted((ts_.get("origin_messages") or {}).keys())),
+                 "slow_origin": "|".join(f"{k}:{v}" for k, v in sorted((ts_.get("slow_origin") or {}).items(), key=lambda kv: -kv[1])[:3])}
                 if ts_ else {}),
              **stats_llmtype}
     ev_lines = [f"- {e['entity']} {e['signal']} {'holds' if e['holds'] else 'absent'} (log Bayes factor {e['log_bf']}): {e['ev']}"
@@ -128,8 +127,8 @@ def run_case(case, llm, m: Modules) -> RCAResult:
             pool, _ = _evidence_pool({"propagation_text": prop.get("text") or "", "infra_text": (infra.get("text") or "") + "\n"
                                       + "\n".join(ev_lines), "trace_text": trace.get("text") or ""})
             g, n, _bad = _grounding(narrative, pool)
-            stats.update(v3_grounded=round(g, 3), v3_numbers=n)
-        stats["v3_narrator_prompt_chars"] = len(prompt)
+            stats.update(grounded=round(g, 3), numbers=n)
+        stats["narrator_chars"] = len(prompt)
         if narrative:
             stats["llm_chain"] = " || ".join(narrative)
     chain = rule_chain(res, path, op_name, step_metrics)  # the scored chain: computed along the topology path
@@ -143,7 +142,7 @@ def run_case(case, llm, m: Modules) -> RCAResult:
                     "p_type": res.get("p_type")},
         "evidence_by_bayes_factor": res.get("evidence"), "text_probes": res.get("probes"), "sensor_calls": sensor_log,
         "log_preprocessing": pre_stats, "typing": typing_trail, "call_path": path, "chain": chain,
-        "grounding": {k: stats.get(k) for k in ("v3_grounded", "v3_numbers")}}
+        "grounding": {k: stats.get(k) for k in ("grounded", "numbers")}}
     ids = _ids(case.topology)
     eid = ids.get(res["entity"], res["entity"])
     stats["total_pipeline_time_s"] = round(time.time() - t0, 1)

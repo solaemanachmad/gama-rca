@@ -22,6 +22,7 @@ Usage in an entry-point script:
 """
 
 import argparse
+import os
 
 
 def build_parser(parser: argparse.ArgumentParser = None) -> argparse.ArgumentParser:

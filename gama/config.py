@@ -35,7 +35,8 @@ DESCRIPTION = {
 }
 CORE = MODULES[:6]
 FULL = CORE + ("llm",)
-V6 = FULL + ("gate", "defer", "calsensor")
+HYBRID = FULL + ("gate", "defer", "calsensor")
+V6 = HYBRID
 
 # Names of the same switches in the development code (pipeline/belief_v4.py V4_PARTS) -- logs and the equivalence test only.
 BASE_PARTS = ("score", "open", "twostage", "fp", "peer", "prop", "events", "avail", "onset", "em", "selfnorm", "llmtype", "conseq",
@@ -64,14 +65,20 @@ class Modules:
         for tok in (t.strip() for t in (spec or "core").split(",")):
             if not tok:
                 continue
-            if tok in ("core", "full", "v6", "all", "base", "none"):
-                on |= {"core": set(CORE), "full": set(FULL), "v6": set(V6), "all": set(MODULES)}.get(tok, set())
+            if tok in ("core", "full", "hybrid", "v6", "all", "base", "none"):
+                on |= {"core": set(CORE), "full": set(FULL), "hybrid": set(HYBRID), "v6": set(HYBRID), "all": set(MODULES)}.get(tok, set())
+            elif (tok.startswith("no_") or tok.startswith("no-")) and tok[3:] in MODULES:
+                if not on:
+                    on = set(CORE)
+                on.discard(tok[3:])
             elif tok.startswith("-") and tok[1:] in MODULES:
+                if not on:
+                    on = set(CORE)
                 on.discard(tok[1:])
             elif tok in MODULES:
                 on.add(tok)
             else:
-                raise ValueError(f"unknown module '{tok}' (known: {', '.join(MODULES)}; core, full, base)")
+                raise ValueError(f"unknown module '{tok}' (known: {', '.join(MODULES)}; core, full, base, no_<mod>)")
         return cls(**{m: m in on for m in MODULES})
 
     @classmethod
