@@ -80,31 +80,30 @@ Evaluated under strict pre-registration across all 103 microservice incidents in
 ## 📂 Repository Structure
 
 ```
-gamarca/
+gama-rca/
 ├── gama/                      # Proposed framework: Bayesian abduction, explain-away, decision engine
-│   ├── belief.py              # Bayesian hypothesis scoring & propagation EM
-│   ├── evidence.py            # Multimodal evidence calibration
-│   ├── decide.py              # Two-stage decision engine & entropy gating
-│   ├── chain.py               # Deterministic evidence-cited causal chain
-│   ├── llm.py                 # Bounded LLM sensor & shortlist selector
+│   ├── core/                  # Reasoning modules (evidence, belief, chain, decide, llm)
+│   ├── config.py              # Hyperparameters, module switches, and ablation presets
 │   └── run.py                 # Single-case pipeline coordinator
 │
 ├── baselines/                 # Comparative benchmark baselines (Table 4 in paper)
 │   ├── direct_llm.py          # Direct LLM baseline (Alert only)
-│   └── evidence_llm.py        # Evidence -> LLM baseline (Calibrated telemetry without GAMA)
+│   ├── evidence_llm.py        # Evidence -> LLM baseline (Calibrated telemetry without GAMA)
+│   └── belief_llm.py          # Belief -> LLM baseline (Unconstrained LLM on computed belief)
 │
 ├── pipeline/                  # Foundation library: telemetry extractors & statistical calibration
-│   ├── fault_fingerprint.py   # Signal taxonomy & fingerprint definitions
-│   ├── fault_calibrated.py    # Non-parametric pseudo-window calibration & MWU test
-│   ├── log_preprocess.py      # Drain3 log template & Poisson burst detector
-│   ├── trace_structure.py     # Distributed trace-origin analysis
-│   └── propagation_evidence.py# Call-graph traversal & window slicing
+│   ├── metric/                # Metric & infrastructure telemetry (infra, propagation)
+│   ├── log/                   # Log pre-processing & text probes (preprocess, templates, probes)
+│   ├── trace/                 # Trace span aggregations & deep origin analysis (evidence, structure)
+│   └── calibration/           # Statistical shift scoring & taxonomy (fault, calibrated, fingerprint)
 │
-├── adapters/                  # Dataset ingestion (RCA100, AIOps2025)
-├── agents/                    # Local (Transformers) and API LLM connectors
-├── data/                      # Profiles, taxonomies, and development fingerprints
+├── data/                      # Dataset modules & taxonomies
+│   ├── rca100/                # RCA100 loader & 28-fault taxonomy
+│   ├── aiops2025/             # AIOps2025 loader & 19-fault taxonomy
+│   └── dataset_profile.py     # Profile router & metric regex patterns
+│
 ├── evaluation/                # Official scoring protocols (EL, FI, RP, Final)
-├── scripts/                   # Experiment runners (Kaggle jobs, AIOps2025, analyze_v5)
+├── scripts/                   # Experiment runners (ablation, kaggle_job, aiops2025_run, analyze)
 ├── tests/                     # Unit tests & deterministic golden snapshots
 └── paper/                     # LaTeX manuscript source, figures, tables, and preprint PDF
 ```
@@ -119,8 +118,8 @@ Clone and install dependencies (Python 3.10+):
 
 ```bash
 # Clone the repository
-git clone https://github.com/solaemanachmad/gamarca.git
-cd gamarca
+git clone https://github.com/solaemanachmad/gama-rca.git
+cd gama-rca
 
 # Recommended: setup virtual environment with uv (or standard venv)
 uv venv .venv --python 3.12
@@ -200,7 +199,7 @@ If you find this work or codebase helpful in your research, please cite:
   author    = {Solaeman, Achmad and Rosyid, Nur Rohman and Wicaksono, Ardhi and Sejati, Prima Asmara and Hamzah},
   journal   = {Preprint},
   year      = {2026},
-  url       = {https://github.com/solaemanachmad/gamarca}
+  url       = {https://github.com/solaemanachmad/gama-rca}
 }
 ```
 

@@ -8,7 +8,7 @@ Notebook (2 cells, the same for every run):
   from kaggle_secrets import UserSecretsClient
   tok = UserSecretsClient().get_secret("GITHUB_TOKEN")
   subprocess.run("rm -rf /kaggle/working/gama-rca", shell=True)
-  subprocess.run(["git", "clone", "-q", "--depth", "1", f"https://{tok}@github.com/solaemanachmad/gamarca.git", "/kaggle/working/gama-rca"])
+  subprocess.run(["git", "clone", "-q", "--depth", "1", f"https://{tok}@github.com/solaemanachmad/gama-rca.git", "/kaggle/working/gama-rca"])
   os.chdir("/kaggle/working/gama-rca")
 
   # Cell 2 -- run (change only the arguments)
