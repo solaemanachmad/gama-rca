@@ -136,6 +136,8 @@ def main():
     ap.add_argument("--arm", default="gama", choices=("gama", "evidence_llm", "belief_llm"))
     ap.add_argument("--model", default=None, help="key of scripts/kaggle_run.py MODELS (LLM arms, modules with llm)")
     ap.add_argument("--check", action="store_true", help="label-free adapter / signal checks only (no diagnosis)")
+    ap.add_argument("--gt", default=None, help="path to groundtruth.jsonl (enables empirical scoring)")
+    ap.add_argument("--dump-diagnostic", action="store_true", help="save separate <name>_diagnostic.csv with internal stats")
     ap.add_argument("--name", default=None)
     a = ap.parse_args()
     assert PROFILE == "aiops2025", "DATASET_PROFILE must be aiops2025 before the core is imported"
@@ -205,10 +207,21 @@ def main():
             ans = answer(case, r)
             jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
             jl.flush()
-            st = {k: v for k, v in r.retrieval_stats.items() if not k.startswith("_") and not isinstance(v, (dict, list))}
-            rows.append({"case_id": s["uuid"], "component": ans["component"], "fault_type": r.predicted_fault_type,
-                         "confidence": round(r.confidence, 4), "reason": ans["reason"], "n_steps": len(ans["reasoning_trace"]),
-                         **{k: v for k, v in cov.items() if not isinstance(v, dict)}, **st, "wall_s": round(time.time() - t0, 1)})
+            clean_row = {
+                "case_id": s["uuid"],
+                "component": ans["component"],
+                "fault_type": r.predicted_fault_type,
+                "confidence": round(r.confidence, 4),
+                "reason": ans["reason"],
+                "n_steps": len(ans["reasoning_trace"]),
+                "n_metrics": cov.get("n_metrics", 0),
+                "n_logs": cov.get("n_logs", 0),
+                "n_traces": cov.get("n_traces", 0),
+                "load_time_s": cov.get("load_total_s", 0.0),
+                "pipeline_time_s": r.retrieval_stats.get("total_pipeline_time_s", 0.0),
+                "wall_s": round(time.time() - t0, 1),
+            }
+            rows.append(clean_row)
             print(f"[{i + 1}/{len(specs)} {(time.time() - t_all) / 60:5.1f} min] {s['uuid']} -> {ans['component']} "
                   f"{r.predicted_fault_type} p={r.confidence:.2f} ({time.time() - t0:.0f}s)", flush=True)
         except Exception as e:
@@ -228,6 +241,20 @@ def main():
             g["testable_share"] = (g["testable"] / g["entities"]).round(3)
             g["hold_rate"] = (g["holds"] / g["testable"].clip(lower=1)).round(3)
             print(g.to_string())
+    if a.gt and not a.check and os.path.exists(a.gt):
+        from scripts.aiops2025_score import parse_groundtruth, evaluate_predictions
+        gt_map = parse_groundtruth(a.gt)
+        scored_df = evaluate_predictions(rows, gt_map)
+        if not scored_df.empty:
+            print("\n=== AIOps2025 Empirical Evaluation Summary ===")
+            print(f"Cases Evaluated: {len(scored_df)} / {len(rows)}")
+            print(f"Localization Accuracy (LA): {scored_df['loc_score'].mean():.4f}")
+            print(f"Type Accuracy (TA):         {scored_df['type_score'].mean():.4f}")
+            print(f"Final Score:                {scored_df['final_score'].mean():.4f}")
+            print("=" * 46)
+            scored_path = os.path.join(a.out, f"{name}_scored.csv")
+            scored_df.to_csv(scored_path, index=False)
+            print(f"Saved scored breakdown to: {scored_path}")
     manifest.update(finished=time.strftime("%Y-%m-%dT%H:%M:%S%z"), wall_s=round(time.time() - t_all, 1),
                     n_errors=sum(1 for r in rows if r.get("error")))
     json.dump(manifest, open(os.path.join(a.out, f"{name}.manifest.json"), "w"), indent=1)
