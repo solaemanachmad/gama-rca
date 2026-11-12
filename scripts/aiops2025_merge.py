@@ -28,6 +28,7 @@ def load_jsonl_shards(patterns: List[str]) -> List[dict]:
             files.extend(glob.glob(os.path.join(pat, "*.jsonl")))
         else:
             files.extend(glob.glob(pat))
+    files = [f for f in files if f.endswith(".jsonl")]
     files = sorted(set(files))
     if not files:
         print(f"Warning: No JSONL files found matching: {patterns}", file=sys.stderr)
@@ -57,7 +58,7 @@ def load_csv_shards(patterns: List[str]) -> pd.DataFrame:
         else:
             files.extend(glob.glob(pat))
     # Exclude scored or check files
-    files = [f for f in sorted(set(files)) if not f.endswith(("_scored.csv", "_check.csv", "_diagnostic.csv"))]
+    files = [f for f in sorted(set(files)) if f.endswith(".csv") and not f.endswith(("_scored.csv", "_check.csv", "_diagnostic.csv"))]
     if not files:
         print(f"Warning: No CSV files found matching: {patterns}", file=sys.stderr)
         return pd.DataFrame()
@@ -68,6 +69,25 @@ def load_csv_shards(patterns: List[str]) -> pd.DataFrame:
         merged = merged.drop_duplicates(subset=["case_id"], keep="first")
     print(f"Loaded {len(merged)} unique CSV rows from {len(files)} files.")
     return merged
+
+
+def jsonl_to_rows(records: List[dict]) -> List[dict]:
+    """Converts JSONL records into tabular summary rows when CSV shards are missing."""
+    rows = []
+    for r in records:
+        reason = r.get("reason", "")
+        main_part = reason.split(";")[0].strip() if ";" in reason else reason
+        fault_type = main_part.split(" at ")[0].strip() if " at " in main_part else main_part
+        rows.append({
+            "case_id": r.get("uuid", ""),
+            "component": r.get("component", ""),
+            "fault_type": fault_type,
+            "confidence": 1.0,
+            "reason": reason,
+            "n_steps": len(r.get("reasoning_trace", [])),
+            "time": r.get("time", ""),
+        })
+    return rows
 
 
 def main():
@@ -82,6 +102,8 @@ def main():
 
     jsonl_records = load_jsonl_shards(a.inputs)
     csv_df = load_csv_shards(a.inputs)
+    if csv_df.empty and jsonl_records:
+        csv_df = pd.DataFrame(jsonl_to_rows(jsonl_records))
 
     out_jsonl = os.path.join(a.out, f"{a.name}.jsonl")
     out_csv = os.path.join(a.out, f"{a.name}.csv")

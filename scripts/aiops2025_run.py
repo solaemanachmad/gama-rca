@@ -228,17 +228,34 @@ def main():
                 "history_mask": os.environ.get("AIOPS_HISTORY_MASK", "none"), "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     rows, checks, t_all = [], [], time.time()
     jl = None
+    p_csv = os.path.join(a.out, f"{name}.csv")
+    p_jl = os.path.join(a.out, f"{name}.jsonl")
     if not a.check:                                       # resume: keep the cases already answered without error
-        p_csv, p_jl = os.path.join(a.out, f"{name}.csv"), os.path.join(a.out, f"{name}.jsonl")
         done = set()
-        if os.path.exists(p_csv) and os.path.exists(p_jl):
-            old = pd.read_csv(p_csv)
-            ok = old[old["error"].isna()] if "error" in old.columns else old
-            done = set(ok["case_id"].astype(str))
-            rows = ok.to_dict("records")
-            kept = [ln for ln in open(p_jl, encoding="utf-8") if ln.strip() and json.loads(ln).get("uuid") in done]
-            open(p_jl, "w", encoding="utf-8").writelines(kept)
+        if os.path.exists(p_csv):
+            try:
+                old = pd.read_csv(p_csv)
+                ok = old[old["error"].isna()] if "error" in old.columns else old
+                done.update(ok["case_id"].astype(str))
+                rows = ok.to_dict("records")
+            except Exception:
+                pass
+        if os.path.exists(p_jl):
+            jl_done = set()
+            for ln in open(p_jl, encoding="utf-8"):
+                if ln.strip():
+                    try:
+                        rec = json.loads(ln)
+                        u = rec.get("uuid")
+                        if u and rec.get("component"):
+                            jl_done.add(str(u))
+                    except Exception:
+                        pass
+            done.update(jl_done)
+        if done:
             print(f"resume: {len(done)} cases kept", flush=True)
+            if rows:
+                pd.DataFrame(rows).to_csv(p_csv, index=False)
         specs = [s for s in specs if s["uuid"] not in done]
         jl = open(p_jl, "a", encoding="utf-8")
     task_items = [(s, a.data, windows, a.check, a.arm, m.spec(), needs_llm, MODEL) for s in specs]
@@ -254,6 +271,8 @@ def main():
                 if jl and ans:
                     jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
                     jl.flush()
+                if (i + 1) % 5 == 0 or i == len(specs) - 1:
+                    pd.DataFrame(rows).to_csv(p_csv, index=False)
                 if err:
                     print(f"[{i + 1}/{len(specs)}] {uuid} [error] {err}", flush=True)
                 elif a.check:
@@ -270,6 +289,8 @@ def main():
             if jl and ans:
                 jl.write(json.dumps(ans, ensure_ascii=False) + "\n")
                 jl.flush()
+            if (i + 1) % 5 == 0 or i == len(specs) - 1:
+                pd.DataFrame(rows).to_csv(p_csv, index=False)
             if err:
                 print(f"[{i + 1}/{len(specs)}] {uuid} [error] {err}", flush=True)
             elif a.check:
@@ -279,7 +300,7 @@ def main():
                       f"{row.get('fault_type')} p={row.get('confidence', 0):.2f} ({wall_s:.0f}s)", flush=True)
     if jl:
         jl.close()
-    pd.DataFrame(rows).to_csv(os.path.join(a.out, f"{name}.csv"), index=False)
+    pd.DataFrame(rows).to_csv(p_csv, index=False)
     if checks:
         c = pd.DataFrame(checks)
         c.to_csv(os.path.join(a.out, f"{name}_check.csv"), index=False)

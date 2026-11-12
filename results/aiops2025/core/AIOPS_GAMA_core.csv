@@ -1,0 +1,250 @@
+case_id,component,fault_type,confidence,reason,n_steps,time
+345fbe93-80,checkoutservice,network loss,1.0,network loss at checkoutservice; checkoutservice-2 trace_slow_origin,1,2025-06-05T16:10:02Z
+74a44ae7-81,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 http5xx; frontend-0 error_spans,5,2025-06-05T17:10:04Z
+38ee3d45-82,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-05T18:10:05Z
+b1ab098d-83,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise; aiops-k8s-06 node_cpu_rise,4,2025-06-05T19:10:07Z
+27956295-84,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-05T20:10:09Z
+8a7a8a00-85,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-05T21:10:10Z
+ef2a4fbb-87,aiops-k8s-03,node cpu,1.0,node cpu at aiops-k8s-03; aiops-k8s-03 node_cpu_rise,1,2025-06-05T23:10:13Z
+233e0282-88,currencyservice,cpu stress,1.0,cpu stress at currencyservice; currencyservice svc_cpu_rise; currencyservice svc_latency_rise; currencyservice-0 svc_cpu_rise,5,2025-06-06T00:10:14Z
+5f904167-89,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-06T01:10:16Z
+d3bd27f3-90,checkoutservice-2,target port misconfig,1.0,target port misconfig at checkoutservice-2; checkoutservice svc_latency_rise; checkoutservice svc_request_drop; checkoutservice-2 svc_latency_rise,5,2025-06-06T02:02:59Z
+26c9ab68-91,emailservice,cpu stress,1.0,cpu stress at emailservice; emailservice svc_cpu_rise; checkoutservice svc_latency_rise; emailservice svc_latency_rise,5,2025-06-06T03:03:01Z
+0718e0f9-92,,,1.0,,0,
+31392fda-93,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-06T05:03:05Z
+20622318-94,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-06T06:03:07Z
+c002ac2b-95,,,1.0,,0,
+4ab999b7-96,shippingservice-0,cpu stress,1.0,cpu stress at shippingservice-0; shippingservice-0 svc_cpu_rise; checkoutservice svc_latency_rise; shippingservice svc_cpu_rise,5,2025-06-06T08:03:11Z
+6ef260df-97,redis-cart-0,memory stress,1.0,memory stress at redis-cart-0; redis-cart-0 svc_mem_rise; redis-cart svc_mem_rise,2,2025-06-06T09:03:13Z
+6375ea10-98,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_error_rise; frontend svc_net_drop,5,2025-06-06T10:03:14Z
+555d145f-99,checkoutservice,jvm latency,1.0,jvm latency at checkoutservice; checkoutservice svc_latency_rise; checkoutservice-2 svc_latency_rise; frontend svc_latency_rise,4,2025-06-06T11:03:16Z
+342d4820-100,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-06T12:03:18Z
+cd81a09b-101,,,1.0,,0,
+b67cbc30-102,aiops-k8s-02,node network delay,1.0,node network delay at aiops-k8s-02; aiops-k8s-02 node_net_drop,1,2025-06-06T14:03:28Z
+3df3b41f-105,frontend-2,network loss,1.0,network loss at frontend-2; frontend svc_request_rise; frontend-2 error_spans; frontend-2 trace_err_origin,5,2025-06-06T18:10:05Z
+ae4abdbe-103,productcatalogservice-1,cpu stress,1.0,cpu stress at productcatalogservice-1; productcatalogservice-1 svc_cpu_rise; productcatalogservice svc_cpu_rise; productcatalogservice-1 svc_latency_rise,4,2025-06-06T15:03:29Z
+d32bcd36-104,,,1.0,,0,
+744d4e2b-106,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-06T19:10:06Z
+462e3353-107,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice-2 trace_slow_origin,3,2025-06-06T21:10:18Z
+271c6b09-108,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice-2 trace_slow_origin,3,2025-06-06T22:10:20Z
+55791019-109,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-06T23:10:21Z
+abb62970-110,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-07T00:10:23Z
+a54c75dc-111,productcatalogservice-1,cpu stress,1.0,cpu stress at productcatalogservice-1; productcatalogservice-1 svc_cpu_rise; productcatalogservice svc_cpu_rise,2,2025-06-07T01:10:25Z
+f48a6b60-112,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-07T02:10:26Z
+dc62e30c-113,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-07T03:10:28Z
+bc2f1dfa-114,aiops-k8s-05,node cpu,1.0,node cpu at aiops-k8s-05; aiops-k8s-05 node_cpu_rise,1,2025-06-07T04:10:30Z
+541f72de-115,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-07T05:10:31Z
+e2750b43-116,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-07T06:10:33Z
+a363d826-117,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-07T07:10:35Z
+dc331a0b-118,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-07T08:10:37Z
+f18b68cd-119,productcatalogservice-0,jvm latency,1.0,jvm latency at productcatalogservice-0; productcatalogservice-0 svc_latency_rise; productcatalogservice svc_latency_rise; productcatalogservice-0 trace_slow_origin,3,2025-06-07T09:10:39Z
+a85d0720-120,adservice-2,io fault,1.0,io fault at adservice-2; adservice-2 svc_disk_rise; adservice svc_disk_rise,2,2025-06-07T10:10:40Z
+66cfe1dd-121,emailservice,cpu stress,1.0,cpu stress at emailservice; emailservice svc_cpu_rise; checkoutservice svc_latency_rise; emailservice svc_latency_rise,5,2025-06-07T11:10:41Z
+8cf433b4-122,aiops-k8s-03,node memory,1.0,node memory at aiops-k8s-03; aiops-k8s-03 node_mem_rise; cartservice-0 svc_request_rise; paymentservice-1 svc_request_rise,3,2025-06-07T12:10:44Z
+bc454cd0-123,emailservice,memory stress,1.0,memory stress at emailservice; checkoutservice svc_request_rise; checkoutservice svc_latency_rise; emailservice svc_latency_rise,5,2025-06-07T13:11:01Z
+ad84546c-124,checkoutservice-2,network delay,1.0,network delay at checkoutservice-2; checkoutservice-2 svc_latency_rise; checkoutservice svc_latency_rise; frontend svc_latency_rise,5,2025-06-07T14:11:03Z
+0fccdcad-125,recommendationservice,cpu stress,1.0,cpu stress at recommendationservice; recommendationservice svc_cpu_rise; frontend svc_latency_rise; recommendationservice svc_latency_rise,5,2025-06-07T15:11:05Z
+de4a919c-126,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-07T16:10:02Z
+8d818070-127,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-07T17:10:04Z
+c1e7d172-128,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_latency_rise; frontend-0 http5xx; frontend-0 error_spans,5,2025-06-07T18:10:06Z
+343ba04c-129,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 trace_err_origin; frontend-2 trace_err_origin; frontend-0 http5xx,5,2025-06-07T19:10:08Z
+725d8034-130,aiops-k8s-03,node network delay,1.0,node network delay at aiops-k8s-03; aiops-k8s-03 node_net_drop,1,2025-06-07T20:10:10Z
+08e3187d-131,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice-2 trace_slow_origin,3,2025-06-07T21:10:11Z
+21aa302f-132,redis-cart,jvm latency,1.0,jvm latency at redis-cart; redis-cart svc_latency_rise; redis-cart-0 svc_latency_rise,2,2025-06-07T22:10:12Z
+fc44280d-133,checkoutservice,cpu stress,1.0,cpu stress at checkoutservice; checkoutservice svc_cpu_rise; checkoutservice svc_latency_rise; checkoutservice-2 svc_cpu_rise,5,2025-06-07T23:10:13Z
+36937f85-134,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-08T00:10:15Z
+3400061d-135,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_error_rise; frontend svc_net_drop,5,2025-06-08T01:10:17Z
+42c6ad6f-136,checkoutservice-2,pod failure,1.0,pod failure at checkoutservice-2; checkoutservice-2 http503; checkoutservice-2 trace_slow_origin; checkoutservice-2 error_spans,4,2025-06-08T02:10:19Z
+f99b1645-137,checkoutservice,jvm latency,1.0,jvm latency at checkoutservice; checkoutservice svc_latency_rise; checkoutservice-2 svc_latency_rise; checkoutservice-2 trace_slow_origin,3,2025-06-08T03:10:21Z
+2272a5ff-138,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 http5xx; frontend-0 error_spans; frontend-1 http5xx,5,2025-06-08T04:10:22Z
+cc3b1830-139,adservice-2,io fault,1.0,io fault at adservice-2; adservice-2 svc_disk_rise; adservice svc_disk_rise,2,2025-06-08T05:10:24Z
+6f84e51d-140,currencyservice,jvm latency,1.0,jvm latency at currencyservice; currencyservice svc_latency_rise; currencyservice-0 svc_latency_rise; currencyservice-2 svc_latency_rise,3,2025-06-08T06:10:26Z
+5b520645-141,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-08T07:10:28Z
+ba74cb57-142,checkoutservice-2,pod failure,1.0,pod failure at checkoutservice-2; frontend svc_request_rise; checkoutservice-2 http503; checkoutservice-2 trace_slow_origin,5,2025-06-08T08:10:29Z
+fe25ee9b-143,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-08T09:10:31Z
+94d48f2c-144,aiops-k8s-06,node network delay,1.0,node network delay at aiops-k8s-06; aiops-k8s-06 node_net_rise; checkoutservice-2 trace_slow_origin; productcatalogservice-0 trace_slow_origin,3,2025-06-08T10:10:48Z
+f066e1dd-145,,,1.0,,0,
+ad13b37a-146,frontend-2,pod failure,1.0,pod failure at frontend-2; frontend svc_request_rise; frontend-2 msg_refused; frontend-2 http503,4,2025-06-08T12:10:52Z
+dce5cefa-147,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,4,2025-06-08T13:10:54Z
+50f000ee-148,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-08T14:10:55Z
+162fe36a-151,,,1.0,,0,
+0a373d08-149,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-08T15:10:57Z
+9a257bd5-150,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-08T16:10:02Z
+eba76009-152,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-08T18:10:05Z
+168cdf19-153,k8s-master1,node disk,1.0,node disk at k8s-master1; k8s-master1 node_disk_rise,1,2025-06-08T19:10:07Z
+05b57997-154,frontend-0,pod failure,1.0,pod failure at frontend-0; frontend-0 svc_request_drop; frontend svc_latency_rise; frontend svc_error_rise,5,2025-06-08T20:10:18Z
+54002a5c-155,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-08T21:10:21Z
+934844b2-156,emailservice,jvm latency,1.0,jvm latency at emailservice; emailservice svc_latency_rise; checkoutservice svc_latency_rise; emailservice-0 svc_latency_rise,5,2025-06-08T22:10:23Z
+1c47d7bf-157,redis-cart-0,memory stress,1.0,memory stress at redis-cart-0; redis-cart-0 svc_mem_rise; redis-cart svc_mem_rise,2,2025-06-08T23:10:24Z
+3600f326-158,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice-2 trace_slow_origin,3,2025-06-09T00:10:25Z
+a9c6d6c9-159,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-09T01:10:27Z
+0efb9550-160,adservice-0,io fault,1.0,io fault at adservice-0; adservice-0 svc_disk_rise; adservice svc_disk_rise,2,2025-06-09T02:10:29Z
+cb5815ce-161,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-09T03:10:31Z
+89c85406-162,redis-cart-0,memory stress,1.0,memory stress at redis-cart-0; redis-cart-0 svc_mem_rise; cartservice svc_error_rise; redis-cart svc_mem_rise,3,2025-06-09T04:10:33Z
+43e1b3bf-163,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-09T05:10:35Z
+7bdc4b83-164,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-09T06:10:36Z
+cebb47f5-165,,,1.0,,0,
+578fce7c-166,adservice-2,io fault,1.0,io fault at adservice-2; adservice-2 svc_disk_rise; adservice svc_disk_rise; adservice svc_request_rise,3,2025-06-09T08:10:40Z
+47fe21f6-167,adservice-0,cpu stress,1.0,cpu stress at adservice-0; adservice-0 svc_cpu_rise; adservice svc_cpu_rise; adservice svc_latency_rise,4,2025-06-09T09:10:42Z
+df892932-168,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-09T10:10:44Z
+51fc47bf-169,k8s-master2,node disk,1.0,node disk at k8s-master2; k8s-master2 node_disk_rise,1,2025-06-09T11:10:46Z
+046aefa7-170,shippingservice,cpu stress,1.0,cpu stress at shippingservice; shippingservice svc_cpu_rise; checkoutservice svc_latency_rise; frontend svc_latency_rise,5,2025-06-09T12:10:48Z
+e0a261ce-171,recommendationservice,cpu stress,1.0,cpu stress at recommendationservice; recommendationservice svc_cpu_rise; frontend svc_latency_rise; recommendationservice svc_latency_rise,5,2025-06-09T13:11:07Z
+cc451a15-174,adservice-0,io fault,1.0,io fault at adservice-0; adservice-0 svc_disk_rise; adservice svc_disk_rise; adservice svc_latency_rise,4,2025-06-09T16:10:02Z
+f78ef469-175,checkoutservice-2,cpu stress,1.0,cpu stress at checkoutservice-2; checkoutservice-2 svc_cpu_rise; checkoutservice svc_cpu_rise,2,2025-06-09T17:10:03Z
+a0761b38-172,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-09T14:11:10Z
+49a506cd-176,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-09T18:10:04Z
+e6c9989b-173,paymentservice,memory stress,1.0,memory stress at paymentservice; paymentservice svc_mem_rise; paymentservice svc_latency_rise; paymentservice-0 svc_latency_rise,5,2025-06-09T15:11:12Z
+6892c835-177,adservice-0,cpu stress,1.0,cpu stress at adservice-0; adservice-0 svc_cpu_rise; adservice svc_cpu_rise,2,2025-06-09T20:10:20Z
+d0be3c58-178,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-09T21:10:22Z
+251c4f53-179,,,1.0,,0,
+994849cc-180,shippingservice,jvm latency,1.0,jvm latency at shippingservice; shippingservice svc_latency_rise; shippingservice-1 svc_latency_rise,2,2025-06-09T23:10:27Z
+7f595b45-181,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-10T00:10:28Z
+eb0c4ea8-182,checkoutservice,cpu stress,1.0,cpu stress at checkoutservice; checkoutservice svc_cpu_rise; checkoutservice svc_latency_rise; checkoutservice-2 svc_cpu_rise,5,2025-06-10T01:10:30Z
+d3dd6ed7-183,,,1.0,,0,
+fb327034-184,aiops-k8s-06,node network delay,1.0,node network delay at aiops-k8s-06; checkoutservice-2 trace_slow_origin; productcatalogservice-0 trace_slow_origin,2,2025-06-10T03:10:34Z
+1fbef130-185,aiops-k8s-03,node cpu,1.0,node cpu at aiops-k8s-03; aiops-k8s-03 node_cpu_rise,1,2025-06-10T04:10:36Z
+97d37c35-186,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 http5xx; frontend-0 error_spans; frontend-1 http5xx,5,2025-06-10T05:10:38Z
+9b0d8a50-187,adservice-0,cpu stress,1.0,cpu stress at adservice-0; adservice-0 svc_cpu_rise; adservice svc_cpu_rise; adservice svc_latency_rise,4,2025-06-10T06:10:40Z
+7e03b07d-188,checkoutservice-2,pod failure,1.0,pod failure at checkoutservice-2; checkoutservice-2 trace_slow_origin; checkoutservice-2 http503; checkoutservice-2 error_spans,4,2025-06-10T07:10:44Z
+96e4b852-189,,,1.0,,0,
+7513dbaf-190,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-10T09:10:48Z
+c9832b3e-191,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-10T10:10:50Z
+e55fb1cb-192,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-10T11:10:52Z
+e4ef8a12-193,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_latency_rise; frontend svc_error_rise,5,2025-06-10T12:10:54Z
+913e1ecf-194,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-10T13:10:57Z
+7984364a-195,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-10T14:10:58Z
+de1d442d-197,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_latency_rise; frontend svc_net_drop,5,2025-06-10T16:10:01Z
+6a643823-196,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-10T15:11:01Z
+4229b9c5-198,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-10T17:10:06Z
+ff15d32c-199,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-10T18:10:08Z
+5c8eb611-200,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-10T19:10:10Z
+40424656-201,k8s-master2,node cpu,1.0,node cpu at k8s-master2; k8s-master2 node_cpu_rise,1,2025-06-10T20:10:12Z
+a499f40d-202,adservice-0,memory stress,1.0,memory stress at adservice-0; adservice-0 svc_mem_rise; adservice svc_mem_rise,2,2025-06-10T21:10:13Z
+e25d2429-203,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-10T22:10:17Z
+56c934bb-205,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-11T00:10:20Z
+eb79e778-204,adservice-2,io fault,1.0,io fault at adservice-2; adservice-2 svc_disk_rise; adservice svc_request_rise,2,2025-06-10T23:10:19Z
+d9fb014e-206,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-11T01:10:22Z
+92e5a649-207,checkoutservice,network delay,1.0,network delay at checkoutservice; checkoutservice svc_latency_rise; checkoutservice-1 svc_latency_rise; checkoutservice-2 svc_latency_rise,5,2025-06-11T02:10:29Z
+eaf978d7-208,,,1.0,,0,
+74bd0298-209,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-11T04:10:33Z
+6a9a1c00-210,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-11T05:10:35Z
+499d8ec0-211,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_latency_rise; frontend-1 http5xx; frontend-1 error_spans,5,2025-06-11T06:10:37Z
+5a573d9d-212,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-11T07:10:39Z
+5d97906f-213,checkoutservice-0,cpu stress,1.0,cpu stress at checkoutservice-0; checkoutservice-0 svc_cpu_rise; checkoutservice svc_cpu_rise; aiops-k8s-04 node_cpu_rise,3,2025-06-11T08:10:41Z
+d1e74aa8-214,cartservice-0,jvm latency,1.0,jvm latency at cartservice-0; cartservice-0 svc_latency_rise; cartservice svc_error_rise; cartservice-0 svc_error_rise,3,2025-06-11T09:10:43Z
+2cce5582-215,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-11T10:10:44Z
+13ebf32d-216,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-11T11:10:46Z
+b1dff953-217,productcatalogservice,jvm latency,1.0,jvm latency at productcatalogservice; productcatalogservice svc_latency_rise; productcatalogservice-0 svc_latency_rise; productcatalogservice-1 svc_latency_rise,4,2025-06-11T12:10:49Z
+3ae307d9-218,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice svc_latency_rise; adservice-0 svc_disk_rise,5,2025-06-11T13:10:50Z
+6e8c4acb-219,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-11T14:10:53Z
+aa100326-220,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-11T15:10:55Z
+ee77456a-222,cartservice,jvm latency,1.0,jvm latency at cartservice; cartservice svc_latency_rise; cartservice-0 svc_latency_rise; cartservice-1 svc_latency_rise,5,2025-06-11T17:10:04Z
+10889e22-221,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_latency_rise; frontend svc_net_drop,5,2025-06-11T16:10:02Z
+87b43d57-223,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 trace_err_origin; frontend-2 trace_err_origin; frontend-0 http5xx,5,2025-06-11T18:10:06Z
+53212d72-224,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_latency_rise; frontend svc_error_rise,5,2025-06-11T19:10:08Z
+a061c961-225,checkoutservice-0,cpu stress,1.0,cpu stress at checkoutservice-0; checkoutservice-0 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice-0 trace_slow_origin,3,2025-06-11T20:10:10Z
+0410d710-226,,,1.0,,0,
+ffabbbb0-227,cartservice-2,pod failure,1.0,pod failure at cartservice-2; cartservice svc_latency_rise; cartservice-2 svc_latency_rise; cartservice-2 svc_net_drop,5,2025-06-11T22:10:13Z
+7e7b6ea4-228,adservice-0,cpu stress,1.0,cpu stress at adservice-0; adservice-0 svc_cpu_rise; adservice svc_cpu_rise,2,2025-06-11T23:10:15Z
+df11e2f0-229,adservice-2,cpu stress,1.0,cpu stress at adservice-2; adservice-2 svc_cpu_rise; adservice svc_cpu_rise; adservice svc_latency_rise,5,2025-06-12T00:10:16Z
+1193b5d8-230,aiops-k8s-05,node cpu,1.0,node cpu at aiops-k8s-05; aiops-k8s-05 node_cpu_rise; currencyservice-0 svc_request_rise; paymentservice svc_latency_rise,3,2025-06-12T01:10:18Z
+e4ff5a70-231,cartservice,jvm latency,1.0,jvm latency at cartservice; cartservice svc_latency_rise; cartservice-0 svc_latency_rise; cartservice-2 svc_latency_rise,3,2025-06-12T02:10:20Z
+29f88351-232,checkoutservice-0,jvm exception,1.0,jvm exception at checkoutservice-0; checkoutservice-0 trace_slow_origin,1,2025-06-12T03:10:22Z
+d99a98a0-233,,,1.0,,0,
+ee69c707-234,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise; tidb-tidb svc_request_rise,2,2025-06-12T05:16:36Z
+bc9db995-235,,,1.0,,0,
+4be46c92-236,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 http5xx; frontend-0 error_spans; frontend-1 http5xx,5,2025-06-12T07:02:46Z
+8c1e8ce9-237,frontend,cpu stress,1.0,cpu stress at frontend; frontend svc_cpu_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-12T08:02:48Z
+f887d7ff-238,adservice-1,cpu stress,1.0,cpu stress at adservice-1; adservice-1 svc_cpu_rise; adservice svc_cpu_rise; adservice svc_latency_rise,4,2025-06-12T09:02:50Z
+bc6f6978-239,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-12T10:02:52Z
+1fb24317-241,redis-cart,memory stress,1.0,memory stress at redis-cart; redis-cart svc_mem_rise; redis-cart svc_latency_rise; redis-cart-0 svc_mem_rise,4,2025-06-12T13:03:02Z
+36e2b5c1-242,adservice,jvm latency,1.0,jvm latency at adservice; adservice svc_latency_rise; adservice-0 svc_latency_rise,2,2025-06-12T14:03:03Z
+f643fe98-243,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice svc_latency_rise; adservice-0 svc_disk_rise,5,2025-06-12T15:03:05Z
+d4cf6596-245,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-12T17:10:04Z
+980853cb-240,frontend,jvm exception,1.0,jvm exception at frontend; frontend-0 http5xx; frontend-0 error_spans; frontend-1 http5xx,5,2025-06-12T11:02:54Z
+98eacd31-244,emailservice-0,pod failure,1.0,pod failure at emailservice-0; emailservice-0 svc_request_drop; emailservice svc_latency_rise; emailservice-0 svc_latency_rise,3,2025-06-12T16:10:02Z
+bdc8184e-246,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise,1,2025-06-12T18:10:05Z
+741b801a-247,emailservice,memory stress,1.0,memory stress at emailservice; emailservice svc_latency_rise; emailservice-0 svc_mem_rise; emailservice-2 svc_mem_rise,4,2025-06-12T19:10:07Z
+5645565c-248,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_latency_rise; frontend svc_error_rise,5,2025-06-12T20:10:09Z
+8c7ed41d-249,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-12T21:10:11Z
+6574656a-250,,,1.0,,0,
+4664a5e8-251,frontend,jvm exception,1.0,jvm exception at frontend; frontend-1 trace_err_origin; frontend-0 http5xx; frontend-0 error_spans,5,2025-06-12T23:10:15Z
+91c4c773-252,adservice-0,cpu stress,1.0,cpu stress at adservice-0; adservice-0 svc_cpu_rise; adservice svc_cpu_rise; adservice svc_latency_rise,5,2025-06-13T00:10:22Z
+958ecb16-253,checkoutservice-0,memory stress,1.0,memory stress at checkoutservice-0; checkoutservice-0 svc_mem_rise; checkoutservice svc_mem_rise; checkoutservice-0 trace_slow_origin,3,2025-06-13T01:10:24Z
+71964944-254,checkoutservice-0,cpu stress,1.0,cpu stress at checkoutservice-0; checkoutservice-0 svc_cpu_rise; checkoutservice-0 trace_slow_origin,2,2025-06-13T02:10:25Z
+d36dd82b-255,emailservice,jvm latency,1.0,jvm latency at emailservice; emailservice svc_latency_rise; emailservice-1 svc_latency_rise,2,2025-06-13T03:10:30Z
+14cf33ba-256,checkoutservice,jvm latency,1.0,jvm latency at checkoutservice; checkoutservice svc_latency_rise; checkoutservice-0 svc_latency_rise; checkoutservice-2 svc_latency_rise,5,2025-06-13T04:10:46Z
+f35a1832-257,currencyservice-2,memory stress,1.0,memory stress at currencyservice-2; currencyservice-2 svc_mem_rise; currencyservice svc_mem_rise,2,2025-06-13T05:10:48Z
+f62b1785-258,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise,1,2025-06-13T06:10:51Z
+aa53ee7c-259,k8s-master1,node cpu,1.0,node cpu at k8s-master1; k8s-master1 node_cpu_rise,1,2025-06-13T07:10:53Z
+c730da7b-260,recommendationservice,cpu stress,1.0,cpu stress at recommendationservice; recommendationservice svc_cpu_rise; frontend svc_latency_rise; recommendationservice svc_latency_rise,5,2025-06-13T08:10:54Z
+db4628f8-261,aiops-k8s-04,node network delay,1.0,node network delay at aiops-k8s-04; frontend-2 svc_request_rise; paymentservice-2 svc_request_rise; aiops-k8s-04 node_net_drop,3,2025-06-13T09:10:56Z
+a7b21b38-262,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_error_rise; frontend svc_net_drop,5,2025-06-13T10:10:58Z
+757fa56f-263,recommendationservice,cpu stress,1.0,cpu stress at recommendationservice; recommendationservice svc_cpu_rise; frontend svc_latency_rise; recommendationservice svc_latency_rise,5,2025-06-13T11:11:00Z
+d8a41a9d-264,k8s-master1,node memory,1.0,node memory at k8s-master1; k8s-master1 node_mem_rise,1,2025-06-13T12:11:14Z
+25368410-268,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-13T16:10:02Z
+b06b79b6-265,shippingservice-0,cpu stress,1.0,cpu stress at shippingservice-0; shippingservice-0 svc_cpu_rise; checkoutservice svc_latency_rise; frontend svc_latency_rise,5,2025-06-13T13:11:19Z
+37de08d4-269,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-13T17:10:04Z
+d0c7cd07-267,adservice,pod failure,1.0,pod failure at adservice; adservice-0 svc_request_drop; adservice-1 svc_request_drop; adservice-2 svc_request_drop,3,2025-06-13T15:11:27Z
+c6e9faa0-270,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-1 svc_disk_rise,4,2025-06-13T18:10:08Z
+49e9814e-266,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-13T14:11:24Z
+864797d5-271,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise,1,2025-06-13T19:10:10Z
+4b8e459c-272,k8s-master1,node cpu,1.0,node cpu at k8s-master1; k8s-master1 node_cpu_rise,1,2025-06-13T20:10:13Z
+535dd1bd-273,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise,1,2025-06-13T21:10:15Z
+099ce7e2-274,frontend-2,jvm exception,1.0,jvm exception at frontend-2; frontend-2 svc_latency_rise; frontend-2 error_spans; frontend-2 http5xx,3,2025-06-13T22:10:16Z
+7e54232b-275,checkoutservice-0,cpu stress,1.0,cpu stress at checkoutservice-0; checkoutservice-0 svc_cpu_rise; checkoutservice svc_cpu_rise; checkoutservice svc_latency_rise,5,2025-06-13T23:10:17Z
+f5d0349a-276,redis-cart,jvm latency,1.0,jvm latency at redis-cart; redis-cart svc_latency_rise; cartservice svc_latency_rise; redis-cart-0 svc_latency_rise,3,2025-06-14T00:10:19Z
+4e221a94-277,checkoutservice-0,pod failure,1.0,pod failure at checkoutservice-0; checkoutservice-0 http503; checkoutservice-0 trace_slow_origin; checkoutservice-0 error_spans,4,2025-06-14T01:10:20Z
+a1b60eea-278,k8s-master3,node disk,1.0,node disk at k8s-master3; k8s-master3 node_disk_rise,1,2025-06-14T02:10:22Z
+825545e5-279,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-14T03:10:24Z
+e955714b-280,productcatalogservice,jvm latency,1.0,jvm latency at productcatalogservice; productcatalogservice svc_latency_rise; productcatalogservice-0 svc_latency_rise; productcatalogservice-1 svc_latency_rise,4,2025-06-14T04:10:26Z
+de83df2d-281,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_net_drop; frontend-0 svc_request_drop,5,2025-06-14T05:10:28Z
+9c3b8fe7-282,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-14T06:10:30Z
+84f4b04a-283,currencyservice,jvm cpu stress,1.0,jvm cpu stress at currencyservice; currencyservice svc_latency_rise; currencyservice-0 svc_cpu_rise; currencyservice-0 svc_latency_rise,5,2025-06-14T07:10:32Z
+e4dae239-284,k8s-master3,node network delay,1.0,node network delay at k8s-master3; k8s-master3 node_net_rise,1,2025-06-14T08:10:34Z
+11f619f0-285,frontend,pod failure,1.0,pod failure at frontend; frontend svc_request_drop; frontend svc_error_rise; frontend svc_net_drop,5,2025-06-14T09:10:35Z
+3da57a36-286,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend svc_error_rise; frontend-0 svc_latency_rise,5,2025-06-14T10:10:38Z
+04418665-287,k8s-master2,node cpu,1.0,node cpu at k8s-master2; k8s-master2 node_cpu_rise,1,2025-06-14T11:10:40Z
+27914c5a-288,checkoutservice-2,pod failure,1.0,pod failure at checkoutservice-2; checkoutservice-2 http503; checkoutservice-2 error_spans; checkoutservice-2 msg_refused,3,2025-06-14T12:10:42Z
+50bce1c4-311,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise,1,2025-06-16T16:10:02Z
+b78dafc3-312,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-16T17:10:02Z
+53d5d618-289,cartservice,jvm latency,1.0,jvm latency at cartservice; cartservice svc_latency_rise; cartservice-0 svc_latency_rise; cartservice-1 svc_latency_rise,5,2025-06-14T13:10:45Z
+009be6db-313,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-1 trace_err_origin; frontend-2 trace_err_origin,5,2025-06-16T18:10:05Z
+a63a0c8b-290,aiops-k8s-05,node cpu,1.0,node cpu at aiops-k8s-05; aiops-k8s-05 node_cpu_rise,1,2025-06-14T14:10:47Z
+c0cdda5e-314,paymentservice-2,pod failure,1.0,pod failure at paymentservice-2; paymentservice-2 svc_request_drop; paymentservice-2 svc_latency_rise,2,2025-06-16T19:10:06Z
+f370cf6d-291,adservice,cpu stress,1.0,cpu stress at adservice; adservice svc_cpu_rise; adservice svc_latency_rise; adservice-0 svc_cpu_rise,5,2025-06-14T15:10:48Z
+a482d876-315,shippingservice,cpu stress,1.0,cpu stress at shippingservice; shippingservice svc_cpu_rise; checkoutservice svc_latency_rise; frontend svc_latency_rise,5,2025-06-16T20:10:10Z
+3260fa48-316,frontend,network loss,1.0,network loss at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_latency_rise,5,2025-06-16T21:10:11Z
+fc3737af-320,redis-cart,memory stress,1.0,memory stress at redis-cart; redis-cart svc_mem_rise; redis-cart svc_latency_rise; redis-cart-0 svc_mem_rise,4,2025-06-17T01:10:16Z
+a42d2eb4-319,tidb-pd,cpu stress,1.0,cpu stress at tidb-pd; tidb-pd svc_cpu_rise,1,2025-06-17T00:10:15Z
+18b8cf77-318,checkoutservice-0,pod failure,1.0,pod failure at checkoutservice-0; checkoutservice-0 svc_request_drop; checkoutservice svc_latency_rise; checkoutservice svc_error_rise,5,2025-06-16T23:10:14Z
+332adc3a-317,adservice-1,memory stress,1.0,memory stress at adservice-1; adservice-1 svc_mem_rise; adservice svc_mem_rise,2,2025-06-16T22:10:12Z
+bbfefe10-321,tidb-tikv,io fault,1.0,io fault at tidb-tikv; tidb-tikv svc_disk_rise; productcatalogservice svc_latency_rise; tidb-tidb svc_latency_rise,3,2025-06-17T02:10:17Z
+e539dea4-322,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-17T03:10:20Z
+83524cef-323,adservice-1,pod failure,1.0,pod failure at adservice-1; adservice-1 svc_request_drop; adservice svc_request_drop,2,2025-06-17T04:10:20Z
+ed40c5a3-324,recommendationservice-2,pod failure,1.0,pod failure at recommendationservice-2; frontend svc_latency_rise; recommendationservice svc_latency_rise; recommendationservice svc_request_drop,5,2025-06-17T05:10:21Z
+55b23e04-325,checkoutservice-2,pod failure,1.0,pod failure at checkoutservice-2; checkoutservice svc_latency_rise; checkoutservice svc_error_rise; checkoutservice svc_request_drop,5,2025-06-17T06:10:38Z
+53ab3ccb-326,currencyservice-0,cpu stress,1.0,cpu stress at currencyservice-0; currencyservice-0 svc_cpu_rise; currencyservice-0 svc_latency_rise; aiops-k8s-05 node_cpu_rise,3,2025-06-17T07:10:39Z
+4fd42adb-327,frontend,jvm exception,1.0,jvm exception at frontend; frontend-1 trace_err_origin; frontend-2 trace_err_origin; frontend-0 http5xx,5,2025-06-17T08:10:39Z
+d44478e6-328,k8s-master1,node network delay,1.0,node network delay at k8s-master1; k8s-master1 node_net_drop,1,2025-06-17T09:10:41Z
+70d3b8b0-329,adservice,memory stress,1.0,memory stress at adservice; adservice svc_mem_rise; adservice-0 svc_latency_rise; adservice-1 svc_mem_rise,5,2025-06-17T10:10:43Z
+c3f4fde9-330,emailservice,memory stress,1.0,memory stress at emailservice; checkoutservice svc_latency_rise; emailservice svc_latency_rise; emailservice-0 svc_mem_rise,5,2025-06-17T11:10:44Z
+76222cb2-331,frontend-1,pod failure,1.0,pod failure at frontend-1; frontend svc_latency_rise; frontend svc_error_rise; frontend svc_request_drop,5,2025-06-17T12:10:46Z
+68bbf4fd-332,redis-cart-0,memory stress,1.0,memory stress at redis-cart-0; redis-cart-0 svc_mem_rise; redis-cart svc_mem_rise,2,2025-06-17T13:10:47Z
+3d284cf0-333,productcatalogservice,jvm latency,1.0,jvm latency at productcatalogservice; productcatalogservice svc_latency_rise; productcatalogservice-0 svc_latency_rise; productcatalogservice-1 svc_latency_rise,4,2025-06-17T14:10:48Z
+985de575-334,adservice-1,cpu stress,1.0,cpu stress at adservice-1; adservice-1 svc_cpu_rise; adservice svc_cpu_rise,2,2025-06-17T15:10:50Z
+e1562aa2-335,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_latency_rise; adservice-1 svc_disk_rise,4,2025-06-17T16:10:02Z
+8e7a3965-336,adservice,io fault,1.0,io fault at adservice; adservice svc_disk_rise; adservice-0 svc_disk_rise; adservice-0 svc_latency_rise,5,2025-06-17T17:10:03Z
+c3377c5c-337,frontend,network delay,1.0,network delay at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,5,2025-06-17T18:10:04Z
+8c61bc09-338,aiops-k8s-08,node cpu,1.0,node cpu at aiops-k8s-08; aiops-k8s-08 node_cpu_rise; cartservice-2 svc_request_rise; cartservice-2 svc_latency_rise,5,2025-06-17T19:10:05Z
+0b81a605-339,paymentservice-2,cpu stress,1.0,cpu stress at paymentservice-2; paymentservice-2 svc_cpu_rise; paymentservice svc_cpu_rise; paymentservice svc_latency_rise,5,2025-06-17T20:10:05Z
+0a9fce75-340,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-17T21:10:07Z
+b9319370-341,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-17T22:10:08Z
+b96848a5-342,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-1 svc_error_rise; frontend-0 http5xx,5,2025-06-17T23:10:08Z
+88b7daff-343,redis-cart-0,pod failure,1.0,pod failure at redis-cart-0; cartservice svc_latency_rise; cartservice svc_error_rise; checkoutservice svc_latency_rise,5,2025-06-18T00:10:09Z
+09b7c00b-344,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-1 svc_error_rise; frontend-0 trace_err_origin,5,2025-06-18T01:10:10Z
+b9539d8e-345,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend-0 svc_error_rise; frontend-1 svc_error_rise,5,2025-06-18T02:10:11Z
+76937ba4-346,frontend,jvm exception,1.0,jvm exception at frontend; frontend svc_error_rise; frontend svc_latency_rise; frontend-0 svc_error_rise,5,2025-06-18T03:10:11Z
+1d868f8e-347,frontend,jvm latency,1.0,jvm latency at frontend; frontend svc_latency_rise; frontend-0 svc_latency_rise; frontend-1 svc_latency_rise,4,2025-06-18T04:10:12Z
+4b225f4a-348,checkoutservice,jvm latency,1.0,jvm latency at checkoutservice; checkoutservice svc_latency_rise; checkoutservice-0 svc_latency_rise; checkoutservice-0 trace_slow_origin,3,2025-06-18T05:10:14Z
